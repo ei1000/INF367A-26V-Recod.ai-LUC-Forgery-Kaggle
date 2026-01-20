@@ -11,3 +11,6 @@ The env is maintained with;
 - `uv lock` - If you add new dependencies
 
 
+## Data
+
+- Data is stored in data/ folder. Add it if not present.

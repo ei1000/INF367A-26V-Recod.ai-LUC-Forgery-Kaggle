@@ -1,0 +1,1 @@
+This is where we store the dataset from the kaggle competition locally.
