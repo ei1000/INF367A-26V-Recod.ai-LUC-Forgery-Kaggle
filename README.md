@@ -10,6 +10,9 @@ The env is maintained with;
 - `uv sync` - If new dependencies are not downloaded locally
 - `uv lock` - If you add new dependencies
 
+## Kaggle Link
+
+https://www.kaggle.com/competitions/recodai-luc-scientific-image-forgery-detection
 
 ## Data
 
