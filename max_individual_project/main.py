@@ -5,8 +5,8 @@ from torch.utils.data import DataLoader
 from dataset import ForgeryDataset
 
 
-from cnn_feature_extractor import PyramidFeatureExtractor
-from zernike_feature_extractor import PyramidZernikeExtractor
+from max_individual_project.feature_extractors.cnn_feature_extractor import PyramidFeatureExtractor
+from max_individual_project.feature_extractors.zernike_feature_extractor import PyramidZernikeExtractor
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
