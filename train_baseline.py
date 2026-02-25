@@ -1,121 +1,18 @@
 from pathlib import Path
+from functools import partial
 import random
-import numpy as np
-from PIL import Image
-from tqdm import tqdm
 
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 
-from dataset_utils import load_image, load_union_mask
-from recodai_f1 import calculate_f1_score
-from sliding_window_impl import sliding_window
-
-
-class DoubleConv(nn.Module):
-    def __init__(self, in_ch, out_ch):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(in_ch, out_ch, 3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(out_ch, out_ch, 3, padding=1),
-            nn.ReLU(inplace=True),
-        )
-
-    def forward(self, x):
-        return self.net(x)
-
-
-class UNetSmall(nn.Module):
-    def __init__(self, in_ch=1, out_ch=1):
-        super().__init__()
-        self.down1 = DoubleConv(in_ch, 16)
-        self.pool1 = nn.MaxPool2d(2)
-        self.down2 = DoubleConv(16, 32)
-        self.pool2 = nn.MaxPool2d(2)
-        self.down3 = DoubleConv(32, 64)
-        self.pool3 = nn.MaxPool2d(2)
-
-        self.mid = DoubleConv(64, 128)
-
-        self.up3 = nn.ConvTranspose2d(128, 64, 2, stride=2)
-        self.conv3 = DoubleConv(128, 64)
-        self.up2 = nn.ConvTranspose2d(64, 32, 2, stride=2)
-        self.conv2 = DoubleConv(64, 32)
-        self.up1 = nn.ConvTranspose2d(32, 16, 2, stride=2)
-        self.conv1 = DoubleConv(32, 16)
-
-        self.out = nn.Conv2d(16, out_ch, 1)
-
-    def forward(self, x):
-        d1 = self.down1(x)
-        d2 = self.down2(self.pool1(d1))
-        d3 = self.down3(self.pool2(d2))
-        m  = self.mid(self.pool3(d3))
-
-        u3 = self.up3(m)
-        u3 = torch.cat([u3, d3], dim=1)
-        u3 = self.conv3(u3)
-
-        u2 = self.up2(u3)
-        u2 = torch.cat([u2, d2], dim=1)
-        u2 = self.conv2(u2)
-
-        u1 = self.up1(u2)
-        u1 = torch.cat([u1, d1], dim=1)
-        u1 = self.conv1(u1)
-
-        return self.out(u1)
-
-
-class ForgeryDataset(Dataset):
-    def __init__(self, case_ids, target_size=256):
-        self.case_ids = case_ids
-        self.target_size = target_size
-
-    def __len__(self):
-        return len(self.case_ids)
-
-    def _resize(self, arr, size, is_mask=False):
-        arr = np.squeeze(arr)
-
-        # If still 1D, make it a single-row image
-        if arr.ndim == 1:
-            arr = arr.reshape((1, -1))
-
-        # If accidentally 3D, convert to grayscale
-        if arr.ndim == 3:
-            arr = arr.mean(axis=2)
-
-        img = Image.fromarray(arr.astype(np.uint8))
-        if is_mask:
-            img = img.resize((size, size), resample=Image.NEAREST)
-        else:
-            img = img.resize((size, size), resample=Image.BILINEAR)
-        return np.array(img)
-
-    def __getitem__(self, idx):
-        cid = self.case_ids[idx]
-        img = load_image(cid)          # (H,W) float32 0..255
-        mask = load_union_mask(cid)    # can be (H,W) or (K,H,W)
-        mask = np.asarray(mask)
-        if mask.ndim == 3:
-            # union over instances
-            mask = (mask.max(axis=0) > 0).astype(np.uint8)
-        else:
-            mask = mask.astype(np.uint8)
-
-
-        img = self._resize(img, self.target_size, is_mask=False)
-        mask = self._resize(mask * 255, self.target_size, is_mask=True)
-
-        img = (img / 255.0).astype(np.float32)
-        mask = (mask > 0).astype(np.float32)
-
-        img = torch.from_numpy(img).unsqueeze(0)
-        mask = torch.from_numpy(mask).unsqueeze(0)
-        return img, mask
+from configs.baseline_config import BaselineConfig, seed_worker, set_seed
+from datasets.forgery_dataset import ForgeryDataset
+from engine.train_loop import train_one_epoch
+from engine.validate_loop import validate_one_epoch
+from inference.sliding_window_dino import sliding_window_dino
+from models.dino_segmenter import DinoSegmenter
+from util.pixelmapUtil import PixelMapUtil
 
 
 def get_forged_case_ids():
@@ -132,58 +29,123 @@ def split_ids(ids, val_ratio=0.1, seed=42):
 
 
 def main():
-    device = torch.device("cpu")
+    config = BaselineConfig()
+    set_seed(config.seed)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    print(f"Using seed: {config.seed}")
 
+    pixel_util = PixelMapUtil()
     all_ids = get_forged_case_ids()
-    train_ids, val_ids = split_ids(all_ids, val_ratio=0.1)
+    train_ids, val_ids = split_ids(all_ids, val_ratio=0.1, seed=config.seed)
 
-    # hız için küçük subset
-    train_ids = train_ids[:200]
-    val_ids = val_ids[:50]
+    train_ids = train_ids[: config.train_subset]
+    val_ids = val_ids[: config.val_subset]
 
-    train_loader = DataLoader(ForgeryDataset(train_ids, 256), batch_size=4, shuffle=True)
-    val_loader = DataLoader(ForgeryDataset(val_ids, 256), batch_size=1, shuffle=False)
+    train_loader_generator = torch.Generator()
+    train_loader_generator.manual_seed(config.seed)
+    val_loader_generator = torch.Generator()
+    val_loader_generator.manual_seed(config.seed + 1)
 
-    model = UNetSmall().to(device)
-    opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+    train_loader = DataLoader(
+        ForgeryDataset(
+            train_ids,
+            config.target_size,
+            use_rgb=config.use_rgb,
+            normalize_rgb=config.normalize_rgb,
+            rgb_mean=config.dino_mean,
+            rgb_std=config.dino_std,
+        ),
+        batch_size=config.batch_size,
+        shuffle=True,
+        num_workers=config.train_num_workers,
+        pin_memory=(device.type == "cuda"),
+        worker_init_fn=seed_worker,
+        generator=train_loader_generator,
+    )
+    val_loader = DataLoader(
+        ForgeryDataset(
+            val_ids,
+            config.target_size,
+            use_rgb=config.use_rgb,
+            normalize_rgb=config.normalize_rgb,
+            rgb_mean=config.dino_mean,
+            rgb_std=config.dino_std,
+        ),
+        batch_size=config.batch_size,
+        shuffle=False,
+        num_workers=config.val_num_workers,
+        pin_memory=(device.type == "cuda"),
+        worker_init_fn=seed_worker,
+        generator=val_loader_generator,
+    )
+
+    model = DinoSegmenter.from_official(
+        model_name=config.dino_model_name,
+        embed_dim=config.dino_embed_dim,
+        freeze_encoder=config.freeze_dino_encoder,
+    ).to(device)
+    optimizer = torch.optim.Adam(
+        (p for p in model.parameters() if p.requires_grad),
+        lr=config.lr,
+    )
     loss_fn = nn.BCEWithLogitsLoss()
+    use_amp = bool(config.use_amp and device.type == "cuda")
+    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+
+    sw_patch = config.sliding_window_size or config.target_size
+    sw_stride = config.sliding_stride or (sw_patch // 2)
+    sliding_window_fn = partial(
+        sliding_window_dino,
+        patch_size=sw_patch,
+        stride=sw_stride,
+        batch_size=config.sliding_batch_size,
+    )
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="max",
+        factor=0.5,
+        patience=1,
+        threshold=1e-4,
+    )
+
+    best_f1 = 0.0
+    best_model_state = None
 
     print("Train size:", len(train_ids), "Val size:", len(val_ids))
 
-    for epoch in range(2):
-        model.train()
-        total_loss = 0.0
-        for imgs, masks in tqdm(train_loader, desc=f"epoch {epoch+1} train"):
-            imgs, masks = imgs.to(device), masks.to(device)
-            logits = model(imgs)
-            loss = loss_fn(logits, masks)
+    for epoch in range(config.num_epochs):
+        avg_loss = train_one_epoch(
+            model=model,
+            train_loader=train_loader,
+            optimizer=optimizer,
+            loss_fn=loss_fn,
+            device=device,
+            grad_clip_max_norm=config.grad_clip_max_norm,
+            epoch_idx=epoch,
+            use_amp=use_amp,
+            scaler=scaler,
+        )
+        val_f1 = validate_one_epoch(
+            model=model,
+            val_loader=val_loader,
+            device=device,
+            sliding_window_fn=sliding_window_fn,
+            pixel_util=pixel_util,
+            pred_threshold=config.pred_threshold,
+            harden_temperature=config.harden_temperature,
+            hard_clip_low=config.hard_clip_low,
+            hard_clip_high=config.hard_clip_high,
+            min_component_area=config.min_component_area,
+            epoch_idx=epoch,
+        )
+        print(f"Epoch {epoch+1}: avg_loss={avg_loss:.4f}  val_f1={val_f1:.4f}")
 
-            opt.zero_grad()
-            loss.backward()
-            opt.step()
+        if val_f1 > best_f1:
+            best_f1 = val_f1
+            best_model_state = model.state_dict().copy()
 
-            total_loss += float(loss.item())
-
-        avg_loss = total_loss / max(1, len(train_loader))
-
-        model.eval()
-        f1s = []
-        with torch.no_grad():
-            for imgs, masks in tqdm(val_loader, desc=f"epoch {epoch+1} val"):
-                for i in range(imgs.shape[0]): 
-                    img = imgs[i]   # (1,H,W)
-                    mask = masks[i]
-
-                    logits = sliding_window(img, model)         
-                    probs = torch.sigmoid(logits).cpu().numpy()  
-                    gt = mask.cpu().numpy()[0]                 
-
-                    pred_bin = (probs >= 0.5).astype(np.uint8)
-                    gt_bin = (gt >= 0.5).astype(np.uint8)
-
-                    f1s.append(calculate_f1_score(pred_bin, gt_bin))
-
-        print(f"Epoch {epoch+1}: avg_loss={avg_loss:.4f}  val_f1={float(np.mean(f1s)):.4f}")
+        scheduler.step(val_f1)
 
 
 if __name__ == "__main__":

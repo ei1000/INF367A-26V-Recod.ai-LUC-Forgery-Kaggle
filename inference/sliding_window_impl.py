@@ -20,9 +20,10 @@ def gaussian_weight(patch_size, sigma=0.125):
 Collects all crops,
 model processes in parallell as patch
 '''
-def predict_batched_crops(crops, model):
+def predict_batched_crops(crops, model, device):
     # crops = list of tensors (1,H,W)
-    batch = torch.stack(crops, dim=0)  
+    batch = torch.stack(crops, dim=0)
+    batch = batch.to(device)  # Ensure batch is on correct device
     preds = model(batch)              
     return preds
 
@@ -30,14 +31,13 @@ def predict_batched_crops(crops, model):
 '''
 Runs sliding window inference on image.
 '''
-def sliding_window(img, model):
+def sliding_window(img, model, device):
     H, W = img.squeeze(0).shape
-    device = img.device
 
     # small image case
     if H < PATCH_SIZE or W < PATCH_SIZE:
         patch = F.pad(img, (0, PATCH_SIZE-W, 0, PATCH_SIZE-H))
-        return model(patch[None])[0]
+        return model(patch[None].to(device))[0]
 
     weight = torch.from_numpy(gaussian_weight(PATCH_SIZE)).to(device)
 
@@ -65,7 +65,7 @@ def sliding_window(img, model):
             batch_crops = crops[i:i+BATCH_SIZE]
             batch_coords = coords[i:i+BATCH_SIZE]
 
-            preds = predict_batched_crops(batch_crops, model)  
+            preds = predict_batched_crops(batch_crops, model, device)  
 
             for pred, (y, x) in zip(preds, batch_coords):
                 pred = pred.squeeze(0) 
