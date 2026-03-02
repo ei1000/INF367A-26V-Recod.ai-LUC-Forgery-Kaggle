@@ -12,7 +12,28 @@ Feature extractors can be swapped out with DINO feature extractor depending on w
 
 ### Deep Cross-Scale PatchMatch
 
-TODO
+NB! It is okay that the candidates are sometimes not legit / go out of image.
+We just evaluate the out-of bounds ones to 0 or something.
+Remember that we add four individual 0-order candidates, 8 first-order and then another four from the random generation.
+We also have the original offset - this means that we are likely to get something good anyway
+
+Then, calculate the $\mathcal{l}_1$ norm between feature vectors.
+Do this individually for each feature vector type!
+
+NB! Test running this propagation and evaluation for different amount of iterations - original paper used 3-5 iterations
+
+"To simplify, we define the resultant offset map from
+CNN features as δ1, and the offset map from ZM features as
+δ2. Figs. 5(b-c) illustrate two examples of the resulting offset
+maps."
+
+Note: $1 < \beta < 5$ are good candidates for the soft argmax. But be careful, we could get vanishing gradients
+
+### DLF
+
+Most likely interpretation of both diagram and paper - CNN features are used for DLF. Then the zernike offsets are just added as backup.
+
+You can test yourself if whether removing them degrades performance.
 
 ## Paper link
 
