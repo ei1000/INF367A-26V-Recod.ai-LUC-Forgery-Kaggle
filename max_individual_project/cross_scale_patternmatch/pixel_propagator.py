@@ -1,49 +1,56 @@
-import numpy as np
 import torch
+import torch.nn.functional as F
+
 
 class PixelPropagator:
-    def __init__(self, image: torch.Tensor):
+    def __init__(self, image: torch.Tensor, cnn_features, zernike_features):
         self.image = image
+        self.cnn_features = cnn_features
+        self.zernike_features = zernike_features
         self.max_fraction = 1
 
     '''
     i) Initialization layer: Generate random offsets for each pixel
 
-    Does this through numpy for efficiency.
+    Does this through torch for GPU efficiency.
     Does not consider trivial offset (0, 0)
 
     Image:
     Datatype: torch.Tensor
     Dtype: torch.float32
     '''
-    def generate_random_offsets(self, ):
-        C, W, H = self.image.size()
+    def generate_random_offsets(self):
+        _, H, W = self.image.size()
 
         x_max_offset = int(W * self.max_fraction)
         y_max_offset = int(H * self.max_fraction)
 
         # Create a grid of original coordinates
-        x_grid, y_grid = np.meshgrid(np.arange(W), np.arange(H), indexing='ij')
+        y_grid, x_grid = torch.meshgrid(
+            torch.arange(H, device=self.image.device),
+            torch.arange(W, device=self.image.device),
+            indexing='ij',
+        )
 
         # Generate all possible offset pairs excluding (0,0)
-        x_offsets_range = np.arange(-x_max_offset, x_max_offset + 1)
-        y_offsets_range = np.arange(-y_max_offset, y_max_offset + 1)
-        xx, yy = np.meshgrid(x_offsets_range, y_offsets_range, indexing='ij')
-        all_offsets = np.stack([xx.ravel(), yy.ravel()], axis=1)
+        x_offsets_range = torch.arange(-x_max_offset, x_max_offset + 1, device=self.image.device)
+        y_offsets_range = torch.arange(-y_max_offset, y_max_offset + 1, device=self.image.device)
+        xx, yy = torch.meshgrid(x_offsets_range, y_offsets_range, indexing='ij')
+        all_offsets = torch.stack([xx.flatten(), yy.flatten()], dim=1)
         
         # Remove (0,0)
-        all_offsets = all_offsets[(all_offsets[:,0] != 0) | (all_offsets[:,1] != 0)]
+        all_offsets = all_offsets[(all_offsets[:, 0] != 0) | (all_offsets[:, 1] != 0)]
 
         # Sample a random offset for each pixel
-        indices = np.random.randint(0, all_offsets.shape[0], size=(W, H))
+        indices = torch.randint(0, all_offsets.shape[0], (H, W), device=self.image.device)
         offsets = all_offsets[indices]
 
-        x_offsets = offsets[:,:,0]
-        y_offsets = offsets[:,:,1]
+        x_offsets = offsets[:, :, 0]
+        y_offsets = offsets[:, :, 1]
 
         # Apply offsets and clip to image boundaries
-        new_x = np.clip(x_grid + x_offsets, 0, W - 1)
-        new_y = np.clip(y_grid + y_offsets, 0, H - 1)
+        new_x = (x_grid + x_offsets).clamp(0, W - 1)
+        new_y = (y_grid + y_offsets).clamp(0, H - 1)
 
         return new_x, new_y
     
@@ -51,77 +58,109 @@ class PixelPropagator:
     ii) Propagation layer: Propagate pixel offsets to neighbouring pixels.
     Utilizes propagation block and random search block
     '''
-    def propagation_layer(self):
-        x, y = self.generate_random_offsets(self.image)
-        grid = self.propagation_block(x, y)
-        return grid
+    def propagation_layer(self, iters=5):
+        x, y = self.generate_random_offsets()
+        for _ in range(iters):
+            basic_candidates = x, y
+            propagation_candidates = self.propagation_block(x, y)
+            random_candidates = self.random_search_block(x, y)
+        # TODO: return max of propagation and random search
+        return basic_candidates
 
     '''
     Propagate to every pixel from surrounding pixels
     Uses a combination of zero order and first order offset
 
-    Every (x, y) entry takes offsets from surrounding pixels
+    Every (x, y) entry takes offsets from surrounding pixels as candidates.
+    Then directly evaluate all candidates - evaluate them to avoid memory usage.
+    Return the best to be checked against the random search candidates.
     '''
-    def propagation_block(self, x_entries: np.ndarray, y_entries: np.ndarray) -> np.ndarray:
-        new_values = np.zeros((x_entries.shape[0], x_entries.shape[1], 2))
+    def propagation_block(self, x_entries: torch.Tensor, y_entries: torch.Tensor) -> torch.Tensor:
+        H, W = x_entries.shape
 
-        zero_order_offsets = [
-            (-1, 1), (-1, 0), (-1, -1),
-            (0, 1), (0, -1),
-            (1, 1), (1, 0), (1, -1),
-        ]
-        first_order_offsets = [
-            (-2, -2), (-2, 0), (-2, 2),
-            (0, -2), (0, 2),
-            (2, -2), (2, 0), (2, 2)
-        ]
+        # Padding: To include borders
+        pad_zero = 1   # for 3x3 windows 
+        pad_first = 2  # for 5x5 windows
 
-        W, H = x_entries.shape
+        x_entries_f = x_entries.float()
+        y_entries_f = y_entries.float()
 
-        for i in range(W):
-            for j in range(H):
-                zero_order = np.zeros(2)
-                for x_offset, y_offset in zero_order_offsets:
-                    ni, nj = i + x_offset, j + y_offset
-                    if 0 <= ni < W and 0 <= nj < H:
-                        zero_order[0] += x_entries[ni, nj]
-                        zero_order[1] += y_entries[ni, nj]
-                
-                first_order = np.zeros(2)
-                for x_offset, y_offset in first_order_offsets:
-                    ni, nj = i + x_offset, j + y_offset
-                    if 0 <= ni < W and 0 <= nj < H:
-                        first_order[0] += x_entries[ni, nj]
-                        first_order[1] += y_entries[ni, nj]
-                
-                # Average to restrict values - not mentioned in paper but makes sense.
-                # If not, most of our generated offsets are invalid. Now most are valid, we just have to clip
-                zero_order //= len(zero_order_offsets)
-                first_order //= len(first_order_offsets)
-                
-                # Use summing formula from paper
-                # Clip to make sure all are still valid offsets
-                new_values[i, j, 0] = np.clip(2*zero_order[0] - first_order[0], 0, W-1)
-                new_values[i, j, 1] = np.clip(2*zero_order[1] - first_order[1], 0, H-1)
-        
-        return new_values
+        x_zero = F.unfold(
+            x_entries_f.unsqueeze(0).unsqueeze(0),
+            kernel_size=3,
+            padding=pad_zero,
+        ).view(1, 9, H, W)
+        y_zero = F.unfold(
+            y_entries_f.unsqueeze(0).unsqueeze(0),
+            kernel_size=3,
+            padding=pad_zero,
+        ).view(1, 9, H, W)
 
+        # center of zero-order windows (index 4 in 3x3)
+        x_center = x_zero[:, 4]
+        y_center = y_zero[:, 4]
+
+        # 4 adjacent neighbors in zero-order (up, left, right, down)
+        adj_idx = [1, 3, 5, 7]
+        adj_x = x_zero[:, adj_idx].permute(2, 3, 1, 0).squeeze(-1)
+        adj_y = y_zero[:, adj_idx].permute(2, 3, 1, 0).squeeze(-1)
+
+        # sliding windows for first-order (5x5)
+        x_first = F.unfold(
+            x_entries_f.unsqueeze(0).unsqueeze(0),
+            kernel_size=5,
+            padding=pad_first,
+        ).view(1, 25, H, W)
+        y_first = F.unfold(
+            y_entries_f.unsqueeze(0).unsqueeze(0),
+            kernel_size=5,
+            padding=pad_first,
+        ).view(1, 25, H, W)
+
+        # 8 first-order neighbors (corners + midpoints)
+        first_idx = [0, 2, 4, 10, 14, 20, 22, 24]
+        x_first = x_first[:, first_idx].permute(2, 3, 1, 0).squeeze(-1)
+        y_first = y_first[:, first_idx].permute(2, 3, 1, 0).squeeze(-1)
+
+        # first-order candidates: 2*zero_order_center - first_order
+        first_x = 2 * x_center.permute(1, 2, 0) - x_first
+        first_y = 2 * y_center.permute(1, 2, 0) - y_first
+
+        # stack adjacent neighbors and first-order candidates
+        adj = torch.stack((adj_x, adj_y), dim=-1)
+        first = torch.stack((first_x, first_y), dim=-1)
+        candidates = torch.cat((adj, first), dim=2)
+
+        return candidates
 
     '''
-    Generate k candidates within the radius to test similarity to.
+    Generate k candidates within the radius for each pixel to test similarity to
+
     '''
     def random_search_block(self, x_entries, y_entries, radius=50, k=4):
-        C, W, H = self.image.size()
+        H, W = x_entries.shape
+        x_entries_f = x_entries.float()
+        y_entries_f = y_entries.float()
 
-        candidate_x = np.zeros(k)
-        candidate_y = np.zeros(k)
+        # Sample k random offsets per pixel within the radius (avoid large unfold buffers)
+        dx = torch.randint(-radius, radius + 1, (H, W, k), device=self.image.device)
+        dy = torch.randint(-radius, radius + 1, (H, W, k), device=self.image.device)
 
-        # Create candidates for each pixel
-        for i in range(W):
-            for j in range(H):
-                x_ranges = np.array((np.min(0, i - radius), np.max(W, i + radius)))
-                y_ranges = np.array((np.min(0, j - radius), np.max(H, j + radius)))
-                
-                x = np.random.choice(x_ranges[0], x_ranges[1])
-                y = np.random.choice(y_ranges[0], y_ranges[1])
+        # Avoid the trivial (0,0) offset by nudging dy when both are zero
+        zero_mask = (dx == 0) & (dy == 0)
+        if zero_mask.any():
+            dy = dy.clone()
+            dy[zero_mask] = 1
+
+        x_candidates = (x_entries_f.unsqueeze(-1) + dx).clamp(0, W - 1)
+        y_candidates = (y_entries_f.unsqueeze(-1) + dy).clamp(0, H - 1)
+        candidates = torch.stack((x_candidates, y_candidates), dim=-1)
+        return candidates
+    
+    def evaluate(self, candidates):
+
+        # Use summing formula from paper
+        # Clip to make sure all are still valid offsets
+
         
+        raise NotImplementedError("PixelPropagator.evaluate is not implemented yet.")

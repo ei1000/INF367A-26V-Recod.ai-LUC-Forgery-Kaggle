@@ -43,11 +43,11 @@ https://arxiv.org/pdf/2404.17310
 
 ## CNN feature extractor:
 
-Our backbone architecture comprises five convolution blocks, each consisting of a convolution layer, a BatchNorm layer, and a
+"Our backbone architecture comprises five convolution blocks, each consisting of a convolution layer, a BatchNorm layer, and a
 ReLU layer. At the end of the backbone, there is a resizing
 layer to rescale the feature maps to the same dimensions of
 H × W ×c, where c represents the number of feature channels,
-empirically set to 32
+empirically set to 32"
 
 ## Zernike feature extractor:
 
@@ -68,3 +68,8 @@ https://mathworld.wolfram.com/ZernikePolynomial.html?utm_source=chatgpt.com
 
 _The Zernike feature extractor is implemented based on the formula for R shown above, and other formulas come from the paper. Some LLM code generation was used for assistance in the polar grid computation as well as the forward pass implementation._
 _In addition, an LLM was used to help optimize the implementation to not exceed available VRAM on an RTX 4070 TI SUPER_
+
+# TODOS
+
+- Fix: `RuntimeError: stack expects each tensor to be equal size, but got [256, 256] at entry 0 and [384, 384] at entry 1`
+  - Occurs far into training - perhaps not everything is resized / small images are not properly handled?
