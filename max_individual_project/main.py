@@ -46,6 +46,7 @@ for images, _, _ in train_loader:
         img_zernike_feats = tuple(f[idx] for f in zernike_feats)
         propagator = PixelPropagator(img, img_cnn_feats, img_zernike_feats)
         res = propagator.propagation_layer()
+        print(res)
 
     del cnn_feats, zernike_feats
     batch_counter += 1

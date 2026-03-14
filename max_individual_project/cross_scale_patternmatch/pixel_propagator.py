@@ -57,15 +57,38 @@ class PixelPropagator:
     '''
     ii) Propagation layer: Propagate pixel offsets to neighbouring pixels.
     Utilizes propagation block and random search block
+
+    Returns final pixel offset maps for zernike and cnn features
     '''
-    def propagation_layer(self, iters=5):
+    def propagation_layer(self, iters=5, beta=1):
+        # CNN
         x, y = self.generate_random_offsets()
+
         for _ in range(iters):
-            basic_candidates = x, y
+            basic_candidates = torch.stack((x, y), dim=-1).unsqueeze(2)
             propagation_candidates = self.propagation_block(x, y)
             random_candidates = self.random_search_block(x, y)
-        # TODO: return max of propagation and random search
-        return basic_candidates
+            candidates = torch.cat((basic_candidates, propagation_candidates, random_candidates), dim=2)
+            best = self.evaluate(candidates, self.cnn_features, beta=beta)
+            x, y = best[..., 0], best[..., 1]
+        
+        cnn_offsets = x, y
+
+        
+        # ZERNIKE
+        x, y = self.generate_random_offsets()
+
+        for _ in range(iters):
+            basic_candidates = torch.stack((x, y), dim=-1).unsqueeze(2)
+            propagation_candidates = self.propagation_block(x, y)
+            random_candidates = self.random_search_block(x, y)
+            candidates = torch.cat((basic_candidates, propagation_candidates, random_candidates), dim=2)
+            best = self.evaluate(candidates, self.zernike_features, beta=beta)
+            x, y = best[..., 0], best[..., 1]
+        
+        zernike_offsets = x, y
+            
+        return (cnn_offsets, zernike_offsets)
 
     '''
     Propagate to every pixel from surrounding pixels
@@ -156,11 +179,76 @@ class PixelPropagator:
         y_candidates = (y_entries_f.unsqueeze(-1) + dy).clamp(0, H - 1)
         candidates = torch.stack((x_candidates, y_candidates), dim=-1)
         return candidates
-    
-    def evaluate(self, candidates):
 
-        # Use summing formula from paper
-        # Clip to make sure all are still valid offsets
 
-        
-        raise NotImplementedError("PixelPropagator.evaluate is not implemented yet.")
+    def evaluate(self, offsets, features, beta=1):
+        '''
+        Evaluate candidates based on feature map in use.
+        Returns the best for each pixel.
+
+        Uses relaxed argmax (softmax)
+        '''
+        H, W = offsets.shape[:2]
+
+        def to_hw_c(feat):
+            if feat.dim() != 3:
+                raise ValueError(f"features must be 3D (C,H,W) or (H,W,C), got {feat.shape}")
+
+            # Normalize to (C, H, W)
+            if feat.shape[-2:] == (H, W):
+                feat_chw = feat
+            elif feat.shape[:2] == (H, W):
+                feat_chw = feat.permute(2, 0, 1)
+            else:
+                # Resize any mismatched spatial dims (e.g. even-kernel conv output)
+                feat_chw = feat if feat.shape[0] != H else feat.permute(2, 0, 1)
+                feat_chw = F.interpolate(
+                    feat_chw.unsqueeze(0),
+                    size=(H, W),
+                    mode='bilinear',
+                    align_corners=False,
+                ).squeeze(0)
+
+            return feat_chw.permute(1, 2, 0).contiguous()
+
+        # Candidate coords and OOB mask (shared across all feature maps)
+        x = offsets[..., 0]
+        y = offsets[..., 1]
+        oob = (x < 0) | (x > (W - 1)) | (y < 0) | (y > (H - 1))
+
+        x_idx = x.round().long().clamp(0, W - 1)
+        y_idx = y.round().long().clamp(0, H - 1)
+        idx = (y_idx * W + x_idx).view(-1)
+
+        def gather_cand(feat_hw_c):
+            flat = feat_hw_c.view(H * W, -1)
+            return flat[idx].view(H, W, -1, flat.shape[-1])  # (H, W, K, C)
+
+        # Compute L1 scores
+        if isinstance(features, (tuple, list)):
+            # Cross-scale matching: max score == min L1 across all (n, m) pairs
+            src_list = [to_hw_c(f) for f in features]
+            tgt_list = [to_hw_c(f) for f in features]
+            cand_list = [gather_cand(tgt) for tgt in tgt_list]
+
+            l1_list = []
+            for src in src_list:
+                src_feat = src.unsqueeze(2)  # (H, W, 1, C_src)
+                for cand in cand_list:
+                    l1_list.append((src_feat - cand).abs().sum(dim=-1))  # (H, W, K)
+
+            l1 = torch.stack(l1_list, dim=0).min(dim=0).values
+        else:
+            feat_hw_c = to_hw_c(features)
+            cand = gather_cand(feat_hw_c)
+            src_feat = feat_hw_c.unsqueeze(2)
+            l1 = (src_feat - cand).abs().sum(dim=-1)
+
+        # Relaxed argmax (soft selection)
+        if oob.any():
+            l1 = l1.masked_fill(oob, 1e6)
+
+        weights = torch.softmax(-beta * l1, dim=2)  # (H, W, K)
+        best = (offsets * weights.unsqueeze(-1)).sum(dim=2)  # (H, W, 2)
+        return best
+
