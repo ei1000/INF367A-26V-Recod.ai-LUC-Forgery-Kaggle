@@ -42,13 +42,23 @@ class ForgeryDataset(Dataset):
         if self.mask_dir is not None and "forged" in img_path.parent.name:
             mask_path = self.mask_dir / img_path.name.replace(".png", ".npy")
             mask = np.load(mask_path)
+
+            # Normalize masks to a single-channel 2D label map.
+            if mask.ndim == 3:
+                # Handle both channel-first and channel-last encodings.
+                if mask.shape[0] in (1, 2, 3):
+                    mask = mask[0] if mask.shape[0] == 1 else mask.argmax(axis=0)
+                else:
+                    mask = mask[..., 0] if mask.shape[-1] == 1 else mask.argmax(axis=-1)
+
             mask = torch.from_numpy(mask)
             if mask.ndim == 2:
                 mask = mask.unsqueeze(0)
             mask = self.mask_transforms(mask)
             mask = mask.squeeze(0).long()
         else:
-            mask = torch.from_numpy(np.zeros((256,  256)))
+            mask = torch.from_numpy(np.zeros((self.size,  self.size)))
 
         return image, mask, label
+
 
