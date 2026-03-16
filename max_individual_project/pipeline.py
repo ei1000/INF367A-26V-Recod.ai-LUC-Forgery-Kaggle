@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 from dataset import ForgeryDataset, Datasets, regular_transform, dino_transform
 import time
 
-from feature_extractors.cnn_feature_extractor import PyramidFeatureExtractor
+from feature_extractors.cnn_feature_extractor import PyramidFeatureExtractor, PretrainedBackboneExtractor
 from feature_extractors.zernike_feature_extractor import PyramidZernikeExtractor, default_pq_list
 from cross_scale_patternmatch.pixel_propagator import PixelPropagator
 
@@ -20,6 +20,8 @@ def pipeline(
     batch_size=8,
     dino_model_name="dinov2_vits14",
     dino_proj_dim=64,
+    cnn_backbone="simple",
+    cnn_pretrained_model="vgg16_bn",
 ):
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -57,7 +59,11 @@ def pipeline(
             proj_dim=dino_proj_dim,
         ).to(device)
     else:
-        pyramid_bb = PyramidFeatureExtractor().to(device)
+        if cnn_backbone == "pretrained":
+            backbone = PretrainedBackboneExtractor(model_name=cnn_pretrained_model, out_dim=32, freeze=True)
+            pyramid_bb = PyramidFeatureExtractor(backbone=backbone).to(device)
+        else:
+            pyramid_bb = PyramidFeatureExtractor().to(device)
 
     # Zernike pair things
     pq_list = default_pq_list(max_order=5)
