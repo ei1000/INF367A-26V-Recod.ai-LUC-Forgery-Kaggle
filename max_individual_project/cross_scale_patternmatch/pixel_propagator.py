@@ -72,7 +72,7 @@ class PixelPropagator:
             best = self.evaluate(candidates, self.cnn_features, beta=beta)
             x, y = best[..., 0], best[..., 1]
         
-        cnn_offsets = x, y
+        cnn_offsets = torch.stack((x, y))
 
         
         # ZERNIKE
@@ -86,7 +86,7 @@ class PixelPropagator:
             best = self.evaluate(candidates, self.zernike_features, beta=beta)
             x, y = best[..., 0], best[..., 1]
         
-        zernike_offsets = x, y
+        zernike_offsets = torch.stack((x, y))
             
         return (cnn_offsets, zernike_offsets)
 
