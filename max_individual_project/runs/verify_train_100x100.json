@@ -1,0 +1,81 @@
+{
+  "config": {
+    "split": "train",
+    "image_size": 320,
+    "feature_backbone": "cnn",
+    "cnn_backbone": "pretrained",
+    "cnn_pretrained_model": "vgg16_bn",
+    "cnn_feature_norm": true,
+    "iters": 8,
+    "random_window": 50,
+    "n_auth": 100,
+    "n_forged": 100,
+    "device": "cuda",
+    "betas": [
+      2.5,
+      30.0
+    ]
+  },
+  "summary": {
+    "2.5": {
+      "cnn": {
+        "authentic": {
+          "near_zero_ratio": 0.00029570312379291865,
+          "mean_mag": 124.54840896606446,
+          "p90_mag": 210.0170654296875,
+          "mask_bg_gap": null
+        },
+        "forged": {
+          "near_zero_ratio": 0.00025341797001601665,
+          "mean_mag": 125.56360153198243,
+          "p90_mag": 209.31752655029297,
+          "mask_bg_gap": -18.515546531677245
+        }
+      },
+      "zernike": {
+        "authentic": {
+          "near_zero_ratio": 0.06420986322220415,
+          "mean_mag": 100.49977802276611,
+          "p90_mag": 215.01990325927736,
+          "mask_bg_gap": null
+        },
+        "forged": {
+          "near_zero_ratio": 0.06217148479539901,
+          "mean_mag": 101.48224281311035,
+          "p90_mag": 214.7441748046875,
+          "mask_bg_gap": -10.470877170562744
+        }
+      }
+    },
+    "30.0": {
+      "cnn": {
+        "authentic": {
+          "near_zero_ratio": 0.03478779300814495,
+          "mean_mag": 110.94175659179687,
+          "p90_mag": 213.08577941894532,
+          "mask_bg_gap": null
+        },
+        "forged": {
+          "near_zero_ratio": 0.03153017567354254,
+          "mean_mag": 114.18938407897949,
+          "p90_mag": 217.10831481933593,
+          "mask_bg_gap": -6.63241455078125
+        }
+      },
+      "zernike": {
+        "authentic": {
+          "near_zero_ratio": 0.14619404265657068,
+          "mean_mag": 86.4539949798584,
+          "p90_mag": 212.99287246704102,
+          "mask_bg_gap": null
+        },
+        "forged": {
+          "near_zero_ratio": 0.13747597705572845,
+          "mean_mag": 88.76227073669433,
+          "p90_mag": 215.6903352355957,
+          "mask_bg_gap": 1.4128035926818847
+        }
+      }
+    }
+  }
+}

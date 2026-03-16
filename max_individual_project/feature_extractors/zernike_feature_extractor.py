@@ -126,15 +126,15 @@ class PyramidZernikeExtractor(nn.Module):
 
     def forward(self, Io):
         H, W = Io.shape[-2:]
-        Ib = F.interpolate(Io, scale_factor=self.rb, mode='bilinear')
-        Iu = F.interpolate(Io, scale_factor=self.ru, mode='bilinear')
+        Ib = F.interpolate(Io, scale_factor=self.rb, mode='bilinear', align_corners=True)
+        Iu = F.interpolate(Io, scale_factor=self.ru, mode='bilinear', align_corners=True)
 
         Fb = self.zernike(Ib)
         Fo = self.zernike(Io)
         Fu = self.zernike(Iu)
 
         # Resize features back to original image size
-        Fb = F.interpolate(Fb, size=(H, W), mode='bilinear')
-        Fu = F.interpolate(Fu, size=(H, W), mode='bilinear')
+        Fb = F.interpolate(Fb, size=(H, W), mode='bilinear', align_corners=True)
+        Fu = F.interpolate(Fu, size=(H, W), mode='bilinear', align_corners=True)
 
         return Fb, Fo, Fu

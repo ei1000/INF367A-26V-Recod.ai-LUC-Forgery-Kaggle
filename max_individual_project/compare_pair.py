@@ -9,6 +9,16 @@ from cross_scale_patternmatch.pixel_propagator import PixelPropagator
 from visualizer import display_image, display_pixel_offsets
 
 
+def _resolve_data_root() -> Path:
+    root = Path("data")
+    if root.exists():
+        return root
+    alt = Path(__file__).resolve().parent.parent / "data"
+    if alt.exists():
+        return alt
+    raise FileNotFoundError("Could not find data directory. Checked ./data and ../data.")
+
+
 def _imagenet_normalize_tensor(x: torch.Tensor) -> torch.Tensor:
     mean = torch.tensor([0.485, 0.456, 0.406], device=x.device).view(1, 3, 1, 1)
     std = torch.tensor([0.229, 0.224, 0.225], device=x.device).view(1, 3, 1, 1)
@@ -59,13 +69,14 @@ def run_compare(
     dino_proj_dim=64,
     use_dino_transform=False,
     cnn_feature_norm=True,
-    iters=32,
-    beta=5,
+    iters=24,
+    beta=2.5,
+    pm_random_window=50,
     separate_transforms=True,
 ):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    root = Path("data")
+    root = _resolve_data_root()
     authentic_path = root / "train_images" / "authentic" / "10.png"
     forged_path = root / "train_images" / "forged" / "10.png"
 
@@ -112,7 +123,7 @@ def run_compare(
         img_cnn_feats = tuple(f[0] for f in cnn_feats)
         img_zernike_feats = tuple(f[0] for f in zernike_feats)
 
-        propagator = PixelPropagator(images[0], img_cnn_feats, img_zernike_feats)
+        propagator = PixelPropagator(images[0], img_cnn_feats, img_zernike_feats, random_window=pm_random_window)
         cnn_offsets, zernike_offsets = propagator.propagation_layer(iters=iters, beta=beta)
 
         print(f"[compare] {labels[idx]} - iters={iters}, beta={beta}")

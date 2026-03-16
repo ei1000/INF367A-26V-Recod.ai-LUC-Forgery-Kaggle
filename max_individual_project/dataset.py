@@ -83,5 +83,6 @@ class Datasets(Enum):
     TRAIN = [{'images': 'train_images', 'masks': 'train_masks'}]
     SUPPLEMENT = [{'images': 'supplemental_images', 'masks': 'supplemental_masks'}]
     TEST = [{'images': 'test_images', 'masks': None}]
+    SELF_PROCURED = [{'images': 'self_procured', 'masks': None}]
 
     ALL_TRAIN = TRAIN + SUPPLEMENT

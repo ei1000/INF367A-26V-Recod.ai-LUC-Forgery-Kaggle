@@ -2,7 +2,7 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 from torchvision.datasets import ImageFolder
-from torch.utils.data import DataLoader
+from torch.utils.data import ConcatDataset, DataLoader
 from dataset import ForgeryDataset, Datasets, regular_transform, dino_transform, imagenet_transform
 import time
 
@@ -11,6 +11,17 @@ from feature_extractors.zernike_feature_extractor import PyramidZernikeExtractor
 from cross_scale_patternmatch.pixel_propagator import PixelPropagator
 
 from visualizer import *
+
+
+def _resolve_data_root() -> Path:
+    root = Path("data")
+    if root.exists():
+        return root
+    alt = Path(__file__).resolve().parent.parent / "data"
+    if alt.exists():
+        return alt
+    raise FileNotFoundError("Could not find data directory. Checked ./data and ../data.")
+
 
 def _imagenet_normalize_tensor(x: torch.Tensor) -> torch.Tensor:
     mean = torch.tensor([0.485, 0.456, 0.406], device=x.device).view(1, 3, 1, 1)
@@ -24,19 +35,22 @@ def pipeline(
     test_run=False,
     feature_backbone="cnn",
     use_dino_transform=False,
-    batch_size=8,
+    batch_size=1,
     dino_model_name="dinov2_vits14",
     dino_proj_dim=64,
     cnn_backbone="simple",
     cnn_pretrained_model="vgg16_bn",
     cnn_feature_norm=True,
     separate_transforms=True,
+    pm_iters=32,
+    pm_beta=1000,
+    pm_random_window=50,
 ):
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # Load data
-    root = Path('data')
+    root = _resolve_data_root()
 
     # Choose dataset transform (raw if we want separate transforms)
     if separate_transforms:
@@ -49,21 +63,27 @@ def pipeline(
         else:
             transform = regular_transform
 
-    if feature_backbone == "dino" and batch_size > 4:
-        print("[pipeline] DINO backbone is memory heavy; forcing batch_size=4")
-        batch_size = 4
+    if batch_size > 1:
+        print("[pipeline] PatchMatch is memory-heavy; forcing batch_size=1 for 16GB VRAM safety")
+        batch_size = 1
 
+    dataset_list = []
     for dataset in datasets.value:
         image_folder = ImageFolder(root / dataset['images'])
 
         samples = [(Path(p), y) for p, y in image_folder.samples]
 
-        forgery_dataset = ForgeryDataset(
+        dataset_list.append(ForgeryDataset(
             samples=samples,
             mask_dir=root / dataset['masks'] if dataset['masks'] is not None else None,
             size=image_size,
             transform=transform
-        )
+        ))
+
+    if len(dataset_list) == 1:
+        forgery_dataset = dataset_list[0]
+    else:
+        forgery_dataset = ConcatDataset(dataset_list)
 
     train_loader = DataLoader(forgery_dataset, batch_size=batch_size, shuffle=False)
 
@@ -85,6 +105,8 @@ def pipeline(
     # Zernike pairs
     pq_list = default_pq_list(max_order=5)
     pyramid_zm = PyramidZernikeExtractor(pq_list, kernel_size=13).to(device)
+    pyramid_bb.eval()
+    pyramid_zm.eval()
 
     # MAIN LOOP
     batch_counter = 0
@@ -108,8 +130,8 @@ def pipeline(
         for idx, img in enumerate(images):
             img_cnn_feats = tuple(f[idx] for f in cnn_feats)
             img_zernike_feats = tuple(f[idx] for f in zernike_feats)
-            propagator = PixelPropagator(img, img_cnn_feats, img_zernike_feats)
-            res = propagator.propagation_layer(iters=24)
+            propagator = PixelPropagator(img, img_cnn_feats, img_zernike_feats, random_window=pm_random_window)
+            res = propagator.propagation_layer(iters=pm_iters, beta=pm_beta)
 
             if test_run: 
                 display_image(img, masks[idx])
