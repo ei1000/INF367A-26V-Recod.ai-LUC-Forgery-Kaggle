@@ -1,8 +1,9 @@
 from pathlib import Path
 import torch
+import torch.nn.functional as F
 from torchvision.datasets import ImageFolder
 from torch.utils.data import DataLoader
-from dataset import ForgeryDataset, Datasets, regular_transform, dino_transform
+from dataset import ForgeryDataset, Datasets, regular_transform, dino_transform, imagenet_transform
 import time
 
 from feature_extractors.cnn_feature_extractor import PyramidFeatureExtractor, PretrainedBackboneExtractor
@@ -22,6 +23,7 @@ def pipeline(
     dino_proj_dim=64,
     cnn_backbone="simple",
     cnn_pretrained_model="vgg16_bn",
+    cnn_feature_norm=True,
 ):
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -30,11 +32,16 @@ def pipeline(
     root = Path('data')
 
     # Choose transform based on backbone
-    transform = dino_transform if (feature_backbone == "dino" and use_dino_transform) else regular_transform
+    if feature_backbone == "dino" and use_dino_transform:
+        transform = dino_transform
+    elif feature_backbone == "cnn" and cnn_backbone == "pretrained":
+        transform = imagenet_transform
+    else:
+        transform = regular_transform
 
-    if feature_backbone == "dino" and batch_size > 1:
-        print("[pipeline] DINO backbone is memory heavy; forcing batch_size=1")
-        batch_size = 1
+    if feature_backbone == "dino" and batch_size > 4:
+        print("[pipeline] DINO backbone is memory heavy; forcing batch_size=4")
+        batch_size = 4
 
     for dataset in datasets.value:
         image_folder = ImageFolder(root / dataset['images'])
@@ -79,6 +86,8 @@ def pipeline(
 
         with torch.no_grad():
             cnn_feats = pyramid_bb(images)
+            if feature_backbone == "cnn" and cnn_backbone == "pretrained" and cnn_feature_norm:
+                cnn_feats = tuple(F.normalize(f, p=2, dim=1) for f in cnn_feats)
             zernike_feats = pyramid_zm(images)
 
         for idx, img in enumerate(images):

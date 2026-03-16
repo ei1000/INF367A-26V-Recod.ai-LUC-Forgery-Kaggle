@@ -64,7 +64,7 @@ class PixelPropagator:
     Returns final pixel offset maps for zernike and cnn features
     '''
     @torch.no_grad()
-    def propagation_layer(self, iters=5, beta=1):
+    def propagation_layer(self, iters=5, beta=500):
         # CNN
         x, y = self.generate_random_offsets()
 
@@ -186,7 +186,7 @@ class PixelPropagator:
         return candidates
 
     @torch.no_grad()
-    def evaluate(self, offsets, features, beta=1):
+    def evaluate(self, offsets, features, beta=50):
         '''
         Evaluate candidates based on feature map in use.
         Returns the best for each pixel.

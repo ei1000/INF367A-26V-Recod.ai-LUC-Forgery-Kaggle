@@ -39,7 +39,7 @@ def display_pixel_offsets(
     img=None,
     clip_percentile=99.0,
     scale=1.0,
-    cmap='coolwarm',
+    cmap='magma',
     show_colorbar=False,
 ):
     def split_offsets(offsets):
