@@ -11,7 +11,14 @@ from cross_scale_patternmatch.pixel_propagator import PixelPropagator
 
 from visualizer import *
 
-def pipeline(datasets=Datasets.TRAIN, image_size=488, test_run=False, feature_backbone="cnn"):
+def pipeline(
+    datasets=Datasets.TRAIN,
+    image_size=488,
+    test_run=False,
+    feature_backbone="cnn",
+    use_dino_transform=False,
+    batch_size=8,
+):
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -19,10 +26,11 @@ def pipeline(datasets=Datasets.TRAIN, image_size=488, test_run=False, feature_ba
     root = Path('data')
 
     # Choose transform based on backbone
-    if feature_backbone == "dino":
-        transform = dino_transform
-    else:
-        transform = regular_transform
+    transform = dino_transform if (feature_backbone == "dino" and use_dino_transform) else regular_transform
+
+    if feature_backbone == "dino" and batch_size > 1:
+        print("[pipeline] DINO backbone is memory heavy; forcing batch_size=1")
+        batch_size = 1
 
     for dataset in datasets.value:
         image_folder = ImageFolder(root / dataset['images'])
@@ -36,12 +44,12 @@ def pipeline(datasets=Datasets.TRAIN, image_size=488, test_run=False, feature_ba
             transform=transform
         )
 
-    train_loader = DataLoader(forgery_dataset, batch_size=8, shuffle=True)
+    train_loader = DataLoader(forgery_dataset, batch_size=batch_size, shuffle=True)
 
     # Feature extraction
     if feature_backbone == "dino":
         from feature_extractors.dino_feature_extractor import PyramidDinoFeatureExtractor
-        pyramid_bb = PyramidDinoFeatureExtractor(normalize_input=False).to(device)
+        pyramid_bb = PyramidDinoFeatureExtractor(normalize_input=not use_dino_transform).to(device)
     else:
         pyramid_bb = PyramidFeatureExtractor().to(device)
 
@@ -69,7 +77,13 @@ def pipeline(datasets=Datasets.TRAIN, image_size=488, test_run=False, feature_ba
 
             if test_run: 
                 display_image(img, masks[idx])
-                display_pixel_offsets(res[0], res[1], img)
+                display_pixel_offsets(
+                    res[0], res[1], img,
+                    clip_percentile=99,   # try 97–99 for stronger color
+                    scale=3,            # try 2–5 if values are tiny
+                    cmap='coolwarm',
+                    show_colorbar=False
+                )
                 return
 
         del cnn_feats, zernike_feats
