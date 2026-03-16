@@ -12,6 +12,12 @@ from cross_scale_patternmatch.pixel_propagator import PixelPropagator
 
 from visualizer import *
 
+def _imagenet_normalize_tensor(x: torch.Tensor) -> torch.Tensor:
+    mean = torch.tensor([0.485, 0.456, 0.406], device=x.device).view(1, 3, 1, 1)
+    std = torch.tensor([0.229, 0.224, 0.225], device=x.device).view(1, 3, 1, 1)
+    return (x - mean) / std
+
+
 def pipeline(
     datasets=Datasets.TRAIN,
     image_size=488,
@@ -24,6 +30,7 @@ def pipeline(
     cnn_backbone="simple",
     cnn_pretrained_model="vgg16_bn",
     cnn_feature_norm=True,
+    separate_transforms=True,
 ):
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -31,13 +38,16 @@ def pipeline(
     # Load data
     root = Path('data')
 
-    # Choose transform based on backbone
-    if feature_backbone == "dino" and use_dino_transform:
-        transform = dino_transform
-    elif feature_backbone == "cnn" and cnn_backbone == "pretrained":
-        transform = imagenet_transform
-    else:
+    # Choose dataset transform (raw if we want separate transforms)
+    if separate_transforms:
         transform = regular_transform
+    else:
+        if feature_backbone == "dino" and use_dino_transform:
+            transform = dino_transform
+        elif feature_backbone == "cnn" and cnn_backbone == "pretrained":
+            transform = imagenet_transform
+        else:
+            transform = regular_transform
 
     if feature_backbone == "dino" and batch_size > 4:
         print("[pipeline] DINO backbone is memory heavy; forcing batch_size=4")
@@ -62,7 +72,7 @@ def pipeline(
         from feature_extractors.dino_feature_extractor import PyramidDinoFeatureExtractor
         pyramid_bb = PyramidDinoFeatureExtractor(
             model_name=dino_model_name,
-            normalize_input=not use_dino_transform,
+            normalize_input=True if separate_transforms else not use_dino_transform,
             proj_dim=dino_proj_dim,
         ).to(device)
     else:
@@ -84,8 +94,13 @@ def pipeline(
         masks = masks.to(device)
         labels = labels.to(device)
 
+        # Separate transforms: CNN/DINO can be normalized while Zernike stays raw
+        images_backbone = images
+        if separate_transforms and feature_backbone == "cnn" and cnn_backbone == "pretrained":
+            images_backbone = _imagenet_normalize_tensor(images)
+
         with torch.no_grad():
-            cnn_feats = pyramid_bb(images)
+            cnn_feats = pyramid_bb(images_backbone)
             if feature_backbone == "cnn" and cnn_backbone == "pretrained" and cnn_feature_norm:
                 cnn_feats = tuple(F.normalize(f, p=2, dim=1) for f in cnn_feats)
             zernike_feats = pyramid_zm(images)

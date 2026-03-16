@@ -9,7 +9,15 @@ from cross_scale_patternmatch.pixel_propagator import PixelPropagator
 from visualizer import display_image, display_pixel_offsets
 
 
-def _build_transform(feature_backbone: str, use_dino_transform: bool, cnn_backbone: str):
+def _imagenet_normalize_tensor(x: torch.Tensor) -> torch.Tensor:
+    mean = torch.tensor([0.485, 0.456, 0.406], device=x.device).view(1, 3, 1, 1)
+    std = torch.tensor([0.229, 0.224, 0.225], device=x.device).view(1, 3, 1, 1)
+    return (x - mean) / std
+
+
+def _build_transform(feature_backbone: str, use_dino_transform: bool, cnn_backbone: str, separate_transforms: bool):
+    if separate_transforms:
+        return regular_transform
     if feature_backbone == "dino" and use_dino_transform:
         return dino_transform
     if feature_backbone == "cnn" and cnn_backbone == "pretrained":
@@ -24,13 +32,14 @@ def _build_backbone(
     dino_model_name: str,
     dino_proj_dim: int | None,
     use_dino_transform: bool,
+    separate_transforms: bool,
     device: str,
 ):
     if feature_backbone == "dino":
         from feature_extractors.dino_feature_extractor import PyramidDinoFeatureExtractor
         return PyramidDinoFeatureExtractor(
             model_name=dino_model_name,
-            normalize_input=not use_dino_transform,
+            normalize_input=True if separate_transforms else not use_dino_transform,
             proj_dim=dino_proj_dim,
         ).to(device)
 
@@ -51,7 +60,8 @@ def run_compare(
     use_dino_transform=False,
     cnn_feature_norm=True,
     iters=32,
-    beta=2.5,
+    beta=5,
+    separate_transforms=True,
 ):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -59,7 +69,7 @@ def run_compare(
     authentic_path = root / "train_images" / "authentic" / "10.png"
     forged_path = root / "train_images" / "forged" / "10.png"
 
-    transform = _build_transform(feature_backbone, use_dino_transform, cnn_backbone)
+    transform = _build_transform(feature_backbone, use_dino_transform, cnn_backbone, separate_transforms)
 
     samples = [(authentic_path, 0), (forged_path, 1)]
     dataset = ForgeryDataset(
@@ -76,11 +86,12 @@ def run_compare(
         dino_model_name=dino_model_name,
         dino_proj_dim=dino_proj_dim,
         use_dino_transform=use_dino_transform,
+        separate_transforms=separate_transforms,
         device=device,
     )
 
     pq_list = default_pq_list(max_order=5)
-    pyramid_zm = PyramidZernikeExtractor(pq_list, kernel_size=12).to(device)
+    pyramid_zm = PyramidZernikeExtractor(pq_list, kernel_size=13).to(device)
 
     labels = ["authentic/10.png", "forged/10.png"]
 
@@ -88,8 +99,12 @@ def run_compare(
         img, mask, _ = dataset[idx]
         images = img.unsqueeze(0).to(device)
 
+        images_backbone = images
+        if separate_transforms and feature_backbone == "cnn" and cnn_backbone == "pretrained":
+            images_backbone = _imagenet_normalize_tensor(images)
+
         with torch.no_grad():
-            cnn_feats = pyramid_bb(images)
+            cnn_feats = pyramid_bb(images_backbone)
             if feature_backbone == "cnn" and cnn_backbone == "pretrained" and cnn_feature_norm:
                 cnn_feats = tuple(F.normalize(f, p=2, dim=1) for f in cnn_feats)
             zernike_feats = pyramid_zm(images)

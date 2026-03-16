@@ -10,6 +10,8 @@ class PixelPropagator:
         self.max_fraction = 1
 
         _, H, W = self.image.size()
+        self.H = H
+        self.W = W
         y_grid, x_grid = torch.meshgrid(
             torch.arange(H, device=self.image.device),
             torch.arange(W, device=self.image.device),
@@ -32,6 +34,16 @@ class PixelPropagator:
         y_min = torch.ceil(self.y_min_full.float() * self.max_fraction)
         y_max = torch.floor(self.y_max_full.float() * self.max_fraction)
         return x_min, x_max, y_min, y_max
+
+    def _default_random_radii(self):
+        r = max(self.H, self.W) // 2
+        radii = []
+        while r >= 1 and len(radii) < 4:
+            radii.append(int(r))
+            r //= 2
+        if not radii:
+            radii = [1]
+        return radii
 
     '''
     i) Initialization layer: Generate random offsets for each pixel
@@ -75,14 +87,18 @@ class PixelPropagator:
     Returns final pixel offset maps for zernike and cnn features
     '''
     @torch.no_grad()
-    def propagation_layer(self, iters=32, beta=2):
+    def propagation_layer(self, iters=5, beta=5, random_radii=None, random_k=2):
         # CNN
         x, y = self.generate_random_offsets()
 
         for _ in range(iters):
             basic_candidates = torch.stack((x, y), dim=-1).unsqueeze(2)
             propagation_candidates = self.propagation_block(x, y)
-            random_candidates = self.random_search_block(x, y)
+
+            radii = self._default_random_radii() if random_radii is None else list(random_radii)
+            random_list = [self.random_search_block(x, y, radius=r, k=random_k) for r in radii]
+            random_candidates = torch.cat(random_list, dim=2)
+
             candidates = torch.cat((basic_candidates, propagation_candidates, random_candidates), dim=2)
             best = self.evaluate(candidates, self.cnn_features, beta=beta, exclude_self=True)
             x, y = best[..., 0], best[..., 1]
@@ -96,7 +112,11 @@ class PixelPropagator:
         for _ in range(iters):
             basic_candidates = torch.stack((x, y), dim=-1).unsqueeze(2)
             propagation_candidates = self.propagation_block(x, y)
-            random_candidates = self.random_search_block(x, y)
+
+            radii = self._default_random_radii() if random_radii is None else list(random_radii)
+            random_list = [self.random_search_block(x, y, radius=r, k=random_k) for r in radii]
+            random_candidates = torch.cat(random_list, dim=2)
+
             candidates = torch.cat((basic_candidates, propagation_candidates, random_candidates), dim=2)
             best = self.evaluate(candidates, self.zernike_features, beta=beta, exclude_self=True)
             x, y = best[..., 0], best[..., 1]
