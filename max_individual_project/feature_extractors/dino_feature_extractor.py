@@ -14,6 +14,7 @@ class DinoFeatureExtractor(nn.Module):
         repo: str = "facebookresearch/dinov2",
         freeze: bool = True,
         normalize_input: bool = True,
+        proj_dim: int | None = None,
     ):
         super().__init__()
         warnings.filterwarnings(
@@ -24,6 +25,8 @@ class DinoFeatureExtractor(nn.Module):
         self.encoder = torch.hub.load(repo_or_dir=repo, model=model_name)
         self._encoder_frozen = False
         self.normalize_input = normalize_input
+        self.proj_dim = proj_dim
+        self.proj = None
         if freeze:
             self.freeze_encoder()
 
@@ -103,6 +106,12 @@ class DinoFeatureExtractor(nn.Module):
 
         x_pad, _ = self._pad_to_patch_multiple(x)
         features = self.forward_features(x_pad)
+
+        if self.proj_dim is not None:
+            if self.proj is None:
+                self.proj = nn.Conv2d(features.shape[1], self.proj_dim, kernel_size=1, bias=False).to(features.device)
+            features = self.proj(features)
+
         return features
 
 

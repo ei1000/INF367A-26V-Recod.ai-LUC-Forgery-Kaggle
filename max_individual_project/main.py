@@ -5,9 +5,7 @@ from dataset import Datasets
 def main():
     pipeline(
         datasets=Datasets.TRAIN,
-        feature_backbone="cnn",
-        dino_model_name="dinov2_vits14",
-        use_dino_transform=True,
+        feature_backbone="dino",
         test_run=True
     )
 

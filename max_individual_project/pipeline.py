@@ -18,7 +18,8 @@ def pipeline(
     feature_backbone="cnn",
     use_dino_transform=False,
     batch_size=8,
-    dino_model_name="dinov2_vitb14",
+    dino_model_name="dinov2_vits14",
+    dino_proj_dim=64,
 ):
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -29,9 +30,9 @@ def pipeline(
     # Choose transform based on backbone
     transform = dino_transform if (feature_backbone == "dino" and use_dino_transform) else regular_transform
 
-    if feature_backbone == "dino" and batch_size > 4:
-        print("[pipeline] DINO backbone is memory heavy; forcing batch_size=4")
-        batch_size = 4
+    if feature_backbone == "dino" and batch_size > 1:
+        print("[pipeline] DINO backbone is memory heavy; forcing batch_size=1")
+        batch_size = 1
 
     for dataset in datasets.value:
         image_folder = ImageFolder(root / dataset['images'])
@@ -53,6 +54,7 @@ def pipeline(
         pyramid_bb = PyramidDinoFeatureExtractor(
             model_name=dino_model_name,
             normalize_input=not use_dino_transform,
+            proj_dim=dino_proj_dim,
         ).to(device)
     else:
         pyramid_bb = PyramidFeatureExtractor().to(device)
