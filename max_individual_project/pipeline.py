@@ -63,9 +63,9 @@ def pipeline(
         else:
             transform = regular_transform
 
-    if batch_size > 1:
-        print("[pipeline] PatchMatch is memory-heavy; forcing batch_size=1 for 16GB VRAM safety")
-        batch_size = 1
+    if batch_size > 8:
+        print("[pipeline] PatchMatch is memory-heavy; forcing batch_size=8 for 16GB VRAM safety")
+        batch_size = 8
 
     dataset_list = []
     for dataset in datasets.value:

@@ -6,7 +6,7 @@ def main():
     pipeline(
         datasets=Datasets.SELF_PROCURED,
         feature_backbone="cnn",
-        cnn_backbone="pretrained",
+        cnn_backbone="simple",
         cnn_pretrained_model="resnet18",
         cnn_feature_norm=True,  
         test_run=True,
