@@ -27,6 +27,7 @@ class ForgeryDataset(Dataset):
     def __init__(self, samples, mask_dir: Path | None=None, size=384, transform=dino_transform):
         self.samples = samples
         self.mask_dir = mask_dir
+        self.size = size
 
 
         self.image_transforms = transform(size)

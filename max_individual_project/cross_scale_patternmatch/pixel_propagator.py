@@ -19,6 +19,7 @@ class PixelPropagator:
     Datatype: torch.Tensor
     Dtype: torch.float32
     '''
+    @torch.no_grad()
     def generate_random_offsets(self):
         _, H, W = self.image.size()
 
@@ -60,6 +61,7 @@ class PixelPropagator:
 
     Returns final pixel offset maps for zernike and cnn features
     '''
+    @torch.no_grad()
     def propagation_layer(self, iters=5, beta=1):
         # CNN
         x, y = self.generate_random_offsets()
@@ -98,6 +100,7 @@ class PixelPropagator:
     Then directly evaluate all candidates - evaluate them to avoid memory usage.
     Return the best to be checked against the random search candidates.
     '''
+    @torch.no_grad()
     def propagation_block(self, x_entries: torch.Tensor, y_entries: torch.Tensor) -> torch.Tensor:
         H, W = x_entries.shape
 
@@ -160,6 +163,7 @@ class PixelPropagator:
     Generate k candidates within the radius for each pixel to test similarity to
 
     '''
+    @torch.no_grad()
     def random_search_block(self, x_entries, y_entries, radius=50, k=4):
         H, W = x_entries.shape
         x_entries_f = x_entries.float()
@@ -180,7 +184,7 @@ class PixelPropagator:
         candidates = torch.stack((x_candidates, y_candidates), dim=-1)
         return candidates
 
-
+    @torch.no_grad()
     def evaluate(self, offsets, features, beta=1):
         '''
         Evaluate candidates based on feature map in use.
