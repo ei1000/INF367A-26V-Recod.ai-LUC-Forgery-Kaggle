@@ -4,7 +4,7 @@ from dataset import Datasets
 
 def main():
     pipeline(
-        datasets=Datasets.SUPPLEMENT,
+        datasets=Datasets.TRAIN,
         feature_backbone="cnn",
         cnn_backbone="pretrained",
         cnn_pretrained_model="resnet18",

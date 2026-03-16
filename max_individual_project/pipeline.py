@@ -55,7 +55,7 @@ def pipeline(
             transform=transform
         )
 
-    train_loader = DataLoader(forgery_dataset, batch_size=batch_size, shuffle=True)
+    train_loader = DataLoader(forgery_dataset, batch_size=batch_size, shuffle=False)
 
     # Feature extraction
     if feature_backbone == "dino":
@@ -72,7 +72,7 @@ def pipeline(
         else:
             pyramid_bb = PyramidFeatureExtractor().to(device)
 
-    # Zernike pair things
+    # Zernike pairs
     pq_list = default_pq_list(max_order=5)
     pyramid_zm = PyramidZernikeExtractor(pq_list, kernel_size=13).to(device)
 
@@ -94,7 +94,7 @@ def pipeline(
             img_cnn_feats = tuple(f[idx] for f in cnn_feats)
             img_zernike_feats = tuple(f[idx] for f in zernike_feats)
             propagator = PixelPropagator(img, img_cnn_feats, img_zernike_feats)
-            res = propagator.propagation_layer(iters=32)
+            res = propagator.propagation_layer(iters=24)
 
             if test_run: 
                 display_image(img, masks[idx])

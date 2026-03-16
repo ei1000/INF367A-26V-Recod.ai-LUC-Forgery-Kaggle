@@ -18,10 +18,25 @@ class PixelPropagator:
         self.x_grid = x_grid
         self.y_grid = y_grid
 
+        # Full valid displacement bounds per pixel
+        self.x_min_full = -self.x_grid
+        self.x_max_full = (W - 1) - self.x_grid
+        self.y_min_full = -self.y_grid
+        self.y_max_full = (H - 1) - self.y_grid
+
+    def _scaled_bounds(self):
+        if self.max_fraction >= 1:
+            return self.x_min_full, self.x_max_full, self.y_min_full, self.y_max_full
+        x_min = torch.ceil(self.x_min_full.float() * self.max_fraction)
+        x_max = torch.floor(self.x_max_full.float() * self.max_fraction)
+        y_min = torch.ceil(self.y_min_full.float() * self.max_fraction)
+        y_max = torch.floor(self.y_max_full.float() * self.max_fraction)
+        return x_min, x_max, y_min, y_max
+
     '''
     i) Initialization layer: Generate random offsets for each pixel
 
-    Does this through torch for GPU efficiency.
+    Returns relative offsets (dx, dy) for each pixel.
     Does not consider trivial offset (0, 0)
 
     Image:
@@ -32,30 +47,26 @@ class PixelPropagator:
     def generate_random_offsets(self):
         _, H, W = self.image.size()
 
-        x_max_offset = int(W * self.max_fraction)
-        y_max_offset = int(H * self.max_fraction)
+        x_min, x_max, y_min, y_max = self._scaled_bounds()
 
-        # Generate all possible offset pairs excluding (0,0)
-        x_offsets_range = torch.arange(-x_max_offset, x_max_offset + 1, device=self.image.device)
-        y_offsets_range = torch.arange(-y_max_offset, y_max_offset + 1, device=self.image.device)
-        xx, yy = torch.meshgrid(x_offsets_range, y_offsets_range, indexing='ij')
-        all_offsets = torch.stack([xx.flatten(), yy.flatten()], dim=1)
+        # Sample per-pixel offsets within valid bounds (inclusive)
+        x_range = (x_max - x_min + 1).clamp(min=1).float()
+        y_range = (y_max - y_min + 1).clamp(min=1).float()
 
-        # Remove (0,0)
-        all_offsets = all_offsets[(all_offsets[:, 0] != 0) | (all_offsets[:, 1] != 0)]
+        rx = torch.rand(H, W, device=self.image.device)
+        ry = torch.rand(H, W, device=self.image.device)
 
-        # Sample a random offset for each pixel
-        indices = torch.randint(0, all_offsets.shape[0], (H, W), device=self.image.device)
-        offsets = all_offsets[indices]
+        dx = torch.floor(rx * x_range + x_min).long()
+        dy = torch.floor(ry * y_range + y_min).long()
 
-        x_offsets = offsets[:, :, 0]
-        y_offsets = offsets[:, :, 1]
+        # Avoid the trivial (0,0) offset by nudging dy within bounds
+        zero_mask = (dx == 0) & (dy == 0)
+        if zero_mask.any():
+            dy_alt = torch.where(dy + 1 <= y_max, dy + 1, dy - 1)
+            dy = dy.clone()
+            dy[zero_mask] = dy_alt[zero_mask]
 
-        # Apply offsets and clip to image boundaries
-        new_x = (self.x_grid + x_offsets).clamp(0, W - 1)
-        new_y = (self.y_grid + y_offsets).clamp(0, H - 1)
-
-        return new_x, new_y
+        return dx.float(), dy.float()
 
     '''
     ii) Propagation layer: Propagate pixel offsets to neighbouring pixels.
@@ -64,7 +75,7 @@ class PixelPropagator:
     Returns final pixel offset maps for zernike and cnn features
     '''
     @torch.no_grad()
-    def propagation_layer(self, iters=5, beta=500):
+    def propagation_layer(self, iters=32, beta=2):
         # CNN
         x, y = self.generate_random_offsets()
 
@@ -73,10 +84,11 @@ class PixelPropagator:
             propagation_candidates = self.propagation_block(x, y)
             random_candidates = self.random_search_block(x, y)
             candidates = torch.cat((basic_candidates, propagation_candidates, random_candidates), dim=2)
-            best = self.evaluate(candidates, self.cnn_features, beta=beta)
+            best = self.evaluate(candidates, self.cnn_features, beta=beta, exclude_self=True)
             x, y = best[..., 0], best[..., 1]
 
-        cnn_offsets = torch.stack((x - self.x_grid, y - self.y_grid))
+        # store relative offsets (dx, dy)
+        cnn_offsets = torch.stack((x, y))
 
         # ZERNIKE
         x, y = self.generate_random_offsets()
@@ -86,10 +98,10 @@ class PixelPropagator:
             propagation_candidates = self.propagation_block(x, y)
             random_candidates = self.random_search_block(x, y)
             candidates = torch.cat((basic_candidates, propagation_candidates, random_candidates), dim=2)
-            best = self.evaluate(candidates, self.zernike_features, beta=beta)
+            best = self.evaluate(candidates, self.zernike_features, beta=beta, exclude_self=True)
             x, y = best[..., 0], best[..., 1]
 
-        zernike_offsets = torch.stack((x - self.x_grid, y - self.y_grid))
+        zernike_offsets = torch.stack((x, y))
 
         return (cnn_offsets, zernike_offsets)
 
@@ -180,13 +192,23 @@ class PixelPropagator:
             dy = dy.clone()
             dy[zero_mask] = 1
 
-        x_candidates = (x_entries_f.unsqueeze(-1) + dx).clamp(0, W - 1)
-        y_candidates = (y_entries_f.unsqueeze(-1) + dy).clamp(0, H - 1)
+        # Candidate offsets (relative) with per-pixel bounds
+        x_candidates = x_entries_f.unsqueeze(-1) + dx
+        y_candidates = y_entries_f.unsqueeze(-1) + dy
+
+        x_min = self.x_min_full.unsqueeze(-1).float()
+        x_max = self.x_max_full.unsqueeze(-1).float()
+        y_min = self.y_min_full.unsqueeze(-1).float()
+        y_max = self.y_max_full.unsqueeze(-1).float()
+
+        x_candidates = torch.max(torch.min(x_candidates, x_max), x_min)
+        y_candidates = torch.max(torch.min(y_candidates, y_max), y_min)
+
         candidates = torch.stack((x_candidates, y_candidates), dim=-1)
         return candidates
 
     @torch.no_grad()
-    def evaluate(self, offsets, features, beta=50):
+    def evaluate(self, offsets, features, beta=1, exclude_self=True):
         '''
         Evaluate candidates based on feature map in use.
         Returns the best for each pixel.
@@ -216,9 +238,11 @@ class PixelPropagator:
 
             return feat_chw.permute(1, 2, 0).contiguous()
 
+        # Convert relative offsets to absolute coordinates for sampling
+        x = self.x_grid.unsqueeze(2).float() + offsets[..., 0]
+        y = self.y_grid.unsqueeze(2).float() + offsets[..., 1]
+
         # Candidate coords and OOB mask (shared across all feature maps)
-        x = offsets[..., 0]
-        y = offsets[..., 1]
         oob = (x < 0) | (x > (W - 1)) | (y < 0) | (y > (H - 1))
 
         x_idx = x.round().long().clamp(0, W - 1)
@@ -249,10 +273,16 @@ class PixelPropagator:
             src_feat = feat_hw_c.unsqueeze(2)
             l1 = (src_feat - cand).abs().sum(dim=-1)
 
-        # Relaxed argmax (soft selection)
+        # Mask invalid candidates
         if oob.any():
             l1 = l1.masked_fill(oob, 1e6)
 
+        if exclude_self:
+            zero_mask = (offsets[..., 0].abs() + offsets[..., 1].abs()) == 0
+            if zero_mask.any():
+                l1 = l1.masked_fill(zero_mask, 1e6)
+
+        # Relaxed argmax (soft selection)
         weights = torch.softmax(-beta * l1, dim=2)  # (H, W, K)
         best = (offsets * weights.unsqueeze(-1)).sum(dim=2)  # (H, W, 2)
         return best
