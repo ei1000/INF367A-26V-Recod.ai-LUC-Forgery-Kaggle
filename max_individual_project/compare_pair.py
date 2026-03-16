@@ -72,6 +72,8 @@ def run_compare(
     iters=24,
     beta=2.5,
     pm_random_window=50,
+    pm_use_non_local=False,
+    pm_non_local_limit=25.0,
     separate_transforms=True,
 ):
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -124,9 +126,14 @@ def run_compare(
         img_zernike_feats = tuple(f[0] for f in zernike_feats)
 
         propagator = PixelPropagator(images[0], img_cnn_feats, img_zernike_feats, random_window=pm_random_window)
-        cnn_offsets, zernike_offsets = propagator.propagation_layer(iters=iters, beta=beta)
+        cnn_offsets, zernike_offsets = propagator.propagation_layer(
+            iters=iters,
+            beta=beta,
+            use_non_local=pm_use_non_local,
+            non_local_limit=pm_non_local_limit,
+        )
 
-        print(f"[compare] {labels[idx]} - iters={iters}, beta={beta}")
+        print(f"[compare] {labels[idx]} - iters={iters}, beta={beta}, non_local={pm_use_non_local}")
         display_image(images[0], mask)
         display_pixel_offsets(cnn_offsets, zernike_offsets, images[0])
 

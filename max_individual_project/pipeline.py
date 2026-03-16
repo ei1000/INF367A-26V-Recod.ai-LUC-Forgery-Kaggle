@@ -45,6 +45,8 @@ def pipeline(
     pm_iters=32,
     pm_beta=1000,
     pm_random_window=50,
+    pm_use_non_local=False,
+    pm_non_local_limit=25.0,
 ):
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -131,9 +133,14 @@ def pipeline(
             img_cnn_feats = tuple(f[idx] for f in cnn_feats)
             img_zernike_feats = tuple(f[idx] for f in zernike_feats)
             propagator = PixelPropagator(img, img_cnn_feats, img_zernike_feats, random_window=pm_random_window)
-            res = propagator.propagation_layer(iters=pm_iters, beta=pm_beta)
+            res = propagator.propagation_layer(
+                iters=pm_iters,
+                beta=pm_beta,
+                use_non_local=pm_use_non_local,
+                non_local_limit=pm_non_local_limit,
+            )
 
-            if test_run: 
+            if test_run:
                 display_image(img, masks[idx])
                 display_pixel_offsets(res[0], res[1], img)
                 return

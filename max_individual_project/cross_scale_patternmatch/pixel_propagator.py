@@ -127,6 +127,19 @@ class PixelPropagator:
 
         return torch.stack((cand_dx, cand_dy), dim=-1)
 
+    @torch.no_grad()
+    def non_local_reset(self, dx: torch.Tensor, dy: torch.Tensor, limit_u: float = 25.0):
+        # Optional reset of very local offsets to random global offsets.
+        # This mirrors the behavior used in the reference implementation.
+        local_mask = (dx * dx + dy * dy) <= float(limit_u)
+        if not local_mask.any():
+            return dx, dy
+
+        rand_dx, rand_dy = self.generate_random_offsets()
+        dx = torch.where(local_mask, rand_dx, dx)
+        dy = torch.where(local_mask, rand_dy, dy)
+        return dx, dy
+
     def _to_hwc(self, feat: torch.Tensor, H: int, W: int) -> torch.Tensor:
         if feat.dim() != 3:
             raise ValueError(f"Expected 3D feature map, got {feat.shape}")
@@ -211,30 +224,41 @@ class PixelPropagator:
         return (candidates * weights.unsqueeze(-1)).sum(dim=2)
 
     @torch.no_grad()
-    def propagation_layer(self, iters: int = 24, beta: float = 2.5, random_window: int | None = None):
+    def propagation_layer(
+        self,
+        iters: int = 24,
+        beta: float = 2.5,
+        random_window: int | None = None,
+        use_non_local: bool = False,
+        non_local_limit: float = 25.0,
+    ):
         if random_window is not None:
             self.random_window = int(random_window)
 
         # CNN branch
         dx, dy = self.generate_random_offsets()
-        for _ in range(iters):
+        for iter_idx in range(iters):
             base = torch.stack((dx, dy), dim=-1).unsqueeze(2)          # 1
             prop = self.propagation_block(dx, dy)                      # 12
             rand = self.random_search_block(dx, dy, num_random=4)      # 4
             candidates = torch.cat((base, prop, rand), dim=2)          # 17
             best = self.evaluate(candidates, self.cnn_features, beta=beta, exclude_self=True)
             dx, dy = best[..., 0], best[..., 1]
+            if use_non_local and iter_idx < (iters - 1):
+                dx, dy = self.non_local_reset(dx, dy, limit_u=non_local_limit)
         cnn_offsets = torch.stack((dx, dy))
 
         # Zernike branch
         dx, dy = self.generate_random_offsets()
-        for _ in range(iters):
+        for iter_idx in range(iters):
             base = torch.stack((dx, dy), dim=-1).unsqueeze(2)
             prop = self.propagation_block(dx, dy)
             rand = self.random_search_block(dx, dy, num_random=4)
             candidates = torch.cat((base, prop, rand), dim=2)
             best = self.evaluate(candidates, self.zernike_features, beta=beta, exclude_self=True)
             dx, dy = best[..., 0], best[..., 1]
+            if use_non_local and iter_idx < (iters - 1):
+                dx, dy = self.non_local_reset(dx, dy, limit_u=non_local_limit)
         zernike_offsets = torch.stack((dx, dy))
 
         return cnn_offsets, zernike_offsets

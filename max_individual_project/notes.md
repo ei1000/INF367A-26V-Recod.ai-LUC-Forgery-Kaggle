@@ -91,3 +91,8 @@ Your evaluator uses soft weighting; with low/moderate beta, ambiguous regions av
 Visualization can amplify this: percentile clipping can make “small-offset everywhere” look very uniform.
 
 So your behavior is consistent with your current PM design. The paper’s “random-looking” background is largely driven by that explicit non-local offset reset (plus their exact scoring/training setup).
+
+## Sample performance
+
+Nice!
+![alt text](image.png)
