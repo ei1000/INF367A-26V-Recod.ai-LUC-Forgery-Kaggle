@@ -78,3 +78,16 @@ _In addition, an LLM was used to help optimize the implementation to not exceed 
 
 LLM somehow found this impl online:
 https://raw.githubusercontent.com/byc33/D2PRL/main/deep_PM.py
+
+## Reason for no random noise:
+
+In D2PRL, they explicitly run a non_local step that re-randomizes small offsets each iteration (dx^2 + dy^2 <= 25 gets replaced by random global offsets). That forces non-copy regions away from self/near-self and makes them look chaotic/noisy.
+Source: deep_PM.py
+
+In your current implementation (pixel_propagator.py), there is no equivalent non_local reset. You only block exact (0,0), so ambiguous areas settle to small local offsets.
+
+Your evaluator uses soft weighting; with low/moderate beta, ambiguous regions average toward nearby candidates, which also biases toward near-self.
+
+Visualization can amplify this: percentile clipping can make “small-offset everywhere” look very uniform.
+
+So your behavior is consistent with your current PM design. The paper’s “random-looking” background is largely driven by that explicit non-local offset reset (plus their exact scoring/training setup).
