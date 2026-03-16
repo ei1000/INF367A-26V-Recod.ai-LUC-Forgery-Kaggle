@@ -73,3 +73,8 @@ _In addition, an LLM was used to help optimize the implementation to not exceed 
 
 - Fix: `RuntimeError: stack expects each tensor to be equal size, but got [256, 256] at entry 0 and [384, 384] at entry 1`
   - Occurs far into training - perhaps not everything is resized / small images are not properly handled?
+
+## IMPL
+
+LLM somehow found this impl online:
+https://raw.githubusercontent.com/byc33/D2PRL/main/deep_PM.py

@@ -1,13 +1,14 @@
 from pathlib import Path
+from enum import Enum
 import numpy as np
 import torch
 from torch.utils.data import Dataset
 from torchvision.transforms import v2, InterpolationMode
 from PIL import Image
 
-def make_transform(resize_size: int=384):
+def dino_transform(size):
     to_tensor = v2.ToImage()
-    resize = v2.Resize((resize_size, resize_size), antialias=True)
+    resize = v2.Resize((size, size), antialias=True)
     to_float = v2.ToDtype(torch.float32, scale=True)
     normalize = v2.Normalize(
         mean=(0.485, 0.456, 0.406),
@@ -15,18 +16,23 @@ def make_transform(resize_size: int=384):
     )
     return v2.Compose([to_tensor, resize, to_float, normalize])
 
+def regular_transform(size):
+    to_tensor = v2.ToImage()
+    resize = v2.Resize((size, size), antialias=True)
+    to_float = v2.ToDtype(torch.float32, scale=True)
+
+    return v2.Compose([to_tensor, resize, to_float])
 
 class ForgeryDataset(Dataset):
-    def __init__(self, samples, mask_dir: Path | None=None, size=384):
+    def __init__(self, samples, mask_dir: Path | None=None, size=384, transform=dino_transform):
         self.samples = samples
         self.mask_dir = mask_dir
 
-        self.size = size
 
-        self.image_transforms = make_transform(self.size)
+        self.image_transforms = transform(size)
 
         self.mask_transforms = v2.Compose([
-            v2.Resize((self.size, self.size), 
+            v2.Resize((size, size), 
             interpolation=InterpolationMode.NEAREST),
         ])
     
@@ -61,4 +67,11 @@ class ForgeryDataset(Dataset):
 
         return image, mask, label
 
+
+class Datasets(Enum):
+    TRAIN = [{'images': 'train_images', 'masks': 'train_masks'}]
+    SUPPLEMENT = [{'images': 'supplemental_images', 'masks': 'supplemental_masks'}]
+    TEST = [{'images': 'test_images', 'masks': None}]
+
+    ALL_TRAIN = TRAIN + SUPPLEMENT
 
