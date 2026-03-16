@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 from pathlib import Path
 from dataset import ForgeryDataset
@@ -30,33 +31,54 @@ def display_image(img, mask=None):
 '''
 Display generated cnn and zernike offsets as heatmaps
 Optionally with original image as well
+Shows dx and dy separately (like the paper)
 '''
 def display_pixel_offsets(cnn_offsets, zernike_offsets, img=None):
-    ncols = 3 if img is not None else 2
+    def split_offsets(offsets):
+        offsets = offsets.detach().cpu()
+        if offsets.ndim == 3 and offsets.shape[0] == 2:
+            dx = offsets[0].numpy()
+            dy = offsets[1].numpy()
+        elif offsets.ndim == 3 and offsets.shape[-1] == 2:
+            dx = offsets[..., 0].numpy()
+            dy = offsets[..., 1].numpy()
+        else:
+            raise ValueError(f"Offsets must be (2,H,W) or (H,W,2); got {offsets.shape}")
+        return dx, dy
+
+    cnn_dx, cnn_dy = split_offsets(cnn_offsets)
+    zernike_dx, zernike_dy = split_offsets(zernike_offsets)
+
+    cnn_vmax = max(float(np.abs(cnn_dx).max()), float(np.abs(cnn_dy).max()), 1e-6)
+    z_vmax = max(float(np.abs(zernike_dx).max()), float(np.abs(zernike_dy).max()), 1e-6)
+
+    ncols = 5 if img is not None else 4
     fig, axs = plt.subplots(nrows=1, ncols=ncols, figsize=(4 * ncols, 4))
 
-    def to_heatmap(offsets):
-        offsets = offsets.detach().cpu()
-        if offsets.ndim == 3 and offsets.shape[0] in (2, 3):
-            return torch.linalg.norm(offsets.float(), dim=0).numpy()
-        return offsets.squeeze().numpy()
+    axs[0].imshow(cnn_dx, cmap='coolwarm', vmin=-cnn_vmax, vmax=cnn_vmax)
+    axs[0].set_title("CNN dx")
+    axs[0].axis('off')
 
-    cnn_offsets_np = to_heatmap(cnn_offsets)
-    zernike_offsets_np = to_heatmap(zernike_offsets)
+    axs[1].imshow(cnn_dy, cmap='coolwarm', vmin=-cnn_vmax, vmax=cnn_vmax)
+    axs[1].set_title("CNN dy")
+    axs[1].axis('off')
 
-    axs[0].imshow(cnn_offsets_np, cmap='viridis')
-    axs[0].set_title("CNN Offsets")
+    axs[2].imshow(zernike_dx, cmap='coolwarm', vmin=-z_vmax, vmax=z_vmax)
+    axs[2].set_title("Zernike dx")
+    axs[2].axis('off')
 
-    axs[1].imshow(zernike_offsets_np, cmap='viridis')
-    axs[1].set_title("Zernike Offsets")
+    axs[3].imshow(zernike_dy, cmap='coolwarm', vmin=-z_vmax, vmax=z_vmax)
+    axs[3].set_title("Zernike dy")
+    axs[3].axis('off')
 
     if img is not None:
         img = img.detach().cpu()
         img_np = img.permute(1, 2, 0).numpy()
-        axs[2].imshow(img_np)
-        axs[2].set_title("Image")
+        axs[4].imshow(img_np)
+        axs[4].set_title("Image")
+        axs[4].axis('off')
 
-    fig.suptitle("Image offsets")
+    fig.suptitle("Image offsets (dx/dy)")
     plt.tight_layout()
     plt.show()
 # Test:
@@ -73,6 +95,4 @@ def load_and_display():
 
     img, mask, _ = supplement_dataset[1]
     display_image(img, mask)
-
-
 

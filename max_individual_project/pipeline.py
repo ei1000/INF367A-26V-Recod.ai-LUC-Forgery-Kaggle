@@ -2,21 +2,27 @@ from pathlib import Path
 import torch
 from torchvision.datasets import ImageFolder
 from torch.utils.data import DataLoader
-from dataset import ForgeryDataset, Datasets, regular_transform
+from dataset import ForgeryDataset, Datasets, regular_transform, dino_transform
 import time
 
 from feature_extractors.cnn_feature_extractor import PyramidFeatureExtractor
-from feature_extractors.zernike_feature_extractor import PyramidZernikeExtractor
+from feature_extractors.zernike_feature_extractor import PyramidZernikeExtractor, default_pq_list
 from cross_scale_patternmatch.pixel_propagator import PixelPropagator
 
 from visualizer import *
 
-def pipeline(datasets=Datasets.TRAIN, image_size=488, test_run=False):
+def pipeline(datasets=Datasets.TRAIN, image_size=488, test_run=False, feature_backbone="cnn"):
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # Load data
     root = Path('data')
+
+    # Choose transform based on backbone
+    if feature_backbone == "dino":
+        transform = dino_transform
+    else:
+        transform = regular_transform
 
     for dataset in datasets.value:
         image_folder = ImageFolder(root / dataset['images'])
@@ -27,17 +33,21 @@ def pipeline(datasets=Datasets.TRAIN, image_size=488, test_run=False):
             samples=samples,
             mask_dir=root / dataset['masks'] if dataset['masks'] is not None else None,
             size=image_size,
-            transform=regular_transform
+            transform=transform
         )
 
     train_loader = DataLoader(forgery_dataset, batch_size=8, shuffle=True)
 
     # Feature extraction
-    pyramid_bb = PyramidFeatureExtractor().to(device)
+    if feature_backbone == "dino":
+        from feature_extractors.dino_feature_extractor import PyramidDinoFeatureExtractor
+        pyramid_bb = PyramidDinoFeatureExtractor(normalize_input=False).to(device)
+    else:
+        pyramid_bb = PyramidFeatureExtractor().to(device)
 
     # Zernike pair things
-    pq_list = [(0,0),(1,1),(0,2),(1,3),(0,4),(1,5)]
-    pyramid_zm = PyramidZernikeExtractor(pq_list, kernel_size=64).to(device)
+    pq_list = default_pq_list(max_order=5)
+    pyramid_zm = PyramidZernikeExtractor(pq_list, kernel_size=13).to(device)
 
     # MAIN LOOP
     batch_counter = 0
@@ -46,7 +56,7 @@ def pipeline(datasets=Datasets.TRAIN, image_size=488, test_run=False):
         images = images.to(device)
         masks = masks.to(device)
         labels = labels.to(device)
-        
+
         with torch.no_grad():
             cnn_feats = pyramid_bb(images)
             zernike_feats = pyramid_zm(images)
@@ -56,7 +66,6 @@ def pipeline(datasets=Datasets.TRAIN, image_size=488, test_run=False):
             img_zernike_feats = tuple(f[idx] for f in zernike_feats)
             propagator = PixelPropagator(img, img_cnn_feats, img_zernike_feats)
             res = propagator.propagation_layer(iters=32)
-            
 
             if test_run: 
                 display_image(img, masks[idx])
@@ -65,5 +74,5 @@ def pipeline(datasets=Datasets.TRAIN, image_size=488, test_run=False):
 
         del cnn_feats, zernike_feats
         batch_counter += 1
-        
+
         print(f'Processed batch: {batch_counter} at: {time.perf_counter():.2f}')
