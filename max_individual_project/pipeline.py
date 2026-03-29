@@ -10,6 +10,9 @@ from feature_extractors.cnn_feature_extractor import PyramidFeatureExtractor, Pr
 from feature_extractors.zernike_feature_extractor import PyramidZernikeExtractor, default_pq_list
 from cross_scale_patternmatch.pixel_propagator import PixelPropagator
 
+from max_individual_project.prediction.decoder import DLFDecoder
+from prediction.multi_scale_dlf import MultiScaleDLF
+
 from visualizer import *
 
 
@@ -140,13 +143,21 @@ def pipeline(
                 non_local_limit=pm_non_local_limit,
             )
 
-            # TODO: DLS
-
-
             if test_run:
                 display_image(img, masks[idx])
                 display_pixel_offsets(cnn_offsets, zernike_offsets, img)
                 return
+
+            # TODO: DLF + build for batching support
+            dense_linear_fitter = MultiScaleDLF(img, cnn_offsets)
+            errors = dense_linear_fitter.compute_errors()
+
+            # TODO: Decoder
+            dlf_decoder = DLFDecoder(errors, cnn_offsets, zernike_offsets)
+            # dlf_decoder.predict()
+
+            # TODO: SE-U-Net + argmax preds
+
 
         del cnn_feats, zernike_feats
         batch_counter += 1
