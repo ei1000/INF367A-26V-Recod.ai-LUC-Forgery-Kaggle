@@ -133,16 +133,19 @@ def pipeline(
             img_cnn_feats = tuple(f[idx] for f in cnn_feats)
             img_zernike_feats = tuple(f[idx] for f in zernike_feats)
             propagator = PixelPropagator(img, img_cnn_feats, img_zernike_feats, random_window=pm_random_window)
-            res = propagator.propagation_layer(
+            cnn_offsets, zernike_offsets = propagator.propagation_layer(
                 iters=pm_iters,
                 beta=pm_beta,
                 use_non_local=pm_use_non_local,
                 non_local_limit=pm_non_local_limit,
             )
 
+            # TODO: DLS
+
+
             if test_run:
                 display_image(img, masks[idx])
-                display_pixel_offsets(res[0], res[1], img)
+                display_pixel_offsets(cnn_offsets, zernike_offsets, img)
                 return
 
         del cnn_feats, zernike_feats

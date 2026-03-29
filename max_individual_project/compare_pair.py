@@ -72,7 +72,7 @@ def run_compare(
     iters=24,
     beta=2.5,
     pm_random_window=50,
-    pm_use_non_local=False,
+    pm_use_non_local=True,
     pm_non_local_limit=25.0,
     separate_transforms=True,
 ):
