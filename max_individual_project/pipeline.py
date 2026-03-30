@@ -77,7 +77,7 @@ def _append_metrics_log(output_dir: Path, metrics: dict):
 
 def pipeline(
     datasets=Datasets.TRAIN,
-    image_size=488,
+    image_size=448,
     epochs=1,
     test_run=False,
     feature_backbone="cnn",
@@ -89,12 +89,12 @@ def pipeline(
     cnn_pretrained_model="vgg16_bn",
     cnn_feature_norm=True,
     separate_transforms=True,
-    pm_iters=32,
+    pm_iters=16,
     pm_beta=1000,
     pm_random_window=50,
     pm_use_non_local=False,
     pm_non_local_limit=25.0,
-    log_every=1,
+    log_every=10,
     output_dir="artifacts",
     checkpoint_name="latest.pt",
     resume=True,
@@ -186,6 +186,8 @@ def pipeline(
 
     # MAIN LOOP
     batch_counter = 0
+
+    start_time = time.perf_counter()
 
     for epoch_idx in range(resume_epoch, epochs):
         epoch_loss_sum = 0.0
@@ -285,6 +287,7 @@ def pipeline(
                         f"[epoch {epoch_idx + 1}/{epochs}] "
                         f"batch {batch_idx}/{len(train_loader)} "
                         f"loss: {loss_value:.4f}"
+                        f"time spent: {(time.perf_counter() - start_time):.2f}"
                     )
             else:
                 with torch.no_grad():
@@ -303,11 +306,10 @@ def pipeline(
             del cnn_feats, zernike_feats
             batch_counter += 1
 
-            if batch_counter % 10 == 0: print(f'Processed batch: {batch_counter} at: {time.perf_counter():.2f}')
 
         if epoch_loss_steps > 0:
             mean_loss = epoch_loss_sum / epoch_loss_steps
-            print(f"[epoch {epoch_idx + 1}/{epochs}] mean loss: {mean_loss:.4f}")
+            print(f"[epoch {epoch_idx + 1}/{epochs}] mean loss: {mean_loss:.4f} completed in: {(time.perf_counter() - start_time):.2f}")
             _append_metrics_log(output_dir, {
                 "epoch": epoch_idx + 1,
                 "mean_loss": mean_loss,
@@ -332,3 +334,4 @@ def pipeline(
                         optimizer=optimizer,
                         best_loss=best_loss,
                     )
+    print(f'Training completed. Total time: {time.perf_counter() - start_time}')
