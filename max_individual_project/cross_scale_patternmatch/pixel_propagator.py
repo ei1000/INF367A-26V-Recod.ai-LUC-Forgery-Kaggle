@@ -17,8 +17,6 @@ class PixelPropagator:
             raise ValueError(f"Expected image shape [C,H,W] or [B,C,H,W], got {tuple(image.shape)}")
 
         self.image = image
-        self.cnn_features = cnn_features
-        self.zernike_features = zernike_features
         self.random_window = int(random_window)
         self.max_fraction = 1.0
 
@@ -37,6 +35,8 @@ class PixelPropagator:
         self.x_max_full = (W - 1) - self.x_grid
         self.y_min_full = -self.y_grid
         self.y_max_full = (H - 1) - self.y_grid
+        self.cnn_features = cnn_features
+        self.zernike_features = zernike_features
 
     def _scaled_bounds(self):
         if self.max_fraction >= 1:
@@ -174,7 +174,6 @@ class PixelPropagator:
 
     def _sample_candidate(self, feat_bhwc: torch.Tensor, x_abs: torch.Tensor, y_abs: torch.Tensor) -> torch.Tensor:
         _, H, W, _ = feat_bhwc.shape
-        feat = feat_bhwc.permute(0, 3, 1, 2)
 
         x = x_abs.clamp(0, W - 1)
         y = y_abs.clamp(0, H - 1)
@@ -189,7 +188,7 @@ class PixelPropagator:
 
         grid = torch.stack((x, y), dim=-1)
         sampled = F.grid_sample(
-            feat,
+            feat_bhwc.permute(0, 3, 1, 2),
             grid,
             mode="bilinear",
             padding_mode="border",

@@ -10,7 +10,7 @@ def main():
         cnn_feature_norm=True,  
         pm_use_non_local=True,
         batch_size=5,
-        pm_iters=10,
+        pm_iters=8,
         epochs=5,
         test_run=False,
     )
