@@ -82,7 +82,7 @@ def pipeline(
     test_run=False,
     feature_backbone="cnn",
     use_dino_transform=False,
-    batch_size=1,
+    batch_size=4,
     dino_model_name="dinov2_vits14",
     dino_proj_dim=64,
     cnn_backbone="simple",
@@ -129,9 +129,11 @@ def pipeline(
         else:
             transform = regular_transform
 
+    
     if batch_size > 8:
         print("[pipeline] PatchMatch is memory-heavy; forcing batch_size=8 for 16GB VRAM safety")
         batch_size = 8
+    
 
     dataset_list = []
     for dataset in datasets.value:
@@ -187,8 +189,6 @@ def pipeline(
     # MAIN LOOP
     batch_counter = 0
 
-    start_time = time.perf_counter()
-
     for epoch_idx in range(resume_epoch, epochs):
         epoch_loss_sum = 0.0
         epoch_loss_steps = 0
@@ -215,34 +215,25 @@ def pipeline(
             if separate_transforms and feature_backbone == "cnn" and cnn_backbone == "pretrained":
                 images_backbone = _imagenet_normalize_tensor(images)
 
+
+            start_time = time.perf_counter()
             with torch.no_grad():
                 cnn_feats = pyramid_bb(images_backbone)
                 if feature_backbone == "cnn" and cnn_backbone == "pretrained" and cnn_feature_norm:
                     cnn_feats = tuple(F.normalize(f, p=2, dim=1) for f in cnn_feats)
                 zernike_feats = pyramid_zm(images)
 
-            batch_cnn_offsets = []
-            batch_zernike_offsets = []
-            for idx, img in enumerate(images):
-                img_cnn_feats = tuple(f[idx] for f in cnn_feats)
-                img_zernike_feats = tuple(f[idx] for f in zernike_feats)
-                propagator = PixelPropagator(img, img_cnn_feats, img_zernike_feats, random_window=pm_random_window)
-                cnn_offsets, zernike_offsets = propagator.propagation_layer(
-                    iters=pm_iters,
-                    beta=pm_beta,
-                    use_non_local=pm_use_non_local,
-                    non_local_limit=pm_non_local_limit,
-                )
+            propagator = PixelPropagator(images, cnn_feats, zernike_feats, random_window=pm_random_window)
+            batch_cnn_offsets, batch_zernike_offsets = propagator.propagation_layer(
+                iters=pm_iters,
+                beta=pm_beta,
+                use_non_local=pm_use_non_local,
+                non_local_limit=pm_non_local_limit,
+            )
 
-                if test_run:
-                    display_image(img, masks[idx])
-                    display_pixel_offsets(cnn_offsets, zernike_offsets, img)
-
-                batch_cnn_offsets.append(cnn_offsets)
-                batch_zernike_offsets.append(zernike_offsets)
-
-            batch_cnn_offsets = torch.stack(batch_cnn_offsets, dim=0)
-            batch_zernike_offsets = torch.stack(batch_zernike_offsets, dim=0)
+            if test_run:
+                display_image(images[0], masks[0])
+                display_pixel_offsets(batch_cnn_offsets[0], batch_zernike_offsets[0], images[0])
 
             dense_linear_fitter = MultiScaleDLF(images, batch_cnn_offsets)
             errors = dense_linear_fitter.compute_errors()
@@ -286,9 +277,13 @@ def pipeline(
                     print(
                         f"[epoch {epoch_idx + 1}/{epochs}] "
                         f"batch {batch_idx}/{len(train_loader)} "
-                        f"loss: {loss_value:.4f}"
+                        f"loss: {loss_value:.4f} "
                         f"time spent: {(time.perf_counter() - start_time):.2f}"
                     )
+
+                if batch_idx == 1 and epoch_idx == 0:
+                    est_time_s = epochs * ((time.perf_counter() - start_time) * len(train_loader))
+                    print(f'Estimated total training time: {(est_time_s / 60):.2f} minutes or {(est_time_s / 3600):.2f} hours')
             else:
                 with torch.no_grad():
                     dlf_map = dlf_decoder(dlf_decoder_input)

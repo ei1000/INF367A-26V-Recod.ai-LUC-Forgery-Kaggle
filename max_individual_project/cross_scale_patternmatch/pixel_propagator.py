@@ -10,13 +10,20 @@ class PixelPropagator:
         zernike_features,
         random_window: int = 50,
     ):
+        self.single_image = image.dim() == 3
+        if self.single_image:
+            image = image.unsqueeze(0)
+        elif image.dim() != 4:
+            raise ValueError(f"Expected image shape [C,H,W] or [B,C,H,W], got {tuple(image.shape)}")
+
         self.image = image
         self.cnn_features = cnn_features
         self.zernike_features = zernike_features
         self.random_window = int(random_window)
         self.max_fraction = 1.0
 
-        _, H, W = self.image.size()
+        self.batch_size = self.image.shape[0]
+        _, _, H, W = self.image.shape
         self.H = H
         self.W = W
         y_grid, x_grid = torch.meshgrid(
@@ -24,8 +31,8 @@ class PixelPropagator:
             torch.arange(W, device=self.image.device),
             indexing="ij",
         )
-        self.x_grid = x_grid
-        self.y_grid = y_grid
+        self.x_grid = x_grid.unsqueeze(0)
+        self.y_grid = y_grid.unsqueeze(0)
         self.x_min_full = -self.x_grid
         self.x_max_full = (W - 1) - self.x_grid
         self.y_min_full = -self.y_grid
@@ -42,14 +49,14 @@ class PixelPropagator:
 
     @torch.no_grad()
     def generate_random_offsets(self):
-        H, W = self.H, self.W
+        B, H, W = self.batch_size, self.H, self.W
         x_min, x_max, y_min, y_max = self._scaled_bounds()
 
         x_range = (x_max - x_min + 1).clamp(min=1).float()
         y_range = (y_max - y_min + 1).clamp(min=1).float()
 
-        dx = torch.floor(torch.rand(H, W, device=self.image.device) * x_range + x_min).long()
-        dy = torch.floor(torch.rand(H, W, device=self.image.device) * y_range + y_min).long()
+        dx = torch.floor(torch.rand(B, H, W, device=self.image.device) * x_range + x_min).long()
+        dy = torch.floor(torch.rand(B, H, W, device=self.image.device) * y_range + y_min).long()
 
         zero_mask = (dx == 0) & (dy == 0)
         if zero_mask.any():
@@ -63,7 +70,7 @@ class PixelPropagator:
     def propagation_block(self, dx: torch.Tensor, dy: torch.Tensor) -> torch.Tensor:
         # Circular-shift propagation (paper + reference implementation style).
         def r(t, sh, sw):
-            return torch.roll(t, shifts=(sh, sw), dims=(0, 1))
+            return torch.roll(t, shifts=(sh, sw), dims=(-2, -1))
 
         zero_dx = [r(dx, 0, 1), r(dx, 0, -1), r(dx, 1, 0), r(dx, -1, 0)]
         zero_dy = [r(dy, 0, 1), r(dy, 0, -1), r(dy, 1, 0), r(dy, -1, 0)]
@@ -89,8 +96,8 @@ class PixelPropagator:
             2 * r(dy, -1, 1) - r(dy, -2, 2),
         ]
 
-        cand_dx = torch.stack(zero_dx + first_dx, dim=2)
-        cand_dy = torch.stack(zero_dy + first_dy, dim=2)
+        cand_dx = torch.stack(zero_dx + first_dx, dim=-1)
+        cand_dy = torch.stack(zero_dy + first_dy, dim=-1)
         return torch.stack((cand_dx, cand_dy), dim=-1)
 
     @torch.no_grad()
@@ -101,11 +108,11 @@ class PixelPropagator:
         radius: int | None = None,
         num_random: int = 4,
     ) -> torch.Tensor:
-        H, W = dx.shape
+        B, H, W = dx.shape
         radius = max(1, self.random_window // 2) if radius is None else int(radius)
 
-        rand_dx = torch.randint(-radius, radius + 1, (H, W, num_random), device=self.image.device)
-        rand_dy = torch.randint(-radius, radius + 1, (H, W, num_random), device=self.image.device)
+        rand_dx = torch.randint(-radius, radius + 1, (B, H, W, num_random), device=self.image.device)
+        rand_dy = torch.randint(-radius, radius + 1, (B, H, W, num_random), device=self.image.device)
 
         cand_dx = dx.unsqueeze(-1) + rand_dx
         cand_dy = dy.unsqueeze(-1) + rand_dy
@@ -140,31 +147,34 @@ class PixelPropagator:
         dy = torch.where(local_mask, rand_dy, dy)
         return dx, dy
 
-    def _to_hwc(self, feat: torch.Tensor, H: int, W: int) -> torch.Tensor:
-        if feat.dim() != 3:
-            raise ValueError(f"Expected 3D feature map, got {feat.shape}")
+    def _to_bhwc(self, feat: torch.Tensor, H: int, W: int) -> torch.Tensor:
+        if feat.dim() == 3:
+            feat = feat.unsqueeze(0)
+        elif feat.dim() != 4:
+            raise ValueError(f"Expected feature map shape [C,H,W] or [B,C,H,W], got {tuple(feat.shape)}")
+
+        if feat.shape[0] != self.batch_size:
+            raise ValueError(
+                f"Batch size mismatch between image batch {self.batch_size} and feature map {tuple(feat.shape)}"
+            )
 
         if feat.shape[-2:] == (H, W):
-            chw = feat
-        elif feat.shape[:2] == (H, W):
-            chw = feat.permute(2, 0, 1)
+            bchw = feat
+        elif feat.shape[1:3] == (H, W):
+            return feat.contiguous()
         else:
-            if feat.shape[0] in (H, W):
-                chw = feat.permute(2, 0, 1)
-            else:
-                chw = feat
-            chw = F.interpolate(
-                chw.unsqueeze(0),
+            bchw = F.interpolate(
+                feat,
                 size=(H, W),
                 mode="bilinear",
                 align_corners=True,
-            ).squeeze(0)
+            )
 
-        return chw.permute(1, 2, 0).contiguous()
+        return bchw.permute(0, 2, 3, 1).contiguous()
 
-    def _sample_candidate(self, feat_hwc: torch.Tensor, x_abs: torch.Tensor, y_abs: torch.Tensor) -> torch.Tensor:
-        H, W = feat_hwc.shape[:2]
-        feat = feat_hwc.permute(2, 0, 1).unsqueeze(0)
+    def _sample_candidate(self, feat_bhwc: torch.Tensor, x_abs: torch.Tensor, y_abs: torch.Tensor) -> torch.Tensor:
+        _, H, W, _ = feat_bhwc.shape
+        feat = feat_bhwc.permute(0, 3, 1, 2)
 
         x = x_abs.clamp(0, W - 1)
         y = y_abs.clamp(0, H - 1)
@@ -177,7 +187,7 @@ class PixelPropagator:
         else:
             y = torch.zeros_like(y)
 
-        grid = torch.stack((x, y), dim=-1).unsqueeze(0)
+        grid = torch.stack((x, y), dim=-1)
         sampled = F.grid_sample(
             feat,
             grid,
@@ -185,25 +195,25 @@ class PixelPropagator:
             padding_mode="border",
             align_corners=True,
         )
-        return sampled.squeeze(0).permute(1, 2, 0).contiguous()
+        return sampled.permute(0, 2, 3, 1).contiguous()
 
     @torch.no_grad()
     def evaluate(self, candidates: torch.Tensor, features, beta: float = 2.5, exclude_self: bool = True):
-        H, W, K = candidates.shape[:3]
+        B, H, W, K = candidates.shape[:4]
 
         if isinstance(features, (tuple, list)):
-            src_list = [self._to_hwc(f, H, W) for f in features]
-            tgt_list = [self._to_hwc(f, H, W) for f in features]
+            src_list = [self._to_bhwc(f, H, W) for f in features]
+            tgt_list = [self._to_bhwc(f, H, W) for f in features]
         else:
-            feat_hwc = self._to_hwc(features, H, W)
-            src_list = [feat_hwc]
-            tgt_list = [feat_hwc]
+            feat_bhwc = self._to_bhwc(features, H, W)
+            src_list = [feat_bhwc]
+            tgt_list = [feat_bhwc]
 
-        x_abs = self.x_grid.unsqueeze(2).float() + candidates[..., 0]
-        y_abs = self.y_grid.unsqueeze(2).float() + candidates[..., 1]
+        x_abs = self.x_grid.unsqueeze(-1).float() + candidates[..., 0]
+        y_abs = self.y_grid.unsqueeze(-1).float() + candidates[..., 1]
         oob = (x_abs < 0) | (x_abs > (W - 1)) | (y_abs < 0) | (y_abs > (H - 1))
 
-        l1 = torch.empty((H, W, K), device=candidates.device, dtype=src_list[0].dtype)
+        l1 = torch.empty((B, H, W, K), device=candidates.device, dtype=src_list[0].dtype)
         for k in range(K):
             cand_features = [self._sample_candidate(tgt, x_abs[..., k], y_abs[..., k]) for tgt in tgt_list]
             best_pair = None
@@ -220,8 +230,13 @@ class PixelPropagator:
             if zero_mask.any():
                 l1 = l1.masked_fill(zero_mask, 1e6)
 
-        weights = torch.softmax(-beta * l1, dim=2)
-        return (candidates * weights.unsqueeze(-1)).sum(dim=2)
+        weights = torch.softmax(-beta * l1, dim=3)
+        return (candidates * weights.unsqueeze(-1)).sum(dim=3)
+
+    def _restore_offsets(self, offsets: torch.Tensor) -> torch.Tensor:
+        if self.single_image:
+            return offsets.squeeze(0)
+        return offsets
 
     @torch.no_grad()
     def propagation_layer(
@@ -238,27 +253,27 @@ class PixelPropagator:
         # CNN branch
         dx, dy = self.generate_random_offsets()
         for iter_idx in range(iters):
-            base = torch.stack((dx, dy), dim=-1).unsqueeze(2)          # 1
+            base = torch.stack((dx, dy), dim=-1).unsqueeze(-2)         # 1
             prop = self.propagation_block(dx, dy)                      # 12
             rand = self.random_search_block(dx, dy, num_random=4)      # 4
-            candidates = torch.cat((base, prop, rand), dim=2)          # 17
+            candidates = torch.cat((base, prop, rand), dim=-2)         # 17
             best = self.evaluate(candidates, self.cnn_features, beta=beta, exclude_self=True)
             dx, dy = best[..., 0], best[..., 1]
             if use_non_local and iter_idx < (iters - 1):
                 dx, dy = self.non_local_reset(dx, dy, limit_u=non_local_limit)
-        cnn_offsets = torch.stack((dx, dy))
+        cnn_offsets = torch.stack((dx, dy), dim=1)
 
         # Zernike branch
         dx, dy = self.generate_random_offsets()
         for iter_idx in range(iters):
-            base = torch.stack((dx, dy), dim=-1).unsqueeze(2)
+            base = torch.stack((dx, dy), dim=-1).unsqueeze(-2)
             prop = self.propagation_block(dx, dy)
             rand = self.random_search_block(dx, dy, num_random=4)
-            candidates = torch.cat((base, prop, rand), dim=2)
+            candidates = torch.cat((base, prop, rand), dim=-2)
             best = self.evaluate(candidates, self.zernike_features, beta=beta, exclude_self=True)
             dx, dy = best[..., 0], best[..., 1]
             if use_non_local and iter_idx < (iters - 1):
                 dx, dy = self.non_local_reset(dx, dy, limit_u=non_local_limit)
-        zernike_offsets = torch.stack((dx, dy))
+        zernike_offsets = torch.stack((dx, dy), dim=1)
 
-        return cnn_offsets, zernike_offsets
+        return self._restore_offsets(cnn_offsets), self._restore_offsets(zernike_offsets)
