@@ -3,7 +3,6 @@ import numpy as np
 import torch
 from pathlib import Path
 from dataset import ForgeryDataset
-from torch.utils.data import DataLoader
 from torchvision.utils import draw_segmentation_masks
 from torchvision.datasets import ImageFolder
 
@@ -27,6 +26,11 @@ def display_image(img, mask=None):
     plt.imshow(img_np)
     plt.axis('off')
     plt.show()
+
+
+'''
+Display errors computed 
+'''
 
 '''
 Display generated cnn and zernike offsets as heatmaps
@@ -109,6 +113,8 @@ def display_pixel_offsets(
     fig.suptitle("Image offsets (dx/dy)")
     plt.tight_layout()
     plt.show()
+
+    
 # Test:
 def load_and_display():
     root = Path('data')

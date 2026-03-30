@@ -6,11 +6,13 @@ from torch.utils.data import ConcatDataset, DataLoader
 from dataset import ForgeryDataset, Datasets, regular_transform, dino_transform, imagenet_transform
 import time
 
+from datatypes import DLFDecoderInput
+
 from feature_extractors.cnn_feature_extractor import PyramidFeatureExtractor, PretrainedBackboneExtractor
 from feature_extractors.zernike_feature_extractor import PyramidZernikeExtractor, default_pq_list
 from cross_scale_patternmatch.pixel_propagator import PixelPropagator
 
-from max_individual_project.prediction.decoder import DLFDecoder
+from prediction.decoder import DLFDecoder
 from prediction.multi_scale_dlf import MultiScaleDLF
 
 from visualizer import *
@@ -146,17 +148,22 @@ def pipeline(
             if test_run:
                 display_image(img, masks[idx])
                 display_pixel_offsets(cnn_offsets, zernike_offsets, img)
-                return
+                
 
             # TODO: DLF + build for batching support
             dense_linear_fitter = MultiScaleDLF(img, cnn_offsets)
             errors = dense_linear_fitter.compute_errors()
+            print(errors.shape)
 
             # TODO: Decoder
-            dlf_decoder = DLFDecoder(errors, cnn_offsets, zernike_offsets)
-            # dlf_decoder.predict()
+            dlf_decoder_input = DLFDecoderInput(cross_scale_errors=errors, cnn_offsets=cnn_offsets, zernike_offsets=zernike_offsets)
+            dlf_decoder = DLFDecoder(num_error_maps=len(errors)).to(device)
+            result = dlf_decoder(dlf_decoder_input)
+            print(result)
 
             # TODO: SE-U-Net + argmax preds
+
+            if test_run: return 
 
 
         del cnn_feats, zernike_feats

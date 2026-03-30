@@ -3,14 +3,14 @@ import torch
 import torch.nn.functional as F
 
 class MultiScaleDLF:
-    def __init__(self, image: torch.Tensor, cnn_offsets: torch.Tensor, radiuses: np.ndarray | None = None): # zernike_offsets likely not used
+    def __init__(self, image: torch.Tensor, cnn_offsets: torch.Tensor, kernel_sizes: np.ndarray | None = None): # zernike_offsets likely not used
         self.image = image
         self.cnn_offsets = cnn_offsets
 
-        if radiuses is None:
-            radiuses = np.array([7, 9, 11])
+        if kernel_sizes is None:
+            kernel_sizes = np.array([7, 9, 11])
         
-        self.radiuses = radiuses
+        self.kernel_sizes = kernel_sizes
 
     '''
     Perform multi-scale dense linear fitting based on P + delta_P ≈ PA, B = A - I
@@ -27,32 +27,59 @@ class MultiScaleDLF:
     def compute_errors(self):
         # Build feature map once globally to save computation
         features = self.build_maps()
+        errors = []
 
-        for k in self.radiuses:
+        for k in self.kernel_sizes:
             kernel = torch.ones((1, 1, k, k), device=self.image.device, dtype=torch.float32)
             pad = k // 2
 
             sums_k = {}
             for name, fmap in features.items():
-                fmap = fmap.unsqueeze(0) # needs batch and channel: 1, 1, H, W
                 sums_k[name] = F.conv2d(fmap, kernel, padding=pad)
 
             XtX, Xtdx, Xtdy = self.build_local_equations(sums_k)
 
             # Add a small epsilon to diagonal values to prevent singular matrix
             # + encourages stability and not too large weights
-            XtX += 1e-4 * torch.eye(3, device=self.image.device).view(1, 1, 1, 3, 3)
+            eps = 1e-2
+            I = torch.eye(3, device=self.image.device, dtype=XtX.dtype).view(1, 1, 1, 3, 3)
+            XtX = XtX + eps * I
 
-            theta_x = torch.linalg.solve(XtX, Xtdx) # solve for X
-            theta_y = torch.linalg.solve(XtX, Xtdy) # solve for Y
+            # solve for coefficients
+            theta_x = torch.matmul(torch.linalg.pinv(XtX), Xtdx)
+            theta_y = torch.matmul(torch.linalg.pinv(XtX), Xtdy)
+            
+            # extract coefficients
+            ax = theta_x[..., 0, 0].unsqueeze(1)
+            bx = theta_x[..., 1, 0].unsqueeze(1)
+            cx = theta_x[..., 2, 0].unsqueeze(1)
+            
+            ay = theta_y[..., 0, 0].unsqueeze(1)
+            by = theta_y[..., 1, 0].unsqueeze(1)
+            cy = theta_y[..., 2, 0].unsqueeze(1)
+            
+            # generate predictions to use in error calcs
+            dx_pred = ax * features["x"] + bx * features["y"] + cx
+            dy_pred = ay * features["x"] + by * features["y"] + cy
 
-            # NOTE: continue by getting predictions: https://chatgpt.com/c/69c92af3-6df4-8388-8c53-3195c990c850
+            residual_x = (features["dx"] - dx_pred)**2
+            residual_y = (features["dy"] - dy_pred)**2
 
+            # sum over window
+            kernel = torch.ones((1,1,k,k), device=self.image.device, dtype=torch.float32)
 
-    def build_local_equations(sums):
+            error_x = F.conv2d(residual_x, kernel, padding=k//2)
+            error_y = F.conv2d(residual_y, kernel, padding=k//2)
+                        
+            error = error_x + error_y
+            errors.append(error)
+        
+        return torch.stack(errors, dim=0)
+
+    def build_local_equations(self, sums):
         Sx2 = sums["x2"].squeeze(1)
         Sxy = sums["xy"].squeeze(1)
-        Sy2 = sums["x"].squeeze(1)
+        Sy2 = sums["y2"].squeeze(1)
         Sx = sums["x"].squeeze(1)
         Sy = sums["y"].squeeze(1)
         S1 = sums["1"].squeeze(1)
@@ -88,17 +115,17 @@ class MultiScaleDLF:
     def build_maps(self):
         _, H, W = self.image.shape
 
-        x, y = torch.meshgrid(
-            torch.arange(W, device=self.image.device, dtype=torch.float32),
+        y, x = torch.meshgrid(
             torch.arange(H, device=self.image.device, dtype=torch.float32),
+            torch.arange(W, device=self.image.device, dtype=torch.float32),
             indexing='ij'
         )
 
-        x = x.unsqueeze(0)
-        y = y.unsqueeze(0)
+        x = x.unsqueeze(0).unsqueeze(0)
+        y = y.unsqueeze(0).unsqueeze(0)
 
-        dx = self.cnn_offsets[0, :, :]
-        dy = self.cnn_offsets[1, :, :]
+        dx = self.cnn_offsets[0:1, :, :].unsqueeze(0)  # [1,1,H,W]
+        dy = self.cnn_offsets[1:2, :, :].unsqueeze(0) 
 
         ones = torch.ones_like(x)
 
@@ -114,15 +141,9 @@ class MultiScaleDLF:
             "dy": dy,
             "x_dx": x*dx,
             "y_dx": y*dx,
-            "x_dx": x*dy,
+            "x_dy": x*dy,
             "y_dy": y*dy
         }
 
 
         return features
-    
-    '''
-    Transform ro x ro area into an N x 3 matrix (x, y, 1)
-    '''
-    def _transform(self, x):
-        pass
