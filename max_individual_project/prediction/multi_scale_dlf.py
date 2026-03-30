@@ -4,13 +4,38 @@ import torch.nn.functional as F
 
 class MultiScaleDLF:
     def __init__(self, image: torch.Tensor, cnn_offsets: torch.Tensor, kernel_sizes: np.ndarray | None = None): # zernike_offsets likely not used
-        self.image = image
-        self.cnn_offsets = cnn_offsets
+        self.image = self._as_batched_image(image)
+        self.cnn_offsets = self._as_batched_offsets(cnn_offsets)
+
+        if self.image.shape[0] != self.cnn_offsets.shape[0]:
+            raise ValueError(
+                f"Batch size mismatch between image {self.image.shape} and offsets {self.cnn_offsets.shape}"
+            )
+        if self.image.shape[-2:] != self.cnn_offsets.shape[-2:]:
+            raise ValueError(
+                f"Spatial size mismatch between image {self.image.shape} and offsets {self.cnn_offsets.shape}"
+            )
 
         if kernel_sizes is None:
             kernel_sizes = np.array([7, 9, 11])
         
         self.kernel_sizes = kernel_sizes
+        self.device = self.cnn_offsets.device
+        self.dtype = self.cnn_offsets.dtype if self.cnn_offsets.is_floating_point() else torch.float32
+
+    def _as_batched_image(self, image: torch.Tensor) -> torch.Tensor:
+        if image.dim() == 3:
+            return image.unsqueeze(0)
+        if image.dim() == 4:
+            return image
+        raise ValueError(f"Expected image shape [C,H,W] or [B,C,H,W], got {tuple(image.shape)}")
+
+    def _as_batched_offsets(self, offsets: torch.Tensor) -> torch.Tensor:
+        if offsets.dim() == 3:
+            offsets = offsets.unsqueeze(0)
+        if offsets.dim() != 4 or offsets.shape[1] != 2:
+            raise ValueError(f"Expected offsets shape [2,H,W] or [B,2,H,W], got {tuple(offsets.shape)}")
+        return offsets
 
     '''
     Perform multi-scale dense linear fitting based on P + delta_P ≈ PA, B = A - I
@@ -30,7 +55,8 @@ class MultiScaleDLF:
         errors = []
 
         for k in self.kernel_sizes:
-            kernel = torch.ones((1, 1, k, k), device=self.image.device, dtype=torch.float32)
+            k = int(k)
+            kernel = torch.ones((1, 1, k, k), device=self.device, dtype=self.dtype)
             pad = k // 2
 
             sums_k = {}
@@ -42,7 +68,7 @@ class MultiScaleDLF:
             # Add a small epsilon to diagonal values to prevent singular matrix
             # + encourages stability and not too large weights
             eps = 1e-2
-            I = torch.eye(3, device=self.image.device, dtype=XtX.dtype).view(1, 1, 1, 3, 3)
+            I = torch.eye(3, device=self.device, dtype=XtX.dtype).view(1, 1, 1, 3, 3)
             XtX = XtX + eps * I
 
             # solve for coefficients
@@ -66,15 +92,15 @@ class MultiScaleDLF:
             residual_y = (features["dy"] - dy_pred)**2
 
             # sum over window
-            kernel = torch.ones((1,1,k,k), device=self.image.device, dtype=torch.float32)
+            kernel = torch.ones((1,1,k,k), device=self.device, dtype=self.dtype)
 
             error_x = F.conv2d(residual_x, kernel, padding=k//2)
             error_y = F.conv2d(residual_y, kernel, padding=k//2)
                         
             error = error_x + error_y
-            errors.append(error)
+            errors.append(error.squeeze(1))
         
-        return torch.stack(errors, dim=0)
+        return torch.stack(errors, dim=1)
 
     def build_local_equations(self, sums):
         Sx2 = sums["x2"].squeeze(1)
@@ -103,29 +129,26 @@ class MultiScaleDLF:
         ], dim=-1).unsqueeze(-1)
 
         return XtX, Xtdx, Xtdy
-
-    def _single_prediction(self, x):
-        pass
-
+    
 
     '''
     Build feature maps for image.
 
     '''
     def build_maps(self):
-        _, H, W = self.image.shape
+        B, _, H, W = self.image.shape
 
         y, x = torch.meshgrid(
-            torch.arange(H, device=self.image.device, dtype=torch.float32),
-            torch.arange(W, device=self.image.device, dtype=torch.float32),
+            torch.arange(H, device=self.device, dtype=self.dtype),
+            torch.arange(W, device=self.device, dtype=self.dtype),
             indexing='ij'
         )
 
-        x = x.unsqueeze(0).unsqueeze(0)
-        y = y.unsqueeze(0).unsqueeze(0)
+        x = x.unsqueeze(0).unsqueeze(0).expand(B, -1, -1, -1)
+        y = y.unsqueeze(0).unsqueeze(0).expand(B, -1, -1, -1)
 
-        dx = self.cnn_offsets[0:1, :, :].unsqueeze(0)  # [1,1,H,W]
-        dy = self.cnn_offsets[1:2, :, :].unsqueeze(0) 
+        dx = self.cnn_offsets[:, 0:1, :, :].to(dtype=self.dtype)
+        dy = self.cnn_offsets[:, 1:2, :, :].to(dtype=self.dtype)
 
         ones = torch.ones_like(x)
 

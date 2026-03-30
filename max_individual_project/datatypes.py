@@ -3,8 +3,8 @@ import torch
 
 @dataclass
 class DLFDecoderInput:
-    '''
-    '''
-    cross_scale_errors: list[torch.tensor]
-    cnn_offsets: torch.tensor
-    zernike_offsets: torch.tensor
+    """Container for batched DLF decoder inputs."""
+
+    cross_scale_errors: torch.Tensor
+    cnn_offsets: torch.Tensor
+    zernike_offsets: torch.Tensor

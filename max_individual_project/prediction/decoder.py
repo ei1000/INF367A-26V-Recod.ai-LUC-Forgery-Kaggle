@@ -31,17 +31,42 @@ class DLFDecoder(nn.Module):
 
         self.final_conv = nn.Conv2d(128, 1, kernel_size=1)
 
-    def forward(self, input: DLFDecoderInput):
-        cross_scale_errors = [
-            input.cross_scale_errors[i]
-            for i in range(input.cross_scale_errors.shape[0])
-        ]
+    def _as_batched_errors(self, errors: torch.Tensor) -> torch.Tensor:
+        if errors.dim() == 3:
+            errors = errors.unsqueeze(0)
+        if errors.dim() != 4:
+            raise ValueError(f"Expected cross-scale errors shape [S,H,W] or [B,S,H,W], got {tuple(errors.shape)}")
+        return errors
 
-        tensors = cross_scale_errors + [input.cnn_offsets.unsqueeze(0), input.zernike_offsets.unsqueeze(0)]
-        x = torch.cat(tensors, dim=1)
+    def _as_batched_offsets(self, offsets: torch.Tensor) -> torch.Tensor:
+        if offsets.dim() == 3:
+            offsets = offsets.unsqueeze(0)
+        if offsets.dim() != 4 or offsets.shape[1] != 2:
+            raise ValueError(f"Expected offsets shape [2,H,W] or [B,2,H,W], got {tuple(offsets.shape)}")
+        return offsets
+
+    def forward(self, input: DLFDecoderInput):
+        device = self.final_conv.weight.device
+        cross_scale_errors = self._as_batched_errors(input.cross_scale_errors).to(device)
+        cnn_offsets = self._as_batched_offsets(input.cnn_offsets).to(device)
+        zernike_offsets = self._as_batched_offsets(input.zernike_offsets).to(device)
+
+        if cross_scale_errors.shape[0] != cnn_offsets.shape[0]:
+            raise ValueError(
+                f"Batch size mismatch between errors {tuple(cross_scale_errors.shape)} and offsets {tuple(cnn_offsets.shape)}"
+            )
+        if cnn_offsets.shape != zernike_offsets.shape:
+            raise ValueError(
+                f"Offset tensors must have the same shape, got {tuple(cnn_offsets.shape)} and {tuple(zernike_offsets.shape)}"
+            )
+        if cross_scale_errors.shape[-2:] != cnn_offsets.shape[-2:]:
+            raise ValueError(
+                f"Spatial size mismatch between errors {tuple(cross_scale_errors.shape)} and offsets {tuple(cnn_offsets.shape)}"
+            )
+
+        x = torch.cat((cross_scale_errors, cnn_offsets, zernike_offsets), dim=1)
 
         for block in self.blocks:
             x = block(x)
 
         return torch.sigmoid(self.final_conv(x))
-
