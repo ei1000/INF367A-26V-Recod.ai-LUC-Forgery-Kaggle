@@ -1,49 +1,33 @@
 from pathlib import Path
 import json
-import torch
-import torch.nn.functional as F
-from torchvision.datasets import ImageFolder
-from torch.utils.data import ConcatDataset, DataLoader
-from dataset import ForgeryDataset, Datasets, regular_transform, dino_transform, imagenet_transform
 import time
 
-from datatypes import DLFDecoderInput
+import numpy as np
+import scipy.ndimage
+import scipy.optimize
+import torch
+import torch.nn.functional as F
+from torch.utils.data import ConcatDataset, DataLoader, Subset
+from torchvision.datasets import ImageFolder
 
-from feature_extractors.cnn_feature_extractor import PyramidFeatureExtractor, PretrainedBackboneExtractor
-from feature_extractors.zernike_feature_extractor import PyramidZernikeExtractor, default_pq_list
 from cross_scale_patternmatch.pixel_propagator import PixelPropagator
-
+from dataset import Datasets, ForgeryDataset, dino_transform, imagenet_transform, regular_transform, resolve_data_root
+from datatypes import DLFDecoderInput
+from feature_extractors.cnn_feature_extractor import PretrainedBackboneExtractor, PyramidFeatureExtractor
+from feature_extractors.zernike_feature_extractor import PyramidZernikeExtractor, default_pq_list
 from prediction.decoder import DLFDecoder
 from prediction.multi_scale_dlf import MultiScaleDLF
-from prediction.se_u_net import build_se_unet_input, SEUNet
-
-try:
-    from visualizer import display_image, display_pixel_offsets
-except ModuleNotFoundError:
-    def display_image(*args, **kwargs):
-        raise RuntimeError("Visualization requires optional dependency 'matplotlib'.")
-
-    def display_pixel_offsets(*args, **kwargs):
-        raise RuntimeError("Visualization requires optional dependency 'matplotlib'.")
+from prediction.se_u_net import SEUNet, build_se_unet_input
+from visualizer import display_image, display_pixel_offsets
 
 
-def _resolve_data_root() -> Path:
-    root = Path("data")
-    if root.exists():
-        return root
-    alt = Path(__file__).resolve().parent.parent / "data"
-    if alt.exists():
-        return alt
-    raise FileNotFoundError("Could not find data directory. Checked ./data and ../data.")
-
-
-def _imagenet_normalize_tensor(x: torch.Tensor) -> torch.Tensor:
+def imagenet_normalize_tensor(x: torch.Tensor) -> torch.Tensor:
     mean = torch.tensor([0.485, 0.456, 0.406], device=x.device).view(1, 3, 1, 1)
     std = torch.tensor([0.229, 0.224, 0.225], device=x.device).view(1, 3, 1, 1)
     return (x - mean) / std
 
 
-def _ensure_output_dirs(output_dir: str | Path):
+def ensure_output_dirs(output_dir: str | Path):
     output_dir = Path(output_dir)
     checkpoints_dir = output_dir / "checkpoints"
     predictions_dir = output_dir / "predictions"
@@ -53,26 +37,321 @@ def _ensure_output_dirs(output_dir: str | Path):
     return output_dir, checkpoints_dir, predictions_dir
 
 
-def _save_checkpoint(path: Path, epoch: int, dlf_decoder, se_model, optimizer, best_loss: float | None):
+def save_checkpoint(path: Path, epoch: int, dlf_decoder, se_model, optimizer, best_score: float | None):
     checkpoint = {
         "epoch": epoch,
         "dlf_decoder": dlf_decoder.state_dict(),
         "se_model": se_model.state_dict(),
         "optimizer": optimizer.state_dict() if optimizer is not None else None,
-        "best_loss": best_loss,
+        "best_score": best_score,
+        "best_loss": best_score,
     }
     torch.save(checkpoint, path)
 
 
-def _save_prediction_batch(predictions_dir: Path, epoch_idx: int, batch_idx: int, mask_preds: torch.Tensor):
+def save_prediction_batch(predictions_dir: Path, epoch_idx: int, batch_idx: int, mask_preds: torch.Tensor):
     pred_path = predictions_dir / f"epoch_{epoch_idx + 1:03d}_batch_{batch_idx:05d}.pt"
     torch.save(mask_preds.detach().cpu(), pred_path)
 
 
-def _append_metrics_log(output_dir: Path, metrics: dict):
+def append_metrics_log(output_dir: Path, metrics: dict):
     metrics_path = output_dir / "metrics.jsonl"
-    with metrics_path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(metrics) + "\n")
+    with metrics_path.open("a", encoding="utf-8") as file:
+        file.write(json.dumps(metrics) + "\n")
+
+
+def load_metrics_history(output_dir: Path) -> list[dict]:
+    metrics_path = output_dir / "metrics.jsonl"
+    if not metrics_path.exists():
+        return []
+
+    history = []
+    with metrics_path.open("r", encoding="utf-8") as file:
+        for line in file:
+            line = line.strip()
+            if line:
+                history.append(json.loads(line))
+    return history
+
+
+def save_metrics_plot(output_dir: Path):
+    history = load_metrics_history(output_dir)
+    if not history:
+        return
+
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as exc:
+        print(f"[pipeline] Skipping metrics plot: {exc}")
+        return
+
+    epochs = [entry["epoch"] for entry in history if "epoch" in entry]
+    train_losses = [entry.get("train_dice_loss") for entry in history]
+    val_losses = [entry.get("val_dice_loss") for entry in history]
+    val_of1 = [entry.get("val_of1") for entry in history]
+
+    fig, axes = plt.subplots(2, 1, figsize=(9, 8), sharex=True)
+
+    axes[0].plot(epochs, train_losses, marker="o", label="train_dice_loss")
+    if any(value is not None for value in val_losses):
+        axes[0].plot(epochs, val_losses, marker="o", label="val_dice_loss")
+    axes[0].set_ylabel("Dice Loss")
+    axes[0].set_title("Training Loss")
+    axes[0].grid(True, alpha=0.3)
+    axes[0].legend()
+
+    if any(value is not None for value in val_of1):
+        axes[1].plot(epochs, val_of1, marker="o", color="tab:green", label="val_oF1")
+    axes[1].set_xlabel("Epoch")
+    axes[1].set_ylabel("Score")
+    axes[1].set_title("Validation oF1")
+    axes[1].grid(True, alpha=0.3)
+    if any(value is not None for value in val_of1):
+        axes[1].legend()
+
+    fig.tight_layout()
+    plot_path = output_dir / "metrics_plot.png"
+    fig.savefig(plot_path, dpi=160)
+    plt.close(fig)
+
+
+def combine_datasets(dataset_list):
+    if not dataset_list:
+        return None
+    if len(dataset_list) == 1:
+        return dataset_list[0]
+    return ConcatDataset(dataset_list)
+
+
+def split_indices_by_label(samples, validation_split: float, seed: int):
+    if validation_split <= 0.0:
+        indices = list(range(len(samples)))
+        return indices, []
+
+    label_to_indices = {}
+    for idx, (_, label) in enumerate(samples):
+        label_to_indices.setdefault(label, []).append(idx)
+
+    generator = torch.Generator().manual_seed(seed)
+    train_indices = []
+    val_indices = []
+
+    for indices in label_to_indices.values():
+        if len(indices) < 2:
+            train_indices.extend(indices)
+            continue
+
+        shuffled = [indices[i] for i in torch.randperm(len(indices), generator=generator).tolist()]
+        val_count = int(round(len(shuffled) * validation_split))
+        val_count = min(max(val_count, 1), len(shuffled) - 1)
+
+        val_indices.extend(shuffled[:val_count])
+        train_indices.extend(shuffled[val_count:])
+
+    train_indices.sort()
+    val_indices.sort()
+    return train_indices, val_indices
+
+
+def update_segmentation_counts(preds: torch.Tensor, masks: torch.Tensor, counts: dict[str, int]):
+    preds_fg = preds == 1
+    masks_fg = masks == 1
+
+    counts["tp"] += int((preds_fg & masks_fg).sum().item())
+    counts["fp"] += int((preds_fg & ~masks_fg).sum().item())
+    counts["fn"] += int((~preds_fg & masks_fg).sum().item())
+    counts["pred_pos"] += int(preds_fg.sum().item())
+    counts["mask_pos"] += int(masks_fg.sum().item())
+    counts["pixels"] += int(masks.numel())
+
+
+def summarize_segmentation_counts(counts: dict[str, int]):
+    tp = counts["tp"]
+    fp = counts["fp"]
+    fn = counts["fn"]
+    pixels = counts["pixels"]
+
+    iou_den = tp + fp + fn
+    dice_den = (2 * tp) + fp + fn
+
+    return {
+        "iou": (tp / iou_den) if iou_den else 0.0,
+        "dice": ((2 * tp) / dice_den) if dice_den else 0.0,
+        "pred_positive_rate": (counts["pred_pos"] / pixels) if pixels else 0.0,
+        "mask_positive_rate": (counts["mask_pos"] / pixels) if pixels else 0.0,
+    }
+
+
+def split_mask_instances(mask: np.ndarray) -> list[np.ndarray]:
+    if mask.ndim == 2:
+        channel_masks = [(mask > 0).astype(np.uint8)]
+    elif mask.ndim == 3:
+        if mask.shape[0] <= 16 and mask.shape[0] <= mask.shape[-1] and mask.shape[0] <= mask.shape[-2]:
+            channel_masks = [(mask[i] > 0).astype(np.uint8) for i in range(mask.shape[0])]
+        elif mask.shape[-1] <= 16 and mask.shape[-1] <= mask.shape[0] and mask.shape[-1] <= mask.shape[1]:
+            channel_masks = [(mask[..., i] > 0).astype(np.uint8) for i in range(mask.shape[-1])]
+        else:
+            raise ValueError(f"Could not infer channel axis for mask with shape {mask.shape}")
+    else:
+        raise ValueError(f"Unsupported mask shape {mask.shape}")
+
+    instances = []
+    for channel_mask in channel_masks:
+        labeled, count = scipy.ndimage.label(channel_mask)
+        for component_idx in range(1, count + 1):
+            component = (labeled == component_idx).astype(np.uint8)
+            if component.any():
+                instances.append(component)
+    return instances
+
+
+def resize_binary_mask(mask: np.ndarray, image_size: int) -> np.ndarray:
+    mask_tensor = torch.from_numpy(mask).view(1, 1, *mask.shape).float()
+    resized = F.interpolate(mask_tensor, size=(image_size, image_size), mode="nearest")
+    return resized.squeeze(0).squeeze(0).numpy().astype(np.uint8)
+
+
+def load_resized_gt_instances(sample_path: str, mask_dir_by_sample: dict[str, Path | None], image_size: int) -> list[np.ndarray]:
+    path = Path(sample_path)
+    mask_dir = mask_dir_by_sample.get(sample_path)
+    if mask_dir is None or "forged" not in path.parent.name:
+        return []
+
+    mask_path = mask_dir / path.name.replace(".png", ".npy")
+    mask = np.load(mask_path)
+    instances = split_mask_instances(mask)
+    resized_instances = []
+    for instance in instances:
+        resized = resize_binary_mask(instance, image_size=image_size)
+        if resized.any():
+            resized_instances.append(resized)
+    return resized_instances
+
+
+def binary_mask_to_instances(mask: np.ndarray) -> list[np.ndarray]:
+    mask = (mask > 0).astype(np.uint8)
+    labeled, count = scipy.ndimage.label(mask)
+    instances = []
+    for component_idx in range(1, count + 1):
+        component = (labeled == component_idx).astype(np.uint8)
+        if component.any():
+            instances.append(component)
+    return instances
+
+
+def calculate_binary_f1(pred_mask: np.ndarray, gt_mask: np.ndarray) -> float:
+    pred_flat = pred_mask.reshape(-1)
+    gt_flat = gt_mask.reshape(-1)
+
+    tp = np.sum((pred_flat == 1) & (gt_flat == 1))
+    fp = np.sum((pred_flat == 1) & (gt_flat == 0))
+    fn = np.sum((pred_flat == 0) & (gt_flat == 1))
+
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+
+    if precision + recall == 0:
+        return 0.0
+    return float(2 * (precision * recall) / (precision + recall))
+
+
+def optimal_f1_score(pred_masks: list[np.ndarray], gt_masks: list[np.ndarray]) -> float:
+    if not pred_masks and not gt_masks:
+        return 1.0
+    if not pred_masks or not gt_masks:
+        return 0.0
+
+    f1_matrix = np.zeros((len(pred_masks), len(gt_masks)), dtype=np.float32)
+    for pred_idx, pred_mask in enumerate(pred_masks):
+        for gt_idx, gt_mask in enumerate(gt_masks):
+            f1_matrix[pred_idx, gt_idx] = calculate_binary_f1(pred_mask, gt_mask)
+
+    if f1_matrix.shape[0] < len(gt_masks):
+        pad_rows = len(gt_masks) - f1_matrix.shape[0]
+        f1_matrix = np.vstack((f1_matrix, np.zeros((pad_rows, f1_matrix.shape[1]), dtype=np.float32)))
+
+    row_ind, col_ind = scipy.optimize.linear_sum_assignment(-f1_matrix)
+    excess_predictions_penalty = len(gt_masks) / max(len(pred_masks), len(gt_masks))
+    return float(np.mean(f1_matrix[row_ind, col_ind]) * excess_predictions_penalty)
+
+
+def dice_loss(pred_mask: torch.Tensor, target_mask: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+    if pred_mask.dim() == 3:
+        pred_mask = pred_mask.unsqueeze(1)
+    if target_mask.dim() == 3:
+        target_mask = target_mask.unsqueeze(1)
+
+    pred_mask = pred_mask.float()
+    target_mask = target_mask.float()
+
+    pred_flat = pred_mask.reshape(pred_mask.shape[0], -1)
+    target_flat = target_mask.reshape(target_mask.shape[0], -1)
+
+    intersection = (pred_flat * target_flat).sum(dim=1)
+    denominator = pred_flat.sum(dim=1) + target_flat.sum(dim=1)
+    dice = (2 * intersection + eps) / (denominator + eps)
+    return 1 - dice.mean()
+
+
+def extract_localization_inputs(
+    images: torch.Tensor,
+    pyramid_bb,
+    pyramid_zm,
+    feature_backbone: str,
+    cnn_backbone: str,
+    separate_transforms: bool,
+    cnn_feature_norm: bool,
+    pm_random_window: int,
+    pm_iters: int,
+    pm_beta: int,
+    pm_use_non_local: bool,
+    pm_non_local_limit: float,
+):
+    images_backbone = images
+    if separate_transforms and feature_backbone == "cnn" and cnn_backbone == "pretrained":
+        images_backbone = imagenet_normalize_tensor(images)
+
+    with torch.no_grad():
+        cnn_feats = pyramid_bb(images_backbone)
+        if feature_backbone == "cnn" and cnn_backbone == "pretrained" and cnn_feature_norm:
+            cnn_feats = tuple(F.normalize(feature, p=2, dim=1) for feature in cnn_feats)
+        zernike_feats = pyramid_zm(images)
+
+        propagator = PixelPropagator(images, cnn_feats, zernike_feats, random_window=pm_random_window)
+        batch_cnn_offsets, batch_zernike_offsets = propagator.propagation_layer(
+            iters=pm_iters,
+            beta=pm_beta,
+            use_non_local=pm_use_non_local,
+            non_local_limit=pm_non_local_limit,
+        )
+
+        errors = MultiScaleDLF(images, batch_cnn_offsets).compute_errors()
+
+    return errors, batch_cnn_offsets, batch_zernike_offsets
+
+
+def decode_and_refine_masks(
+    images: torch.Tensor,
+    errors: torch.Tensor,
+    batch_cnn_offsets: torch.Tensor,
+    batch_zernike_offsets: torch.Tensor,
+    dlf_decoder,
+    se_model,
+):
+    dlf_decoder_input = DLFDecoderInput(
+        cross_scale_errors=errors,
+        cnn_offsets=batch_cnn_offsets,
+        zernike_offsets=batch_zernike_offsets,
+    )
+
+    dlf_map = dlf_decoder(dlf_decoder_input)
+    se_input = build_se_unet_input(images, dlf_map)
+    target_map = se_model(se_input)
+    refined_mask = torch.maximum(dlf_map, target_map)
+    return refined_mask, target_map, dlf_map
 
 
 def pipeline(
@@ -98,27 +377,28 @@ def pipeline(
     output_dir="artifacts",
     checkpoint_name="latest.pt",
     resume=True,
-    save_predictions=True,
+    save_predictions=False,
+    validation_split=0.0,
+    validation_seed=42,
 ):
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    output_dir, checkpoints_dir, predictions_dir = _ensure_output_dirs(output_dir)
+    print('[pipeline] Initializing training loop and datasets...')
+    torch.set_float32_matmul_precision("medium")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    output_dir, checkpoints_dir, predictions_dir = ensure_output_dirs(output_dir)
     checkpoint_path = checkpoints_dir / checkpoint_name
     best_checkpoint_path = checkpoints_dir / "best.pt"
     checkpoint = None
     resume_epoch = 0
-    best_loss = None
+    best_score = None
 
     if resume and checkpoint_path.exists():
         checkpoint = torch.load(checkpoint_path, map_location=device)
         resume_epoch = int(checkpoint.get("epoch", 0))
-        best_loss = checkpoint.get("best_loss")
+        best_score = checkpoint.get("best_score", checkpoint.get("best_loss"))
         print(f"[pipeline] Resuming from checkpoint: {checkpoint_path}")
 
-    # Load data
-    root = _resolve_data_root()
+    root = resolve_data_root()
 
-    # Choose dataset transform (raw if we want separate transforms)
     if separate_transforms:
         transform = regular_transform
     else:
@@ -129,35 +409,72 @@ def pipeline(
         else:
             transform = regular_transform
 
-    
     if batch_size > 8:
         print("[pipeline] PatchMatch is memory-heavy; forcing batch_size=8 for 16GB VRAM safety")
         batch_size = 8
-    
 
-    dataset_list = []
-    for dataset in datasets.value:
-        image_folder = ImageFolder(root / dataset['images'])
+    train_dataset_list = []
+    val_dataset_list = []
+    mask_dir_by_sample = {}
+    supervised = all(dataset["masks"] is not None for dataset in datasets.value)
 
-        samples = [(Path(p), y) for p, y in image_folder.samples]
+    for dataset_idx, dataset in enumerate(datasets.value):
+        image_folder = ImageFolder(root / dataset["images"])
+        samples = [(Path(path), label) for path, label in image_folder.samples]
+        mask_dir = root / dataset["masks"] if dataset["masks"] is not None else None
 
-        dataset_list.append(ForgeryDataset(
+        for sample_path, _ in samples:
+            mask_dir_by_sample[str(sample_path)] = mask_dir
+
+        train_forgery_dataset = ForgeryDataset(
             samples=samples,
-            mask_dir=root / dataset['masks'] if dataset['masks'] is not None else None,
+            mask_dir=mask_dir,
             size=image_size,
-            transform=transform
-        ))
+            transform=transform,
+            return_path=False,
+        )
 
-    if len(dataset_list) == 1:
-        forgery_dataset = dataset_list[0]
-    else:
-        forgery_dataset = ConcatDataset(dataset_list)
+        if supervised and validation_split > 0.0:
+            val_forgery_dataset = ForgeryDataset(
+                samples=samples,
+                mask_dir=mask_dir,
+                size=image_size,
+                transform=transform,
+                return_path=True,
+            )
+            train_indices, val_indices = split_indices_by_label(
+                samples,
+                validation_split=validation_split,
+                seed=validation_seed + dataset_idx,
+            )
+            train_dataset_list.append(Subset(train_forgery_dataset, train_indices))
+            if val_indices:
+                val_dataset_list.append(Subset(val_forgery_dataset, val_indices))
+        else:
+            train_dataset_list.append(train_forgery_dataset)
 
-    train_loader = DataLoader(forgery_dataset, batch_size=batch_size, shuffle=True)
+    train_dataset = combine_datasets(train_dataset_list)
+    val_dataset = combine_datasets(val_dataset_list)
 
-    # Feature extraction
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        pin_memory=device.type == "cuda",
+    )
+    val_loader = None
+    if val_dataset is not None:
+        val_loader = DataLoader(
+            val_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            pin_memory=device.type == "cuda",
+        )
+
+    print('Loading models and creating ZernikeFeatures...')
     if feature_backbone == "dino":
         from feature_extractors.dino_feature_extractor import PyramidDinoFeatureExtractor
+
         pyramid_bb = PyramidDinoFeatureExtractor(
             model_name=dino_model_name,
             normalize_input=True if separate_transforms else not use_dino_transform,
@@ -170,15 +487,13 @@ def pipeline(
         else:
             pyramid_bb = PyramidFeatureExtractor().to(device)
 
-    # Zernike pairs
     pq_list = default_pq_list(max_order=5)
     pyramid_zm = PyramidZernikeExtractor(pq_list, kernel_size=13).to(device)
     pyramid_bb.eval()
     pyramid_zm.eval()
+
     dlf_decoder = None
-    se_model = SEUNet(in_channels=4, out_channels=2).to(device)
-    supervised = all(dataset["masks"] is not None for dataset in datasets.value)
-    loss_fn = torch.nn.CrossEntropyLoss() if supervised else None
+    se_model = SEUNet(in_channels=4, out_channels=1, final_activation="sigmoid").to(device)
     optimizer = None
 
     if test_run or not supervised:
@@ -186,11 +501,16 @@ def pipeline(
     else:
         se_model.train()
 
-    # MAIN LOOP
     batch_counter = 0
+    run_start = time.perf_counter()
+    eta_batch_times = []
+    eta_printed = False
+
+    print('Starting training...')
 
     for epoch_idx in range(resume_epoch, epochs):
-        epoch_loss_sum = 0.0
+        epoch_start = time.perf_counter()
+        epoch_dice_loss_sum = 0.0
         epoch_loss_steps = 0
 
         if optimizer is not None:
@@ -198,45 +518,34 @@ def pipeline(
             se_model.train()
 
         for batch_idx, (images, masks, labels) in enumerate(train_loader, start=1):
+            batch_start = time.perf_counter()
             images = images.to(device)
-            masks = masks.to(device=device, dtype=torch.long)
+            masks = masks.to(device=device, dtype=torch.float32)
             labels = labels.to(device)
+
             if supervised:
                 mask_min = int(masks.min().item())
                 mask_max = int(masks.max().item())
                 if mask_min < 0 or mask_max > 1:
                     raise ValueError(
-                        f"CrossEntropyLoss expects target classes in [0, 1], got range [{mask_min}, {mask_max}] "
+                        f"Dice loss expects binary target values in [0, 1], got range [{mask_min}, {mask_max}] "
                         f"at epoch {epoch_idx + 1}, batch {batch_idx}."
                     )
 
-            # Separate transforms: CNN/DINO can be normalized while Zernike stays raw
-            images_backbone = images
-            if separate_transforms and feature_backbone == "cnn" and cnn_backbone == "pretrained":
-                images_backbone = _imagenet_normalize_tensor(images)
-
-
-            start_time = time.perf_counter()
-            with torch.no_grad():
-                cnn_feats = pyramid_bb(images_backbone)
-                if feature_backbone == "cnn" and cnn_backbone == "pretrained" and cnn_feature_norm:
-                    cnn_feats = tuple(F.normalize(f, p=2, dim=1) for f in cnn_feats)
-                zernike_feats = pyramid_zm(images)
-
-            propagator = PixelPropagator(images, cnn_feats, zernike_feats, random_window=pm_random_window)
-            batch_cnn_offsets, batch_zernike_offsets = propagator.propagation_layer(
-                iters=pm_iters,
-                beta=pm_beta,
-                use_non_local=pm_use_non_local,
-                non_local_limit=pm_non_local_limit,
+            errors, batch_cnn_offsets, batch_zernike_offsets = extract_localization_inputs(
+                images=images,
+                pyramid_bb=pyramid_bb,
+                pyramid_zm=pyramid_zm,
+                feature_backbone=feature_backbone,
+                cnn_backbone=cnn_backbone,
+                separate_transforms=separate_transforms,
+                cnn_feature_norm=cnn_feature_norm,
+                pm_random_window=pm_random_window,
+                pm_iters=pm_iters,
+                pm_beta=pm_beta,
+                pm_use_non_local=pm_use_non_local,
+                pm_non_local_limit=pm_non_local_limit,
             )
-
-            if test_run:
-                display_image(images[0], masks[0])
-                display_pixel_offsets(batch_cnn_offsets[0], batch_zernike_offsets[0], images[0])
-
-            dense_linear_fitter = MultiScaleDLF(images, batch_cnn_offsets)
-            errors = dense_linear_fitter.compute_errors()
 
             if dlf_decoder is None:
                 dlf_decoder = DLFDecoder(num_error_maps=errors.shape[1]).to(device)
@@ -248,6 +557,7 @@ def pipeline(
                         list(dlf_decoder.parameters()) + list(se_model.parameters()),
                         lr=1e-3,
                     )
+
                 if checkpoint is not None:
                     dlf_decoder.load_state_dict(checkpoint["dlf_decoder"])
                     se_model.load_state_dict(checkpoint["se_model"])
@@ -255,78 +565,179 @@ def pipeline(
                         optimizer.load_state_dict(checkpoint["optimizer"])
                     checkpoint = None
 
-            dlf_decoder_input = DLFDecoderInput(
-                cross_scale_errors=errors,
-                cnn_offsets=batch_cnn_offsets,
-                zernike_offsets=batch_zernike_offsets,
+            refined_mask, _, _ = decode_and_refine_masks(
+                images=images,
+                errors=errors,
+                batch_cnn_offsets=batch_cnn_offsets,
+                batch_zernike_offsets=batch_zernike_offsets,
+                dlf_decoder=dlf_decoder,
+                se_model=se_model,
             )
+
+            if test_run:
+                display_image(images[0], masks[0])
+                display_pixel_offsets(batch_cnn_offsets[0], batch_zernike_offsets[0], images[0])
+                display_image(images[0], (refined_mask[0, 0] >= 0.5).long())
+                return
 
             if optimizer is not None:
                 optimizer.zero_grad()
-                dlf_map = dlf_decoder(dlf_decoder_input)
-                se_input = build_se_unet_input(images, dlf_map)
-                mask_logits = se_model(se_input)
-                loss = loss_fn(mask_logits, masks)
+                loss = dice_loss(refined_mask, masks)
                 loss.backward()
                 optimizer.step()
 
                 loss_value = loss.item()
-                epoch_loss_sum += loss_value
+                epoch_dice_loss_sum += loss_value
                 epoch_loss_steps += 1
+
                 if log_every > 0 and batch_idx % log_every == 0:
                     print(
                         f"[epoch {epoch_idx + 1}/{epochs}] "
                         f"batch {batch_idx}/{len(train_loader)} "
-                        f"loss: {loss_value:.4f} "
-                        f"time spent: {(time.perf_counter() - start_time):.2f}"
+                        f"dice_loss: {loss_value:.4f} "
+                        f"time spent: {(time.perf_counter() - batch_start):.2f}"
                     )
 
-                if batch_idx == 1 and epoch_idx == 0:
-                    est_time_s = epochs * ((time.perf_counter() - start_time) * len(train_loader))
-                    print(f'Estimated total training time: {(est_time_s / 60):.2f} minutes or {(est_time_s / 3600):.2f} hours')
-            else:
-                with torch.no_grad():
-                    dlf_map = dlf_decoder(dlf_decoder_input)
-                    se_input = build_se_unet_input(images, dlf_map)
-                    mask_logits = se_model(se_input)
+                if epoch_idx == resume_epoch and batch_idx > 5:
+                    eta_batch_times.append(time.perf_counter() - batch_start)
+                    if not eta_printed and len(eta_batch_times) >= 5:
+                        avg_batch_s = sum(eta_batch_times) / len(eta_batch_times)
+                        est_train_total_s = avg_batch_s * epochs * len(train_loader)
+                        print(
+                            f"[pipeline] Warmed-up train-only estimate: "
+                            f"{est_train_total_s / 60:.2f} minutes or {est_train_total_s / 3600:.2f} hours"
+                        )
+                        eta_printed = True
 
-            mask_preds = mask_logits.argmax(dim=1)
+            mask_preds = (refined_mask >= 0.5).long().squeeze(1)
             if save_predictions:
-                _save_prediction_batch(predictions_dir, epoch_idx, batch_counter + 1, mask_preds)
+                save_prediction_batch(predictions_dir, epoch_idx, batch_counter + 1, mask_preds)
 
-            if test_run:
-                display_image(images[0], mask_preds[0])
-                return
-
-            del cnn_feats, zernike_feats
             batch_counter += 1
 
+        val_metrics = None
+        if val_loader is not None and dlf_decoder is not None:
+            dlf_decoder.eval()
+            se_model.eval()
+            val_dice_loss_sum = 0.0
+            val_loss_steps = 0
+            val_counts = {
+                "tp": 0,
+                "fp": 0,
+                "fn": 0,
+                "pred_pos": 0,
+                "mask_pos": 0,
+                "pixels": 0,
+            }
+            val_of1_sum = 0.0
+            val_images = 0
+
+            with torch.no_grad():
+                for images, masks, labels, image_paths in val_loader:
+                    images = images.to(device)
+                    masks = masks.to(device=device, dtype=torch.float32)
+                    labels = labels.to(device)
+
+                    errors, batch_cnn_offsets, batch_zernike_offsets = extract_localization_inputs(
+                        images=images,
+                        pyramid_bb=pyramid_bb,
+                        pyramid_zm=pyramid_zm,
+                        feature_backbone=feature_backbone,
+                        cnn_backbone=cnn_backbone,
+                        separate_transforms=separate_transforms,
+                        cnn_feature_norm=cnn_feature_norm,
+                        pm_random_window=pm_random_window,
+                        pm_iters=pm_iters,
+                        pm_beta=pm_beta,
+                        pm_use_non_local=pm_use_non_local,
+                        pm_non_local_limit=pm_non_local_limit,
+                    )
+                    refined_mask, _, _ = decode_and_refine_masks(
+                        images=images,
+                        errors=errors,
+                        batch_cnn_offsets=batch_cnn_offsets,
+                        batch_zernike_offsets=batch_zernike_offsets,
+                        dlf_decoder=dlf_decoder,
+                        se_model=se_model,
+                    )
+
+                    val_loss = dice_loss(refined_mask, masks)
+                    val_dice_loss_sum += val_loss.item()
+                    val_loss_steps += 1
+
+                    mask_preds = (refined_mask >= 0.5).long().squeeze(1)
+                    update_segmentation_counts(mask_preds, masks.long(), val_counts)
+
+                    pred_masks_np = mask_preds.cpu().numpy().astype(np.uint8)
+                    for pred_mask, image_path in zip(pred_masks_np, image_paths):
+                        pred_instances = binary_mask_to_instances(pred_mask)
+                        gt_instances = load_resized_gt_instances(
+                            image_path,
+                            mask_dir_by_sample=mask_dir_by_sample,
+                            image_size=image_size,
+                        )
+                        val_of1_sum += optimal_f1_score(pred_instances, gt_instances)
+                        val_images += 1
+
+            val_metrics = summarize_segmentation_counts(val_counts)
+            val_mean_dice_loss = val_dice_loss_sum / max(val_loss_steps, 1)
+            val_mean_of1 = val_of1_sum / max(val_images, 1)
+            print(
+                f"[epoch {epoch_idx + 1}/{epochs}] "
+                f"val_dice_loss: {val_mean_dice_loss:.4f} "
+                f"val_oF1: {val_mean_of1:.4f} "
+                f"val_pred_pos: {val_metrics['pred_positive_rate']:.4%}"
+            )
+
+            if optimizer is not None:
+                dlf_decoder.train()
+                se_model.train()
 
         if epoch_loss_steps > 0:
-            mean_loss = epoch_loss_sum / epoch_loss_steps
-            print(f"[epoch {epoch_idx + 1}/{epochs}] mean loss: {mean_loss:.4f} completed in: {(time.perf_counter() - start_time):.2f}")
-            _append_metrics_log(output_dir, {
+            mean_dice_loss = epoch_dice_loss_sum / epoch_loss_steps
+            metrics = {
                 "epoch": epoch_idx + 1,
-                "mean_loss": mean_loss,
+                "train_dice_loss": mean_dice_loss,
                 "steps": epoch_loss_steps,
-            })
+                "epoch_seconds": time.perf_counter() - epoch_start,
+            }
+
+            if val_metrics is not None:
+                metrics["val_dice_loss"] = val_mean_dice_loss
+                metrics["val_of1"] = val_mean_of1
+                metrics["val_iou"] = val_metrics["iou"]
+                metrics["val_dice"] = val_metrics["dice"]
+                metrics["val_pred_positive_rate"] = val_metrics["pred_positive_rate"]
+                metrics["val_mask_positive_rate"] = val_metrics["mask_positive_rate"]
+
+            print(
+                f"[epoch {epoch_idx + 1}/{epochs}] "
+                f"train_dice_loss: {mean_dice_loss:.4f} "
+                f"completed in: {metrics['epoch_seconds']:.2f}s"
+            )
+            append_metrics_log(output_dir, metrics)
+            save_metrics_plot(output_dir)
+
             if optimizer is not None:
-                _save_checkpoint(
+                checkpoint_score = val_mean_of1 if val_metrics is not None else -mean_dice_loss
+                save_checkpoint(
                     checkpoint_path,
                     epoch=epoch_idx + 1,
                     dlf_decoder=dlf_decoder,
                     se_model=se_model,
                     optimizer=optimizer,
-                    best_loss=best_loss,
+                    best_score=checkpoint_score,
                 )
-                if best_loss is None or mean_loss < best_loss:
-                    best_loss = mean_loss
-                    _save_checkpoint(
+                if best_score is None or checkpoint_score > best_score:
+                    best_score = checkpoint_score
+                    save_checkpoint(
                         best_checkpoint_path,
                         epoch=epoch_idx + 1,
                         dlf_decoder=dlf_decoder,
                         se_model=se_model,
                         optimizer=optimizer,
-                        best_loss=best_loss,
+                        best_score=best_score,
                     )
-    print(f'Training completed. Total time: {time.perf_counter() - start_time}')
+
+    save_metrics_plot(output_dir)
+    print(f"Training completed. Total time: {time.perf_counter() - run_start:.2f}s")

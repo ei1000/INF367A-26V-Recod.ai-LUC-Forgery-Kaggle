@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-def _as_batched_image(image: torch.Tensor) -> torch.Tensor:
+def as_batched_image(image: torch.Tensor) -> torch.Tensor:
     if image.dim() == 3:
         image = image.unsqueeze(0)
     if image.dim() != 4:
@@ -11,7 +11,7 @@ def _as_batched_image(image: torch.Tensor) -> torch.Tensor:
     return image
 
 
-def _as_batched_mask(mask: torch.Tensor) -> torch.Tensor:
+def as_batched_mask(mask: torch.Tensor) -> torch.Tensor:
     if mask.dim() == 2:
         mask = mask.unsqueeze(0).unsqueeze(0)
     elif mask.dim() == 3:
@@ -25,11 +25,11 @@ def _as_batched_mask(mask: torch.Tensor) -> torch.Tensor:
 
 
 def build_se_unet_input(image: torch.Tensor, dlf_map: torch.Tensor | None = None) -> torch.Tensor:
-    image = _as_batched_image(image)
+    image = as_batched_image(image)
     if dlf_map is None:
         return image
 
-    dlf_map = _as_batched_mask(dlf_map).to(device=image.device, dtype=image.dtype)
+    dlf_map = as_batched_mask(dlf_map).to(device=image.device, dtype=image.dtype)
     if image.shape[0] != dlf_map.shape[0]:
         raise ValueError(f"Batch size mismatch between image {tuple(image.shape)} and DLF map {tuple(dlf_map.shape)}")
     if image.shape[-2:] != dlf_map.shape[-2:]:
@@ -99,14 +99,14 @@ class SEUNet(nn.Module):
     Scaffold for a copy-move refinement head.
 
     Typical usage:
-    - `SEUNet(in_channels=4, out_channels=2)` for `RGB + DLF probability/logit`
+    - `SEUNet(in_channels=4, out_channels=1, final_activation="sigmoid")` for `RGB + DLF map`
     - `SEUNet(in_channels=3)` for image-only experiments
     """
 
     def __init__(
         self,
         in_channels: int = 4,
-        out_channels: int = 2,
+        out_channels: int = 1,
         encoder_channels: tuple[int, int, int, int] = (32, 64, 128, 256),
         bottleneck_channels: int = 512,
         se_reduction: int = 16,
@@ -132,7 +132,7 @@ class SEUNet(nn.Module):
         self.head = nn.Conv2d(c1, out_channels, kernel_size=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = _as_batched_image(x)
+        x = as_batched_image(x)
 
         e1 = self.enc1(x)
         e2 = self.enc2(e1)

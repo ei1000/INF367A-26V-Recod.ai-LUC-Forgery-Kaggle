@@ -6,6 +6,15 @@ from torch.utils.data import Dataset
 from torchvision.transforms import v2, InterpolationMode
 from PIL import Image
 
+def resolve_data_root() -> Path:
+    root = Path("data")
+    if root.exists():
+        return root
+    alt = Path(__file__).resolve().parent.parent / "data"
+    if alt.exists():
+        return alt
+    raise FileNotFoundError("Could not find data directory. Checked ./data and ../data.")
+
 def dino_transform(size):
     to_tensor = v2.ToImage()
     resize = v2.Resize((size, size), antialias=True)
@@ -34,7 +43,7 @@ def regular_transform(size):
     return v2.Compose([to_tensor, resize, to_float])
 
 
-def _normalize_mask_array(mask: np.ndarray) -> np.ndarray:
+def normalize_mask_array(mask: np.ndarray) -> np.ndarray:
     if mask.ndim == 2:
         return (mask > 0).astype(np.uint8)
 
@@ -53,10 +62,11 @@ def _normalize_mask_array(mask: np.ndarray) -> np.ndarray:
     raise ValueError(f"Unsupported mask shape {mask.shape}")
 
 class ForgeryDataset(Dataset):
-    def __init__(self, samples, mask_dir: Path | None=None, size=384, transform=dino_transform):
+    def __init__(self, samples, mask_dir: Path | None=None, size=384, transform=dino_transform, return_path: bool = False):
         self.samples = samples
         self.mask_dir = mask_dir
         self.size = size
+        self.return_path = return_path
 
 
         self.image_transforms = transform(size)
@@ -78,7 +88,7 @@ class ForgeryDataset(Dataset):
         if self.mask_dir is not None and "forged" in img_path.parent.name:
             mask_path = self.mask_dir / img_path.name.replace(".png", ".npy")
             mask = np.load(mask_path)
-            mask = _normalize_mask_array(mask)
+            mask = normalize_mask_array(mask)
 
             mask = torch.from_numpy(mask)
             if mask.ndim == 2:
@@ -88,13 +98,17 @@ class ForgeryDataset(Dataset):
         else:
             mask = torch.zeros((self.size, self.size), dtype=torch.long)
 
+        if self.return_path:
+            return image, mask, label, str(img_path)
+
         return image, mask, label
 
 
 class Datasets(Enum):
     TRAIN = [{'images': 'train_images', 'masks': 'train_masks'}]
     SUPPLEMENT = [{'images': 'supplemental_images', 'masks': 'supplemental_masks'}]
+    CASIA = [{'images': 'casia_cmfd_images', 'masks': 'casia_cmfd_masks_np'}]
     TEST = [{'images': 'test_images', 'masks': None}]
     SELF_PROCURED = [{'images': 'self_procured', 'masks': None}]
 
-    ALL_TRAIN = TRAIN + SUPPLEMENT
+    ALL_TRAIN = TRAIN + CASIA + SUPPLEMENT
