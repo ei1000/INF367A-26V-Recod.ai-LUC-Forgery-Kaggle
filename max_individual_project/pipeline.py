@@ -341,6 +341,24 @@ def normalize_dlf_error_maps(error_maps: torch.Tensor, eps: float = 1e-6) -> tor
     return normalized.clamp(-6.0, 6.0)
 
 
+def resize_offsets_to_image_grid(offsets: torch.Tensor, target_size: tuple[int, int]) -> torch.Tensor:
+    single_image = offsets.dim() == 3
+    if single_image:
+        offsets = offsets.unsqueeze(0)
+
+    source_h, source_w = offsets.shape[-2:]
+    target_h, target_w = target_size
+    if (source_h, source_w) == (target_h, target_w):
+        return offsets.squeeze(0) if single_image else offsets
+
+    resized = F.interpolate(offsets, size=target_size, mode="bilinear", align_corners=True)
+    scale_x = float(max(target_w - 1, 1)) / float(max(source_w - 1, 1))
+    scale_y = float(max(target_h - 1, 1)) / float(max(source_h - 1, 1))
+    resized[:, 0] = resized[:, 0] * scale_x
+    resized[:, 1] = resized[:, 1] * scale_y
+    return resized.squeeze(0) if single_image else resized
+
+
 def localization_loss_terms(
     refined_mask: torch.Tensor,
     target_map: torch.Tensor,
@@ -377,6 +395,7 @@ def extract_localization_inputs(
     pm_use_non_local: bool,
     pm_non_local_limit: float,
     pm_reduced_precision: bool = True,
+    dino_match_native_resolution: bool = False,
     collect_stats: bool = False,
 ):
     images_backbone = images
@@ -403,11 +422,17 @@ def extract_localization_inputs(
             synchronize_if_cuda(device)
             feature_time = time.perf_counter() - feature_start
 
+        patchmatch_images = images
+        if feature_backbone == "dino" and dino_match_native_resolution:
+            dino_match_size = cnn_feats[1].shape[-2:]
+            if dino_match_size != images.shape[-2:]:
+                patchmatch_images = F.interpolate(images, size=dino_match_size, mode="bilinear", align_corners=False)
+
         if collect_stats:
             synchronize_if_cuda(device)
             propagation_start = time.perf_counter()
         propagator = PixelPropagator(
-            images,
+            patchmatch_images,
             cnn_feats,
             zernike_feats,
             random_window=pm_random_window,
@@ -421,6 +446,9 @@ def extract_localization_inputs(
             use_non_local=pm_use_non_local,
             non_local_limit=pm_non_local_limit,
         )
+        if patchmatch_images.shape[-2:] != images.shape[-2:]:
+            batch_cnn_offsets = resize_offsets_to_image_grid(batch_cnn_offsets, images.shape[-2:])
+            batch_zernike_offsets = resize_offsets_to_image_grid(batch_zernike_offsets, images.shape[-2:])
         if collect_stats:
             synchronize_if_cuda(device)
             propagation_time = time.perf_counter() - propagation_start
@@ -486,6 +514,7 @@ def pipeline(
     pm_use_non_local=False,
     pm_non_local_limit=25.0,
     pm_reduced_precision=True,
+    dino_match_native_resolution=False,
     log_every=10,
     output_dir="artifacts",
     checkpoint_name="latest.pt",
@@ -594,6 +623,7 @@ def pipeline(
             model_name=dino_model_name,
             normalize_input=True if separate_transforms else not use_dino_transform,
             proj_dim=dino_proj_dim,
+            upsample_to_input=not dino_match_native_resolution,
         ).to(device)
     else:
         if cnn_backbone == "pretrained":
@@ -667,6 +697,7 @@ def pipeline(
                 pm_use_non_local=pm_use_non_local,
                 pm_non_local_limit=pm_non_local_limit,
                 pm_reduced_precision=pm_reduced_precision,
+                dino_match_native_resolution=dino_match_native_resolution,
                 collect_stats=collect_localization_stats,
             )
 
@@ -810,6 +841,7 @@ def pipeline(
                         pm_use_non_local=pm_use_non_local,
                         pm_non_local_limit=pm_non_local_limit,
                         pm_reduced_precision=pm_reduced_precision,
+                        dino_match_native_resolution=dino_match_native_resolution,
                     )
                     refined_mask, target_map, dlf_map = decode_and_refine_masks(
                         images=images,

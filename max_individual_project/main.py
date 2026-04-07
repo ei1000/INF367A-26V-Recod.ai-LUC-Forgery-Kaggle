@@ -5,7 +5,7 @@ from dataset import Datasets
 
 
 def main():
-    output_dir = Path(__file__).resolve().parents[1] / "artifacts" / "dino_mprime_loss_run"
+    output_dir = Path(__file__).resolve().parents[1] / "artifacts" / "patchmatch_improved_run"
     pipeline(
         datasets=Datasets.ALL_TRAIN,
         feature_backbone="dino",
@@ -18,6 +18,7 @@ def main():
         batch_size=3,
         pm_iters=8,
         pm_beta=10,
+        dino_match_native_resolution=True,
         epochs=20,
         test_run=False,
         save_predictions=False,

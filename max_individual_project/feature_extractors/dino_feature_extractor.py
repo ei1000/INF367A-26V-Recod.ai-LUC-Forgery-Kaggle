@@ -116,15 +116,14 @@ class DinoFeatureExtractor(nn.Module):
 
 
 class PyramidDinoFeatureExtractor(nn.Module):
-    def __init__(self, rb=0.75, ru=1.5, **dino_kwargs):
+    def __init__(self, rb=0.75, ru=1.5, upsample_to_input: bool = True, **dino_kwargs):
         super().__init__()
         self.backbone = DinoFeatureExtractor(**dino_kwargs)
         self.rb = rb
         self.ru = ru
+        self.upsample_to_input = upsample_to_input
 
     def forward(self, Io):
-        H, W = Io.shape[-2:]
-
         Ib = F.interpolate(Io, scale_factor=self.rb, mode='bilinear', align_corners=False)
         Iu = F.interpolate(Io, scale_factor=self.ru, mode='bilinear', align_corners=False)
 
@@ -132,9 +131,16 @@ class PyramidDinoFeatureExtractor(nn.Module):
         Fo = self.backbone(Io)
         Fu = self.backbone(Iu)
 
-        # Resize features back to original size
-        Fb = F.interpolate(Fb, size=(H, W), mode='bilinear', align_corners=False)
-        Fo = F.interpolate(Fo, size=(H, W), mode='bilinear', align_corners=False)
-        Fu = F.interpolate(Fu, size=(H, W), mode='bilinear', align_corners=False)
+        if self.upsample_to_input:
+            output_size = Io.shape[-2:]
+            Fb = F.interpolate(Fb, size=output_size, mode='bilinear', align_corners=False)
+            Fo = F.interpolate(Fo, size=output_size, mode='bilinear', align_corners=False)
+            Fu = F.interpolate(Fu, size=output_size, mode='bilinear', align_corners=False)
+        else:
+            output_size = Fo.shape[-2:]
+            if Fb.shape[-2:] != output_size:
+                Fb = F.interpolate(Fb, size=output_size, mode='bilinear', align_corners=False)
+            if Fu.shape[-2:] != output_size:
+                Fu = F.interpolate(Fu, size=output_size, mode='bilinear', align_corners=False)
 
         return Fb, Fo, Fu
