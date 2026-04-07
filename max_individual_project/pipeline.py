@@ -62,6 +62,11 @@ def set_optimizer_learning_rate(optimizer, learning_rate: float):
         param_group["lr"] = learning_rate
 
 
+def synchronize_if_cuda(device: torch.device):
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+
+
 def append_metrics_log(output_dir: Path, metrics: dict):
     metrics_path = output_dir / "metrics.jsonl"
     with metrics_path.open("a", encoding="utf-8") as file:
@@ -371,29 +376,73 @@ def extract_localization_inputs(
     pm_beta: int,
     pm_use_non_local: bool,
     pm_non_local_limit: float,
+    pm_reduced_precision: bool = True,
+    collect_stats: bool = False,
 ):
     images_backbone = images
     if separate_transforms and feature_backbone == "cnn" and cnn_backbone == "pretrained":
         images_backbone = imagenet_normalize_tensor(images)
 
+    device = images.device
+    localization_stats = None
+    peak_memory_base = None
+    if collect_stats and device.type == "cuda":
+        synchronize_if_cuda(device)
+        torch.cuda.reset_peak_memory_stats(device)
+        peak_memory_base = torch.cuda.memory_allocated(device)
+
     with torch.no_grad():
+        if collect_stats:
+            synchronize_if_cuda(device)
+            feature_start = time.perf_counter()
         cnn_feats = pyramid_bb(images_backbone)
         if feature_backbone == "cnn" and cnn_backbone == "pretrained" and cnn_feature_norm:
             cnn_feats = tuple(F.normalize(feature, p=2, dim=1) for feature in cnn_feats)
         zernike_feats = pyramid_zm(images)
+        if collect_stats:
+            synchronize_if_cuda(device)
+            feature_time = time.perf_counter() - feature_start
 
-        propagator = PixelPropagator(images, cnn_feats, zernike_feats, random_window=pm_random_window)
+        if collect_stats:
+            synchronize_if_cuda(device)
+            propagation_start = time.perf_counter()
+        propagator = PixelPropagator(
+            images,
+            cnn_feats,
+            zernike_feats,
+            random_window=pm_random_window,
+            reduced_precision=pm_reduced_precision,
+        )
+        del cnn_feats
+        del zernike_feats
         batch_cnn_offsets, batch_zernike_offsets = propagator.propagation_layer(
             iters=pm_iters,
             beta=pm_beta,
             use_non_local=pm_use_non_local,
             non_local_limit=pm_non_local_limit,
         )
+        if collect_stats:
+            synchronize_if_cuda(device)
+            propagation_time = time.perf_counter() - propagation_start
 
+        if collect_stats:
+            synchronize_if_cuda(device)
+            dlf_start = time.perf_counter()
         errors = MultiScaleDLF(images, batch_cnn_offsets).compute_errors()
         errors = normalize_dlf_error_maps(errors)
+        if collect_stats:
+            synchronize_if_cuda(device)
+            dlf_time = time.perf_counter() - dlf_start
+            localization_stats = {
+                "feature_time_s": feature_time,
+                "patchmatch_time_s": propagation_time,
+                "dlf_time_s": dlf_time,
+            }
+            if peak_memory_base is not None:
+                peak_bytes = torch.cuda.max_memory_allocated(device) - peak_memory_base
+                localization_stats["localization_peak_memory_mb"] = peak_bytes / (1024 ** 2)
 
-    return errors, batch_cnn_offsets, batch_zernike_offsets
+    return errors, batch_cnn_offsets, batch_zernike_offsets, localization_stats
 
 
 def decode_and_refine_masks(
@@ -436,6 +485,7 @@ def pipeline(
     pm_random_window=50,
     pm_use_non_local=False,
     pm_non_local_limit=25.0,
+    pm_reduced_precision=True,
     log_every=10,
     output_dir="artifacts",
     checkpoint_name="latest.pt",
@@ -602,7 +652,8 @@ def pipeline(
                         f"at epoch {epoch_idx + 1}, batch {batch_idx}."
                     )
 
-            errors, batch_cnn_offsets, batch_zernike_offsets = extract_localization_inputs(
+            collect_localization_stats = log_every > 0 and batch_idx % log_every == 0
+            errors, batch_cnn_offsets, batch_zernike_offsets, localization_stats = extract_localization_inputs(
                 images=images,
                 pyramid_bb=pyramid_bb,
                 pyramid_zm=pyramid_zm,
@@ -615,6 +666,8 @@ def pipeline(
                 pm_beta=pm_beta,
                 pm_use_non_local=pm_use_non_local,
                 pm_non_local_limit=pm_non_local_limit,
+                pm_reduced_precision=pm_reduced_precision,
+                collect_stats=collect_localization_stats,
             )
 
             if dlf_decoder is None:
@@ -677,6 +730,16 @@ def pipeline(
                 epoch_loss_steps += 1
 
                 if log_every > 0 and batch_idx % log_every == 0:
+                    localization_message = ""
+                    if localization_stats is not None:
+                        localization_message = (
+                            f" feat: {localization_stats['feature_time_s']:.2f}s"
+                            f" pm: {localization_stats['patchmatch_time_s']:.2f}s"
+                            f" dlf: {localization_stats['dlf_time_s']:.2f}s"
+                        )
+                        peak_memory_mb = localization_stats.get("localization_peak_memory_mb")
+                        if peak_memory_mb is not None:
+                            localization_message += f" loc_peak: {peak_memory_mb:.0f}MB"
                     print(
                         f"[epoch {epoch_idx + 1}/{epochs}] "
                         f"batch {batch_idx}/{len(train_loader)} "
@@ -685,6 +748,7 @@ def pipeline(
                         f"mprime_pos: {branch_stats['mprime_positive_rate']:.4%} "
                         f"mprime_wins: {branch_stats['mprime_wins_rate']:.4%} "
                         f"time spent: {(time.perf_counter() - batch_start):.2f}"
+                        f"{localization_message}"
                     )
 
                 if epoch_idx == resume_epoch and batch_idx > 5:
@@ -732,7 +796,7 @@ def pipeline(
                     masks = masks.to(device=device, dtype=torch.float32)
                     labels = labels.to(device)
 
-                    errors, batch_cnn_offsets, batch_zernike_offsets = extract_localization_inputs(
+                    errors, batch_cnn_offsets, batch_zernike_offsets, _ = extract_localization_inputs(
                         images=images,
                         pyramid_bb=pyramid_bb,
                         pyramid_zm=pyramid_zm,
@@ -745,6 +809,7 @@ def pipeline(
                         pm_beta=pm_beta,
                         pm_use_non_local=pm_use_non_local,
                         pm_non_local_limit=pm_non_local_limit,
+                        pm_reduced_precision=pm_reduced_precision,
                     )
                     refined_mask, target_map, dlf_map = decode_and_refine_masks(
                         images=images,
