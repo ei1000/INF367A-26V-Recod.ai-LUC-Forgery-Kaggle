@@ -2,6 +2,14 @@ import torch
 import torch.nn as nn
 from datatypes import DLFDecoderInput
 
+
+def make_group_norm(num_channels: int, max_groups: int = 8) -> nn.GroupNorm:
+    group_count = min(max_groups, num_channels)
+    while num_channels % group_count != 0 and group_count > 1:
+        group_count -= 1
+    return nn.GroupNorm(group_count, num_channels)
+
+
 # TODO: This convblock is used both here and for feature extractors. Refactor to make more clean -
 # maybe a shared modules dir?
 class ConvBlock(nn.Module):
@@ -9,7 +17,7 @@ class ConvBlock(nn.Module):
         super().__init__()
         self.block = nn.Sequential(
             nn.Conv2d(in_dim, out_dim, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(out_dim),
+            make_group_norm(out_dim),
             nn.ReLU(),
         )
     
@@ -45,11 +53,21 @@ class DLFDecoder(nn.Module):
             raise ValueError(f"Expected offsets shape [2,H,W] or [B,2,H,W], got {tuple(offsets.shape)}")
         return offsets
 
+    def normalize_offsets(self, offsets: torch.Tensor) -> torch.Tensor:
+        _, _, height, width = offsets.shape
+        scale_x = max(width - 1, 1)
+        scale_y = max(height - 1, 1)
+
+        normalized = offsets.to(dtype=torch.float32).clone()
+        normalized[:, 0] = normalized[:, 0] / float(scale_x)
+        normalized[:, 1] = normalized[:, 1] / float(scale_y)
+        return normalized
+
     def forward(self, input: DLFDecoderInput):
         device = self.final_conv.weight.device
         cross_scale_errors = self._as_batched_errors(input.cross_scale_errors).to(device)
-        cnn_offsets = self._as_batched_offsets(input.cnn_offsets).to(device)
-        zernike_offsets = self._as_batched_offsets(input.zernike_offsets).to(device)
+        cnn_offsets = self.normalize_offsets(self._as_batched_offsets(input.cnn_offsets)).to(device)
+        zernike_offsets = self.normalize_offsets(self._as_batched_offsets(input.zernike_offsets)).to(device)
 
         if cross_scale_errors.shape[0] != cnn_offsets.shape[0]:
             raise ValueError(

@@ -1,1 +1,0 @@
-{"epoch": 1, "train_dice_loss": 0.9059721897818128, "steps": 1119, "epoch_seconds": 10544.113115882996, "val_dice_loss": 0.8832001447677612, "val_of1": 0.04023494866625219, "val_iou": 0.07230510662463319, "val_dice": 0.1348592041163225, "val_pred_positive_rate": 0.31463045655699445, "val_mask_positive_rate": 0.038940756953753354}

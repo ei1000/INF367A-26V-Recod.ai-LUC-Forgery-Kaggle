@@ -96,3 +96,11 @@ So your behavior is consistent with your current PM design. The paper’s “ran
 
 Nice!
 ![alt text](image.png)
+
+## fix
+
+- Lowered beta (high value seemed good with zernike but gave instability)
+- Added loss for pm module - was being absorbed by seunet (could also be because of poor input features)
+- Used pretrained CNN (other was)
+- Used groupnorm instead of batchnorm (batchnorm potentially too noisy)
+- Normalized input pixel offsets to decoder

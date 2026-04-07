@@ -197,7 +197,7 @@ class PixelPropagator:
         return sampled.permute(0, 2, 3, 1).contiguous()
 
     @torch.no_grad()
-    def evaluate(self, candidates: torch.Tensor, features, beta: float = 2.5, exclude_self: bool = True):
+    def evaluate(self, candidates: torch.Tensor, features, beta: float = 10.0, exclude_self: bool = True):
         B, H, W, K = candidates.shape[:4]
 
         if isinstance(features, (tuple, list)):

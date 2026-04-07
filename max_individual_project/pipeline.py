@@ -54,6 +54,14 @@ def save_prediction_batch(predictions_dir: Path, epoch_idx: int, batch_idx: int,
     torch.save(mask_preds.detach().cpu(), pred_path)
 
 
+def set_optimizer_learning_rate(optimizer, learning_rate: float):
+    if optimizer is None:
+        return
+
+    for param_group in optimizer.param_groups:
+        param_group["lr"] = learning_rate
+
+
 def append_metrics_log(output_dir: Path, metrics: dict):
     metrics_path = output_dir / "metrics.jsonl"
     with metrics_path.open("a", encoding="utf-8") as file:
@@ -89,16 +97,34 @@ def save_metrics_plot(output_dir: Path):
         return
 
     epochs = [entry["epoch"] for entry in history if "epoch" in entry]
-    train_losses = [entry.get("train_dice_loss") for entry in history]
-    val_losses = [entry.get("val_dice_loss") for entry in history]
+    train_losses = [entry.get("train_loss", entry.get("train_dice_loss")) for entry in history]
+    val_losses = [entry.get("val_loss", entry.get("val_dice_loss")) for entry in history]
+    train_ldfm = [entry.get("train_ldfm") for entry in history]
+    train_lmrd = [entry.get("train_lmrd") for entry in history]
+    train_mprime_loss = [entry.get("train_mprime_loss") for entry in history]
+    val_ldfm = [entry.get("val_ldfm") for entry in history]
+    val_lmrd = [entry.get("val_lmrd") for entry in history]
+    val_mprime_loss = [entry.get("val_mprime_loss") for entry in history]
     val_of1 = [entry.get("val_of1") for entry in history]
 
     fig, axes = plt.subplots(2, 1, figsize=(9, 8), sharex=True)
 
-    axes[0].plot(epochs, train_losses, marker="o", label="train_dice_loss")
+    axes[0].plot(epochs, train_losses, marker="o", label="train_loss")
     if any(value is not None for value in val_losses):
-        axes[0].plot(epochs, val_losses, marker="o", label="val_dice_loss")
-    axes[0].set_ylabel("Dice Loss")
+        axes[0].plot(epochs, val_losses, marker="o", label="val_loss")
+    if any(value is not None for value in train_ldfm):
+        axes[0].plot(epochs, train_ldfm, linestyle="--", label="train_ldfm")
+    if any(value is not None for value in train_lmrd):
+        axes[0].plot(epochs, train_lmrd, linestyle="--", label="train_lmrd")
+    if any(value is not None for value in train_mprime_loss):
+        axes[0].plot(epochs, train_mprime_loss, linestyle="-.", label="train_mprime_loss")
+    if any(value is not None for value in val_ldfm):
+        axes[0].plot(epochs, val_ldfm, linestyle=":", label="val_ldfm")
+    if any(value is not None for value in val_lmrd):
+        axes[0].plot(epochs, val_lmrd, linestyle=":", label="val_lmrd")
+    if any(value is not None for value in val_mprime_loss):
+        axes[0].plot(epochs, val_mprime_loss, linestyle=(0, (3, 1, 1, 1)), label="val_mprime_loss")
+    axes[0].set_ylabel("Loss")
     axes[0].set_title("Training Loss")
     axes[0].grid(True, alpha=0.3)
     axes[0].legend()
@@ -296,6 +322,42 @@ def dice_loss(pred_mask: torch.Tensor, target_mask: torch.Tensor, eps: float = 1
     return 1 - dice.mean()
 
 
+def normalize_dlf_error_maps(error_maps: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+    if error_maps.dim() != 4:
+        raise ValueError(f"Expected error maps shape [B,S,H,W], got {tuple(error_maps.shape)}")
+
+    error_maps = torch.clamp_min(error_maps.float(), 0.0)
+    error_maps = torch.log1p(error_maps)
+
+    flattened = error_maps.flatten(start_dim=2)
+    mean = flattened.mean(dim=-1, keepdim=True).unsqueeze(-1)
+    std = flattened.std(dim=-1, keepdim=True, unbiased=False).unsqueeze(-1)
+    normalized = (error_maps - mean) / (std + eps)
+    return normalized.clamp(-6.0, 6.0)
+
+
+def localization_loss_terms(
+    refined_mask: torch.Tensor,
+    target_map: torch.Tensor,
+    dlf_map: torch.Tensor,
+    target_mask: torch.Tensor,
+    mprime_loss_weight: float = 0.0,
+):
+    ldfm = dice_loss(refined_mask, target_mask)
+    lmrd = dice_loss(target_map, target_mask)
+    mprime_loss = dice_loss(dlf_map, target_mask)
+    total_loss = ldfm + lmrd + (mprime_loss_weight * mprime_loss)
+    return total_loss, ldfm, lmrd, mprime_loss
+
+
+def summarize_branch_activity(dlf_map: torch.Tensor, target_map: torch.Tensor) -> dict[str, float]:
+    return {
+        "mprime_positive_rate": float((dlf_map >= 0.5).float().mean().item()),
+        "mprime_wins_rate": float((dlf_map > target_map).float().mean().item()),
+        "target_positive_rate": float((target_map >= 0.5).float().mean().item()),
+    }
+
+
 def extract_localization_inputs(
     images: torch.Tensor,
     pyramid_bb,
@@ -329,6 +391,7 @@ def extract_localization_inputs(
         )
 
         errors = MultiScaleDLF(images, batch_cnn_offsets).compute_errors()
+        errors = normalize_dlf_error_maps(errors)
 
     return errors, batch_cnn_offsets, batch_zernike_offsets
 
@@ -369,7 +432,7 @@ def pipeline(
     cnn_feature_norm=True,
     separate_transforms=True,
     pm_iters=16,
-    pm_beta=1000,
+    pm_beta=10.0,
     pm_random_window=50,
     pm_use_non_local=False,
     pm_non_local_limit=25.0,
@@ -380,6 +443,8 @@ def pipeline(
     save_predictions=False,
     validation_split=0.0,
     validation_seed=42,
+    learning_rate=1e-3,
+    mprime_loss_weight=0.0,
 ):
     print('[pipeline] Initializing training loop and datasets...')
     torch.set_float32_matmul_precision("medium")
@@ -510,7 +575,12 @@ def pipeline(
 
     for epoch_idx in range(resume_epoch, epochs):
         epoch_start = time.perf_counter()
-        epoch_dice_loss_sum = 0.0
+        epoch_loss_sum = 0.0
+        epoch_ldfm_sum = 0.0
+        epoch_lmrd_sum = 0.0
+        epoch_mprime_loss_sum = 0.0
+        epoch_mprime_positive_rate_sum = 0.0
+        epoch_mprime_wins_rate_sum = 0.0
         epoch_loss_steps = 0
 
         if optimizer is not None:
@@ -555,7 +625,7 @@ def pipeline(
                     dlf_decoder.train()
                     optimizer = torch.optim.Adam(
                         list(dlf_decoder.parameters()) + list(se_model.parameters()),
-                        lr=1e-3,
+                        lr=learning_rate,
                     )
 
                 if checkpoint is not None:
@@ -563,9 +633,10 @@ def pipeline(
                     se_model.load_state_dict(checkpoint["se_model"])
                     if optimizer is not None and checkpoint.get("optimizer") is not None:
                         optimizer.load_state_dict(checkpoint["optimizer"])
+                        set_optimizer_learning_rate(optimizer, learning_rate)
                     checkpoint = None
 
-            refined_mask, _, _ = decode_and_refine_masks(
+            refined_mask, target_map, dlf_map = decode_and_refine_masks(
                 images=images,
                 errors=errors,
                 batch_cnn_offsets=batch_cnn_offsets,
@@ -582,19 +653,37 @@ def pipeline(
 
             if optimizer is not None:
                 optimizer.zero_grad()
-                loss = dice_loss(refined_mask, masks)
+                loss, ldfm, lmrd, mprime_loss = localization_loss_terms(
+                    refined_mask,
+                    target_map,
+                    dlf_map,
+                    masks,
+                    mprime_loss_weight=mprime_loss_weight,
+                )
+                branch_stats = summarize_branch_activity(dlf_map, target_map)
                 loss.backward()
                 optimizer.step()
 
                 loss_value = loss.item()
-                epoch_dice_loss_sum += loss_value
+                ldfm_value = ldfm.item()
+                lmrd_value = lmrd.item()
+                mprime_loss_value = mprime_loss.item()
+                epoch_loss_sum += loss_value
+                epoch_ldfm_sum += ldfm_value
+                epoch_lmrd_sum += lmrd_value
+                epoch_mprime_loss_sum += mprime_loss_value
+                epoch_mprime_positive_rate_sum += branch_stats["mprime_positive_rate"]
+                epoch_mprime_wins_rate_sum += branch_stats["mprime_wins_rate"]
                 epoch_loss_steps += 1
 
                 if log_every > 0 and batch_idx % log_every == 0:
                     print(
                         f"[epoch {epoch_idx + 1}/{epochs}] "
                         f"batch {batch_idx}/{len(train_loader)} "
-                        f"dice_loss: {loss_value:.4f} "
+                        f"loss: {loss_value:.4f} "
+                        f"(ldfm={ldfm_value:.4f}, lmrd={lmrd_value:.4f}, mprime={mprime_loss_value:.4f}, lambda={mprime_loss_weight:.2f}) "
+                        f"mprime_pos: {branch_stats['mprime_positive_rate']:.4%} "
+                        f"mprime_wins: {branch_stats['mprime_wins_rate']:.4%} "
                         f"time spent: {(time.perf_counter() - batch_start):.2f}"
                     )
 
@@ -619,7 +708,12 @@ def pipeline(
         if val_loader is not None and dlf_decoder is not None:
             dlf_decoder.eval()
             se_model.eval()
-            val_dice_loss_sum = 0.0
+            val_loss_sum = 0.0
+            val_ldfm_sum = 0.0
+            val_lmrd_sum = 0.0
+            val_mprime_loss_sum = 0.0
+            val_mprime_positive_rate_sum = 0.0
+            val_mprime_wins_rate_sum = 0.0
             val_loss_steps = 0
             val_counts = {
                 "tp": 0,
@@ -652,7 +746,7 @@ def pipeline(
                         pm_use_non_local=pm_use_non_local,
                         pm_non_local_limit=pm_non_local_limit,
                     )
-                    refined_mask, _, _ = decode_and_refine_masks(
+                    refined_mask, target_map, dlf_map = decode_and_refine_masks(
                         images=images,
                         errors=errors,
                         batch_cnn_offsets=batch_cnn_offsets,
@@ -661,8 +755,20 @@ def pipeline(
                         se_model=se_model,
                     )
 
-                    val_loss = dice_loss(refined_mask, masks)
-                    val_dice_loss_sum += val_loss.item()
+                    val_loss, val_ldfm, val_lmrd, val_mprime_loss = localization_loss_terms(
+                        refined_mask,
+                        target_map,
+                        dlf_map,
+                        masks,
+                        mprime_loss_weight=mprime_loss_weight,
+                    )
+                    branch_stats = summarize_branch_activity(dlf_map, target_map)
+                    val_loss_sum += val_loss.item()
+                    val_ldfm_sum += val_ldfm.item()
+                    val_lmrd_sum += val_lmrd.item()
+                    val_mprime_loss_sum += val_mprime_loss.item()
+                    val_mprime_positive_rate_sum += branch_stats["mprime_positive_rate"]
+                    val_mprime_wins_rate_sum += branch_stats["mprime_wins_rate"]
                     val_loss_steps += 1
 
                     mask_preds = (refined_mask >= 0.5).long().squeeze(1)
@@ -680,13 +786,21 @@ def pipeline(
                         val_images += 1
 
             val_metrics = summarize_segmentation_counts(val_counts)
-            val_mean_dice_loss = val_dice_loss_sum / max(val_loss_steps, 1)
+            val_mean_loss = val_loss_sum / max(val_loss_steps, 1)
+            val_mean_ldfm = val_ldfm_sum / max(val_loss_steps, 1)
+            val_mean_lmrd = val_lmrd_sum / max(val_loss_steps, 1)
+            val_mean_mprime_loss = val_mprime_loss_sum / max(val_loss_steps, 1)
+            val_mean_mprime_positive_rate = val_mprime_positive_rate_sum / max(val_loss_steps, 1)
+            val_mean_mprime_wins_rate = val_mprime_wins_rate_sum / max(val_loss_steps, 1)
             val_mean_of1 = val_of1_sum / max(val_images, 1)
             print(
                 f"[epoch {epoch_idx + 1}/{epochs}] "
-                f"val_dice_loss: {val_mean_dice_loss:.4f} "
+                f"val_loss: {val_mean_loss:.4f} "
+                f"(ldfm={val_mean_ldfm:.4f}, lmrd={val_mean_lmrd:.4f}, mprime={val_mean_mprime_loss:.4f}, lambda={mprime_loss_weight:.2f}) "
                 f"val_oF1: {val_mean_of1:.4f} "
-                f"val_pred_pos: {val_metrics['pred_positive_rate']:.4%}"
+                f"val_pred_pos: {val_metrics['pred_positive_rate']:.4%} "
+                f"val_mprime_pos: {val_mean_mprime_positive_rate:.4%} "
+                f"val_mprime_wins: {val_mean_mprime_wins_rate:.4%}"
             )
 
             if optimizer is not None:
@@ -694,16 +808,31 @@ def pipeline(
                 se_model.train()
 
         if epoch_loss_steps > 0:
-            mean_dice_loss = epoch_dice_loss_sum / epoch_loss_steps
+            mean_loss = epoch_loss_sum / epoch_loss_steps
+            mean_ldfm = epoch_ldfm_sum / epoch_loss_steps
+            mean_lmrd = epoch_lmrd_sum / epoch_loss_steps
+            mean_mprime_loss = epoch_mprime_loss_sum / epoch_loss_steps
+            mean_mprime_positive_rate = epoch_mprime_positive_rate_sum / epoch_loss_steps
+            mean_mprime_wins_rate = epoch_mprime_wins_rate_sum / epoch_loss_steps
             metrics = {
                 "epoch": epoch_idx + 1,
-                "train_dice_loss": mean_dice_loss,
+                "train_loss": mean_loss,
+                "train_ldfm": mean_ldfm,
+                "train_lmrd": mean_lmrd,
+                "train_mprime_loss": mean_mprime_loss,
+                "train_mprime_positive_rate": mean_mprime_positive_rate,
+                "train_mprime_wins_rate": mean_mprime_wins_rate,
                 "steps": epoch_loss_steps,
                 "epoch_seconds": time.perf_counter() - epoch_start,
             }
 
             if val_metrics is not None:
-                metrics["val_dice_loss"] = val_mean_dice_loss
+                metrics["val_loss"] = val_mean_loss
+                metrics["val_ldfm"] = val_mean_ldfm
+                metrics["val_lmrd"] = val_mean_lmrd
+                metrics["val_mprime_loss"] = val_mean_mprime_loss
+                metrics["val_mprime_positive_rate"] = val_mean_mprime_positive_rate
+                metrics["val_mprime_wins_rate"] = val_mean_mprime_wins_rate
                 metrics["val_of1"] = val_mean_of1
                 metrics["val_iou"] = val_metrics["iou"]
                 metrics["val_dice"] = val_metrics["dice"]
@@ -712,14 +841,17 @@ def pipeline(
 
             print(
                 f"[epoch {epoch_idx + 1}/{epochs}] "
-                f"train_dice_loss: {mean_dice_loss:.4f} "
+                f"train_loss: {mean_loss:.4f} "
+                f"(ldfm={mean_ldfm:.4f}, lmrd={mean_lmrd:.4f}, mprime={mean_mprime_loss:.4f}, lambda={mprime_loss_weight:.2f}) "
+                f"mprime_pos: {mean_mprime_positive_rate:.4%} "
+                f"mprime_wins: {mean_mprime_wins_rate:.4%} "
                 f"completed in: {metrics['epoch_seconds']:.2f}s"
             )
             append_metrics_log(output_dir, metrics)
             save_metrics_plot(output_dir)
 
             if optimizer is not None:
-                checkpoint_score = val_mean_of1 if val_metrics is not None else -mean_dice_loss
+                checkpoint_score = val_mean_of1 if val_metrics is not None else -mean_loss
                 save_checkpoint(
                     checkpoint_path,
                     epoch=epoch_idx + 1,
