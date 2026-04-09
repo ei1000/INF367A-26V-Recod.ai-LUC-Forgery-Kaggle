@@ -19,6 +19,7 @@ from feature_extractors.zernike_feature_extractor import PyramidZernikeExtractor
 from prediction.decoder import DLFDecoder
 from prediction.multi_scale_dlf import MultiScaleDLF
 from prediction.se_u_net import SEUNet, build_se_unet_input
+from prediction.pixelmaputil_mask import MaskUtil
 from visualizer import display_image, display_pixel_offsets
 
 
@@ -55,6 +56,28 @@ def save_checkpoint(path: Path, epoch: int, dlf_decoder, se_model, optimizer, be
 def save_prediction_batch(predictions_dir: Path, epoch_idx: int, batch_idx: int, mask_preds: torch.Tensor):
     pred_path = predictions_dir / f"epoch_{epoch_idx + 1:03d}_batch_{batch_idx:05d}.pt"
     torch.save(mask_preds.detach().cpu(), pred_path)
+
+
+def post_process_mask_batch(
+    mask_probs: torch.Tensor,
+    mask_util: MaskUtil,
+    threshold: float = 0.5,
+    confident_threshold: float = 0.8,
+) -> torch.Tensor:
+    if mask_probs.dim() == 2:
+        mask_probs = mask_probs.unsqueeze(0)
+
+    processed_masks = []
+    for probs in mask_probs.detach().cpu().numpy():
+        processed = mask_util.post_process_mask_probs(
+            probs,
+            threshold=threshold,
+            confident_threshold=confident_threshold,
+        )
+        processed_masks.append(processed.astype(np.int64, copy=False))
+
+    processed_np = np.stack(processed_masks, axis=0)
+    return torch.from_numpy(processed_np).to(device=mask_probs.device, dtype=torch.long)
 
 
 def set_optimizer_learning_rate(optimizer, learning_rate: float):
@@ -565,6 +588,7 @@ def pipeline(
     feature_backbone="cnn",
     use_dino_transform=False,
     batch_size=4,
+    override_batch_size=False,
     dino_model_name="dinov2_vits14",
     dino_proj_dim=64,
     cnn_backbone="simple",
@@ -590,7 +614,8 @@ def pipeline(
     validation_split=0.0,
     validation_seed=42,
     learning_rate=1e-3,
-    mprime_loss_weight=0.0,
+    mprime_loss_weight=0.5,
+    do_post_process=True,
 ):
     print('[pipeline] Initializing training loop and datasets...')
     torch.set_float32_matmul_precision("medium")
@@ -620,14 +645,17 @@ def pipeline(
         else:
             transform = regular_transform
 
-    if batch_size > 8:
+    if batch_size > 8 and not override_batch_size:
         print("[pipeline] PatchMatch is memory-heavy; forcing batch_size=8 for 16GB VRAM safety")
+        print("[pipeline] Override on powerful devices by adding override=True")
         batch_size = 8
 
     train_dataset_list = []
     val_dataset_list = []
     mask_dir_by_sample = {}
     supervised = all(dataset["masks"] is not None for dataset in datasets.value)
+
+    util = MaskUtil() if do_post_process else None
 
     for dataset_idx, dataset in enumerate(datasets.value):
         image_folder = ImageFolder(root / dataset["images"])
@@ -888,8 +916,13 @@ def pipeline(
                         )
                         eta_printed = True
 
-            mask_preds = (refined_mask >= 0.5).long().squeeze(1)
             if save_predictions:
+                mask_probs = refined_mask.squeeze(1)
+                mask_preds = (
+                    post_process_mask_batch(mask_probs, util)
+                    if do_post_process and util is not None
+                    else (mask_probs >= 0.5).long()
+                )
                 save_prediction_batch(predictions_dir, epoch_idx, batch_counter + 1, mask_preds)
 
             batch_counter += 1
@@ -950,6 +983,7 @@ def pipeline(
                         se_model=se_model,
                     )
 
+
                     val_loss, val_ldfm, val_lmrd, val_mprime_loss = localization_loss_terms(
                         refined_mask,
                         target_map,
@@ -966,7 +1000,13 @@ def pipeline(
                     val_mprime_wins_rate_sum += branch_stats["mprime_wins_rate"]
                     val_loss_steps += 1
 
-                    mask_preds = (refined_mask >= 0.5).long().squeeze(1)
+                    mask_probs = refined_mask.squeeze(1)
+                    mask_preds = (
+                        post_process_mask_batch(mask_probs, util)
+                        if do_post_process and util is not None
+                        else (mask_probs >= 0.5).long()
+                    )
+
                     update_segmentation_counts(mask_preds, masks.long(), val_counts)
 
                     pred_masks_np = mask_preds.cpu().numpy().astype(np.uint8)
