@@ -102,7 +102,6 @@ class PixelPropagator:
 
         return dx.float(), dy.float()
 
-    @torch.no_grad()
     def propagation_block(self, dx: torch.Tensor, dy: torch.Tensor) -> torch.Tensor:
         def roll_offsets(values: torch.Tensor, shift_h: int, shift_w: int) -> torch.Tensor:
             return torch.roll(values, shifts=(shift_h, shift_w), dims=(-2, -1))
@@ -145,7 +144,6 @@ class PixelPropagator:
         cand_dy = torch.stack(zero_dy + first_dy, dim=-1)
         return torch.stack((cand_dx, cand_dy), dim=-1)
 
-    @torch.no_grad()
     def random_search_block(
         self,
         dx: torch.Tensor,
@@ -179,7 +177,6 @@ class PixelPropagator:
 
         return torch.stack((cand_dx, cand_dy), dim=-1)
 
-    @torch.no_grad()
     def non_local_reset(self, dx: torch.Tensor, dy: torch.Tensor, limit_u: float = 25.0):
         local_mask = (dx * dx + dy * dy) <= float(limit_u)
         if not local_mask.any():
@@ -218,8 +215,24 @@ class PixelPropagator:
         sampled = sampled.reshape(B, feature_map.shape[1], H, K, W)
         return sampled.permute(0, 3, 1, 2, 4)
 
-    @torch.no_grad()
-    def evaluate_reference(self, candidates: torch.Tensor, feature_list: list[torch.Tensor], beta: float = 10.0, exclude_self: bool = True):
+    def select_candidates(self, candidates: torch.Tensor, l1: torch.Tensor, beta: float, hard_selection: bool) -> torch.Tensor:
+        candidate_values = candidates.permute(0, 3, 1, 2, 4)
+        if hard_selection:
+            best_idx = torch.argmin(l1, dim=1, keepdim=True)
+            gather_idx = best_idx.unsqueeze(-1).expand(-1, -1, -1, -1, candidate_values.shape[-1])
+            return torch.gather(candidate_values, dim=1, index=gather_idx).squeeze(1)
+
+        weights = torch.softmax(-beta * l1, dim=1)
+        return (candidate_values * weights.unsqueeze(-1)).sum(dim=1)
+
+    def evaluate_reference(
+        self,
+        candidates: torch.Tensor,
+        feature_list: list[torch.Tensor],
+        beta: float = 10.0,
+        exclude_self: bool = True,
+        hard_selection: bool = False,
+    ):
         B, H, W, K = candidates.shape[:4]
         x_abs = self.x_grid.unsqueeze(-1) + candidates[..., 0]
         y_abs = self.y_grid.unsqueeze(-1) + candidates[..., 1]
@@ -244,12 +257,16 @@ class PixelPropagator:
             if zero_mask.any():
                 l1 = l1.masked_fill(zero_mask.permute(0, 3, 1, 2), 1e6)
 
-        weights = torch.softmax(-beta * l1, dim=1)
-        weighted_candidates = candidates.permute(0, 3, 1, 2, 4)
-        return (weighted_candidates * weights.unsqueeze(-1)).sum(dim=1)
+        return self.select_candidates(candidates, l1, beta=beta, hard_selection=hard_selection)
 
-    @torch.no_grad()
-    def evaluate(self, candidates: torch.Tensor, feature_list: list[torch.Tensor], beta: float = 10.0, exclude_self: bool = True):
+    def evaluate(
+        self,
+        candidates: torch.Tensor,
+        feature_list: list[torch.Tensor],
+        beta: float = 10.0,
+        exclude_self: bool = True,
+        hard_selection: bool = False,
+    ):
         _, H, W, _ = candidates.shape[:4]
         x_abs = self.x_grid.unsqueeze(-1) + candidates[..., 0]
         y_abs = self.y_grid.unsqueeze(-1) + candidates[..., 1]
@@ -272,16 +289,13 @@ class PixelPropagator:
             if zero_mask.any():
                 l1 = l1.masked_fill(zero_mask.permute(0, 3, 1, 2), 1e6)
 
-        weights = torch.softmax(-beta * l1, dim=1)
-        weighted_candidates = candidates.permute(0, 3, 1, 2, 4)
-        return (weighted_candidates * weights.unsqueeze(-1)).sum(dim=1)
+        return self.select_candidates(candidates, l1, beta=beta, hard_selection=hard_selection)
 
     def _restore_offsets(self, offsets: torch.Tensor) -> torch.Tensor:
         if self.single_image:
             return offsets.squeeze(0)
         return offsets
 
-    @torch.no_grad()
     def run_branch(
         self,
         feature_list: list[torch.Tensor],
@@ -289,6 +303,7 @@ class PixelPropagator:
         beta: float,
         use_non_local: bool,
         non_local_limit: float,
+        hard_selection: bool = False,
         reference_evaluate: bool = False,
     ) -> torch.Tensor:
         evaluate_fn = self.evaluate_reference if reference_evaluate else self.evaluate
@@ -298,13 +313,12 @@ class PixelPropagator:
             propagated = self.propagation_block(dx, dy)
             random_candidates = self.random_search_block(dx, dy, num_random=4)
             candidates = torch.cat((base, propagated, random_candidates), dim=-2)
-            best = evaluate_fn(candidates, feature_list, beta=beta, exclude_self=True)
+            best = evaluate_fn(candidates, feature_list, beta=beta, exclude_self=True, hard_selection=hard_selection)
             dx, dy = best[..., 0], best[..., 1]
             if use_non_local and iter_idx < (iters - 1):
                 dx, dy = self.non_local_reset(dx, dy, limit_u=non_local_limit)
         return torch.stack((dx, dy), dim=1)
 
-    @torch.no_grad()
     def propagation_layer(
         self,
         iters: int = 24,
@@ -312,6 +326,7 @@ class PixelPropagator:
         random_window: int | None = None,
         use_non_local: bool = False,
         non_local_limit: float = 25.0,
+        hard_selection: bool = False,
         reference_evaluate: bool = False,
     ):
         if random_window is not None:
@@ -323,6 +338,7 @@ class PixelPropagator:
             beta=beta,
             use_non_local=use_non_local,
             non_local_limit=non_local_limit,
+            hard_selection=hard_selection,
             reference_evaluate=reference_evaluate,
         )
         zernike_offsets = self.run_branch(
@@ -331,6 +347,7 @@ class PixelPropagator:
             beta=beta,
             use_non_local=use_non_local,
             non_local_limit=non_local_limit,
+            hard_selection=hard_selection,
             reference_evaluate=reference_evaluate,
         )
         return self._restore_offsets(cnn_offsets), self._restore_offsets(zernike_offsets)

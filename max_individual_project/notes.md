@@ -104,3 +104,5 @@ Nice!
 - Used pretrained CNN (other was)
 - Used groupnorm instead of batchnorm (batchnorm potentially too noisy)
 - Normalized input pixel offsets to decoder
+
+run: started with LR = 1e-3 and mprime loss = 0.8, on epoch 9 lowered to 1e-4 and reduced mprime weight to 0.6 to incentivize other losses

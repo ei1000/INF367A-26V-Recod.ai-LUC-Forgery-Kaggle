@@ -13,6 +13,7 @@ class DinoFeatureExtractor(nn.Module):
         model_name: str = "dinov2_vitb14",
         repo: str = "facebookresearch/dinov2",
         freeze: bool = True,
+        finetune_blocks: int = 0,
         normalize_input: bool = True,
         proj_dim: int | None = None,
     ):
@@ -26,9 +27,13 @@ class DinoFeatureExtractor(nn.Module):
         self._encoder_frozen = False
         self.normalize_input = normalize_input
         self.proj_dim = proj_dim
-        self.proj = None
+        self.proj = nn.LazyConv2d(proj_dim, kernel_size=1, bias=False) if proj_dim is not None else None
         if freeze:
             self.freeze_encoder()
+        elif finetune_blocks > 0:
+            self.unfreeze_last_blocks(finetune_blocks)
+        else:
+            self.unfreeze_encoder()
 
         # ImageNet normalization for DINOv2
         self.register_buffer("mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
@@ -44,6 +49,25 @@ class DinoFeatureExtractor(nn.Module):
         self._encoder_frozen = False
         for param in self.encoder.parameters():
             param.requires_grad = True
+
+    def unfreeze_last_blocks(self, num_blocks: int = 1) -> None:
+        if num_blocks <= 0 or not hasattr(self.encoder, "blocks"):
+            self.unfreeze_encoder()
+            return
+
+        self._encoder_frozen = False
+        for param in self.encoder.parameters():
+            param.requires_grad = False
+
+        block_count = len(self.encoder.blocks)
+        start_idx = max(block_count - int(num_blocks), 0)
+        for block in self.encoder.blocks[start_idx:]:
+            for param in block.parameters():
+                param.requires_grad = True
+
+        if hasattr(self.encoder, "norm"):
+            for param in self.encoder.norm.parameters():
+                param.requires_grad = True
 
     def train(self, mode: bool = True):
         super().train(mode)
@@ -107,9 +131,7 @@ class DinoFeatureExtractor(nn.Module):
         x_pad, _ = self._pad_to_patch_multiple(x)
         features = self.forward_features(x_pad)
 
-        if self.proj_dim is not None:
-            if self.proj is None:
-                self.proj = nn.Conv2d(features.shape[1], self.proj_dim, kernel_size=1, bias=False).to(features.device)
+        if self.proj is not None:
             features = self.proj(features)
 
         return features

@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 import time
+from contextlib import nullcontext
 
 import numpy as np
 import scipy.ndimage
@@ -13,7 +14,7 @@ from torchvision.datasets import ImageFolder
 from cross_scale_patternmatch.pixel_propagator import PixelPropagator
 from dataset import Datasets, ForgeryDataset, dino_transform, imagenet_transform, regular_transform, resolve_data_root
 from datatypes import DLFDecoderInput
-from feature_extractors.cnn_feature_extractor import PretrainedBackboneExtractor, PyramidFeatureExtractor
+from feature_extractors.cnn_feature_extractor import BackboneExtractor, PretrainedBackboneExtractor, PyramidFeatureExtractor
 from feature_extractors.zernike_feature_extractor import PyramidZernikeExtractor, default_pq_list
 from prediction.decoder import DLFDecoder
 from prediction.multi_scale_dlf import MultiScaleDLF
@@ -37,7 +38,7 @@ def ensure_output_dirs(output_dir: str | Path):
     return output_dir, checkpoints_dir, predictions_dir
 
 
-def save_checkpoint(path: Path, epoch: int, dlf_decoder, se_model, optimizer, best_score: float | None):
+def save_checkpoint(path: Path, epoch: int, dlf_decoder, se_model, optimizer, best_score: float | None, pyramid_bb=None):
     checkpoint = {
         "epoch": epoch,
         "dlf_decoder": dlf_decoder.state_dict(),
@@ -46,6 +47,8 @@ def save_checkpoint(path: Path, epoch: int, dlf_decoder, se_model, optimizer, be
         "best_score": best_score,
         "best_loss": best_score,
     }
+    if pyramid_bb is not None:
+        checkpoint["pyramid_bb"] = pyramid_bb.state_dict()
     torch.save(checkpoint, path)
 
 
@@ -60,6 +63,58 @@ def set_optimizer_learning_rate(optimizer, learning_rate: float):
 
     for param_group in optimizer.param_groups:
         param_group["lr"] = learning_rate
+
+
+def set_optimizer_group_learning_rate(optimizer, group_name: str, learning_rate: float):
+    if optimizer is None:
+        return
+
+    for param_group in optimizer.param_groups:
+        if param_group.get("name") == group_name:
+            param_group["lr"] = learning_rate
+
+
+def collect_backbone_parameter_groups(
+    pyramid_bb,
+    feature_backbone: str,
+    cnn_backbone: str,
+    learning_rate: float,
+    feature_backbone_learning_rate: float | None,
+):
+    if pyramid_bb is None:
+        return []
+
+    backbone_lr = learning_rate if feature_backbone_learning_rate is None else feature_backbone_learning_rate
+    parameter_groups = []
+
+    if feature_backbone == "dino" and hasattr(pyramid_bb, "backbone"):
+        dino_backbone = pyramid_bb.backbone
+        head_params = list(dino_backbone.proj.parameters()) if getattr(dino_backbone, "proj", None) is not None else []
+        encoder_params = [
+            param
+            for name, param in dino_backbone.named_parameters()
+            if param.requires_grad and not name.startswith("proj.")
+        ]
+        if encoder_params:
+            parameter_groups.append({"params": encoder_params, "lr": backbone_lr, "name": "feature_backbone"})
+        if head_params:
+            parameter_groups.append({"params": head_params, "lr": learning_rate, "name": "feature_head"})
+        return parameter_groups
+
+    if feature_backbone == "cnn" and cnn_backbone == "pretrained" and hasattr(pyramid_bb, "backbone"):
+        cnn_feature_model = pyramid_bb.backbone
+        feature_params = list(cnn_feature_model.features.parameters()) if hasattr(cnn_feature_model, "features") else []
+        proj_params = list(cnn_feature_model.proj.parameters()) if hasattr(cnn_feature_model, "proj") else []
+        if feature_params:
+            parameter_groups.append({"params": feature_params, "lr": backbone_lr, "name": "feature_backbone"})
+        if proj_params:
+            parameter_groups.append({"params": proj_params, "lr": learning_rate, "name": "feature_head"})
+        return parameter_groups
+
+    params = [param for param in pyramid_bb.parameters() if param.requires_grad]
+    if params:
+        parameter_groups.append({"params": params, "lr": learning_rate, "name": "feature_backbone"})
+    return parameter_groups
 
 
 def synchronize_if_cuda(device: torch.device):
@@ -392,11 +447,13 @@ def extract_localization_inputs(
     pm_random_window: int,
     pm_iters: int,
     pm_beta: int,
+    pm_hard_selection: bool,
     pm_use_non_local: bool,
     pm_non_local_limit: float,
     pm_reduced_precision: bool = True,
     dino_match_native_resolution: bool = False,
     collect_stats: bool = False,
+    train_feature_backbone: bool = False,
 ):
     images_backbone = images
     if separate_transforms and feature_backbone == "cnn" and cnn_backbone == "pretrained":
@@ -410,24 +467,29 @@ def extract_localization_inputs(
         torch.cuda.reset_peak_memory_stats(device)
         peak_memory_base = torch.cuda.memory_allocated(device)
 
-    with torch.no_grad():
-        if collect_stats:
-            synchronize_if_cuda(device)
-            feature_start = time.perf_counter()
+    feature_context = nullcontext() if train_feature_backbone else torch.no_grad()
+    match_context = nullcontext() if train_feature_backbone else torch.no_grad()
+
+    if collect_stats:
+        synchronize_if_cuda(device)
+        feature_start = time.perf_counter()
+    with feature_context:
         cnn_feats = pyramid_bb(images_backbone)
         if feature_backbone == "cnn" and cnn_backbone == "pretrained" and cnn_feature_norm:
             cnn_feats = tuple(F.normalize(feature, p=2, dim=1) for feature in cnn_feats)
-        zernike_feats = pyramid_zm(images)
-        if collect_stats:
-            synchronize_if_cuda(device)
-            feature_time = time.perf_counter() - feature_start
+    with torch.no_grad():
+        zernike_feats = tuple(feature.detach() for feature in pyramid_zm(images))
+    if collect_stats:
+        synchronize_if_cuda(device)
+        feature_time = time.perf_counter() - feature_start
 
-        patchmatch_images = images
-        if feature_backbone == "dino" and dino_match_native_resolution:
-            dino_match_size = cnn_feats[1].shape[-2:]
-            if dino_match_size != images.shape[-2:]:
-                patchmatch_images = F.interpolate(images, size=dino_match_size, mode="bilinear", align_corners=False)
+    patchmatch_images = images
+    if feature_backbone == "dino" and dino_match_native_resolution:
+        dino_match_size = cnn_feats[1].shape[-2:]
+        if dino_match_size != images.shape[-2:]:
+            patchmatch_images = F.interpolate(images, size=dino_match_size, mode="bilinear", align_corners=False)
 
+    with match_context:
         if collect_stats:
             synchronize_if_cuda(device)
             propagation_start = time.perf_counter()
@@ -443,6 +505,7 @@ def extract_localization_inputs(
         batch_cnn_offsets, batch_zernike_offsets = propagator.propagation_layer(
             iters=pm_iters,
             beta=pm_beta,
+            hard_selection=pm_hard_selection,
             use_non_local=pm_use_non_local,
             non_local_limit=pm_non_local_limit,
         )
@@ -488,7 +551,7 @@ def decode_and_refine_masks(
     )
 
     dlf_map = dlf_decoder(dlf_decoder_input)
-    se_input = build_se_unet_input(images, dlf_map)
+    se_input = build_se_unet_input(images)
     target_map = se_model(se_input)
     refined_mask = torch.maximum(dlf_map, target_map)
     return refined_mask, target_map, dlf_map
@@ -510,11 +573,15 @@ def pipeline(
     separate_transforms=True,
     pm_iters=16,
     pm_beta=10.0,
+    pm_hard_selection=False,
     pm_random_window=50,
     pm_use_non_local=False,
     pm_non_local_limit=25.0,
     pm_reduced_precision=True,
     dino_match_native_resolution=False,
+    train_feature_backbone=False,
+    feature_backbone_learning_rate=None,
+    dino_finetune_blocks=0,
     log_every=10,
     output_dir="artifacts",
     checkpoint_name="latest.pt",
@@ -621,24 +688,33 @@ def pipeline(
 
         pyramid_bb = PyramidDinoFeatureExtractor(
             model_name=dino_model_name,
+            freeze=not train_feature_backbone,
+            finetune_blocks=dino_finetune_blocks if train_feature_backbone else 0,
             normalize_input=True if separate_transforms else not use_dino_transform,
             proj_dim=dino_proj_dim,
             upsample_to_input=not dino_match_native_resolution,
         ).to(device)
     else:
         if cnn_backbone == "pretrained":
-            backbone = PretrainedBackboneExtractor(model_name=cnn_pretrained_model, out_dim=32, freeze=True)
+            backbone = PretrainedBackboneExtractor(
+                model_name=cnn_pretrained_model,
+                out_dim=32,
+                freeze=not train_feature_backbone,
+            )
             pyramid_bb = PyramidFeatureExtractor(backbone=backbone).to(device)
         else:
-            pyramid_bb = PyramidFeatureExtractor().to(device)
+            pyramid_bb = PyramidFeatureExtractor(backbone=BackboneExtractor(use_checkpoint=train_feature_backbone)).to(device)
 
     pq_list = default_pq_list(max_order=5)
     pyramid_zm = PyramidZernikeExtractor(pq_list, kernel_size=13).to(device)
-    pyramid_bb.eval()
+    if train_feature_backbone and supervised and not test_run:
+        pyramid_bb.train()
+    else:
+        pyramid_bb.eval()
     pyramid_zm.eval()
 
     dlf_decoder = None
-    se_model = SEUNet(in_channels=4, out_channels=1, final_activation="sigmoid").to(device)
+    se_model = SEUNet(in_channels=3, out_channels=1, final_activation="sigmoid").to(device)
     optimizer = None
 
     if test_run or not supervised:
@@ -664,6 +740,8 @@ def pipeline(
         epoch_loss_steps = 0
 
         if optimizer is not None:
+            if train_feature_backbone:
+                pyramid_bb.train()
             dlf_decoder.train()
             se_model.train()
 
@@ -694,11 +772,13 @@ def pipeline(
                 pm_random_window=pm_random_window,
                 pm_iters=pm_iters,
                 pm_beta=pm_beta,
+                pm_hard_selection=pm_hard_selection,
                 pm_use_non_local=pm_use_non_local,
                 pm_non_local_limit=pm_non_local_limit,
                 pm_reduced_precision=pm_reduced_precision,
                 dino_match_native_resolution=dino_match_native_resolution,
                 collect_stats=collect_localization_stats,
+                train_feature_backbone=train_feature_backbone,
             )
 
             if dlf_decoder is None:
@@ -707,17 +787,32 @@ def pipeline(
                     dlf_decoder.eval()
                 else:
                     dlf_decoder.train()
-                    optimizer = torch.optim.Adam(
-                        list(dlf_decoder.parameters()) + list(se_model.parameters()),
-                        lr=learning_rate,
+                    optimizer_groups = [
+                        {"params": list(dlf_decoder.parameters()), "lr": learning_rate, "name": "dlf_decoder"},
+                        {"params": list(se_model.parameters()), "lr": learning_rate, "name": "se_model"},
+                    ]
+                    optimizer_groups.extend(
+                        collect_backbone_parameter_groups(
+                            pyramid_bb=pyramid_bb,
+                            feature_backbone=feature_backbone,
+                            cnn_backbone=cnn_backbone,
+                            learning_rate=learning_rate,
+                            feature_backbone_learning_rate=feature_backbone_learning_rate,
+                        )
                     )
+                    optimizer = torch.optim.Adam(optimizer_groups, lr=learning_rate)
 
                 if checkpoint is not None:
+                    if "pyramid_bb" in checkpoint:
+                        pyramid_bb.load_state_dict(checkpoint["pyramid_bb"])
                     dlf_decoder.load_state_dict(checkpoint["dlf_decoder"])
                     se_model.load_state_dict(checkpoint["se_model"])
                     if optimizer is not None and checkpoint.get("optimizer") is not None:
                         optimizer.load_state_dict(checkpoint["optimizer"])
                         set_optimizer_learning_rate(optimizer, learning_rate)
+                        feature_lr = learning_rate if feature_backbone_learning_rate is None else feature_backbone_learning_rate
+                        set_optimizer_group_learning_rate(optimizer, "feature_backbone", feature_lr)
+                        set_optimizer_group_learning_rate(optimizer, "feature_head", learning_rate)
                     checkpoint = None
 
             refined_mask, target_map, dlf_map = decode_and_refine_masks(
@@ -801,6 +896,7 @@ def pipeline(
 
         val_metrics = None
         if val_loader is not None and dlf_decoder is not None:
+            pyramid_bb.eval()
             dlf_decoder.eval()
             se_model.eval()
             val_loss_sum = 0.0
@@ -838,10 +934,12 @@ def pipeline(
                         pm_random_window=pm_random_window,
                         pm_iters=pm_iters,
                         pm_beta=pm_beta,
+                        pm_hard_selection=pm_hard_selection,
                         pm_use_non_local=pm_use_non_local,
                         pm_non_local_limit=pm_non_local_limit,
                         pm_reduced_precision=pm_reduced_precision,
                         dino_match_native_resolution=dino_match_native_resolution,
+                        train_feature_backbone=False,
                     )
                     refined_mask, target_map, dlf_map = decode_and_refine_masks(
                         images=images,
@@ -901,6 +999,8 @@ def pipeline(
             )
 
             if optimizer is not None:
+                if train_feature_backbone:
+                    pyramid_bb.train()
                 dlf_decoder.train()
                 se_model.train()
 
@@ -956,6 +1056,7 @@ def pipeline(
                     se_model=se_model,
                     optimizer=optimizer,
                     best_score=checkpoint_score,
+                    pyramid_bb=pyramid_bb if train_feature_backbone else None,
                 )
                 if best_score is None or checkpoint_score > best_score:
                     best_score = checkpoint_score
@@ -966,6 +1067,7 @@ def pipeline(
                         se_model=se_model,
                         optimizer=optimizer,
                         best_score=best_score,
+                        pyramid_bb=pyramid_bb if train_feature_backbone else None,
                     )
 
     save_metrics_plot(output_dir)

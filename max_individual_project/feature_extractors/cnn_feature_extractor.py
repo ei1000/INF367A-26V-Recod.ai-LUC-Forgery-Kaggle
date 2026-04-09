@@ -1,5 +1,6 @@
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
 '''
 Convolution block with convolution, batchnorm and relu
@@ -20,8 +21,9 @@ class ConvBlock(nn.Module):
 Full backbone utilizing multiple ConvBlocks
 '''
 class BackboneExtractor(nn.Module):
-    def __init__(self):
+    def __init__(self, use_checkpoint: bool = False):
         super().__init__()
+        self.use_checkpoint = use_checkpoint
         self.blocks = nn.ModuleList([
             ConvBlock(3, 64),
             ConvBlock(64, 64),
@@ -34,7 +36,10 @@ class BackboneExtractor(nn.Module):
     
     def forward(self, x):
         for block in self.blocks:
-            x = block(x)
+            if self.use_checkpoint and self.training and x.requires_grad:
+                x = checkpoint(block, x, use_reentrant=False)
+            else:
+                x = block(x)
 
         return self.final_conv(x)
 
@@ -75,7 +80,12 @@ class PretrainedBackboneExtractor(nn.Module):
         else:
             raise ValueError(f"Unsupported pretrained model: {model_name}")
 
-        self.proj = nn.Conv2d(in_channels, out_dim, kernel_size=1, bias=False)
+        # A frozen random projection destroys the value of pretrained descriptors.
+        # When the backbone is frozen, use the pretrained feature channels directly.
+        if freeze:
+            self.proj = nn.Identity()
+        else:
+            self.proj = nn.Conv2d(in_channels, out_dim, kernel_size=1, bias=False)
 
         if freeze:
             self.freeze_features()

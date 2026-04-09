@@ -24,18 +24,8 @@ def as_batched_mask(mask: torch.Tensor) -> torch.Tensor:
     return mask
 
 
-def build_se_unet_input(image: torch.Tensor, dlf_map: torch.Tensor | None = None) -> torch.Tensor:
-    image = as_batched_image(image)
-    if dlf_map is None:
-        return image
-
-    dlf_map = as_batched_mask(dlf_map).to(device=image.device, dtype=image.dtype)
-    if image.shape[0] != dlf_map.shape[0]:
-        raise ValueError(f"Batch size mismatch between image {tuple(image.shape)} and DLF map {tuple(dlf_map.shape)}")
-    if image.shape[-2:] != dlf_map.shape[-2:]:
-        raise ValueError(f"Spatial size mismatch between image {tuple(image.shape)} and DLF map {tuple(dlf_map.shape)}")
-
-    return torch.cat((image, dlf_map), dim=1)
+def build_se_unet_input(image: torch.Tensor) -> torch.Tensor:
+    return as_batched_image(image)
 
 
 class SqueezeExcitation(nn.Module):
@@ -99,8 +89,7 @@ class SEUNet(nn.Module):
     Scaffold for a copy-move refinement head.
 
     Typical usage:
-    - `SEUNet(in_channels=4, out_channels=1, final_activation="sigmoid")` for `RGB + DLF map`
-    - `SEUNet(in_channels=3)` for image-only experiments
+    - `SEUNet(in_channels=3, out_channels=1, final_activation="sigmoid")` for image-only refinement
     """
 
     def __init__(
