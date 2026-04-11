@@ -178,7 +178,8 @@ class PixelPropagator:
         return torch.stack((cand_dx, cand_dy), dim=-1)
 
     def non_local_reset(self, dx: torch.Tensor, dy: torch.Tensor, limit_u: float = 25.0):
-        local_mask = (dx * dx + dy * dy) <= float(limit_u)
+        limit_sq = float(limit_u) * float(limit_u)
+        local_mask = (dx * dx + dy * dy) <= limit_sq
         if not local_mask.any():
             return dx, dy
 

@@ -19,9 +19,20 @@ class MultiScaleDLF:
     X_DY_IDX = 10
     Y_DY_IDX = 11
 
-    def __init__(self, image: torch.Tensor, cnn_offsets: torch.Tensor, kernel_sizes: np.ndarray | None = None):
+    def __init__(
+        self,
+        image: torch.Tensor,
+        cnn_offsets: torch.Tensor,
+        zernike_offsets: torch.Tensor | None = None,
+        kernel_sizes: np.ndarray | None = None,
+    ):
         self.image = self.as_batched_image(image)
-        self.cnn_offsets = self.as_batched_offsets(cnn_offsets)
+        self.cnn_offsets = self.as_batched_offsets(cnn_offsets).to(dtype=torch.float32)
+        self.zernike_offsets = (
+            self.as_batched_offsets(zernike_offsets).to(dtype=torch.float32)
+            if zernike_offsets is not None
+            else None
+        )
 
         if self.image.shape[0] != self.cnn_offsets.shape[0]:
             raise ValueError(
@@ -31,16 +42,30 @@ class MultiScaleDLF:
             raise ValueError(
                 f"Spatial size mismatch between image {self.image.shape} and offsets {self.cnn_offsets.shape}"
             )
+        if self.zernike_offsets is not None:
+            if self.zernike_offsets.shape[0] != self.cnn_offsets.shape[0]:
+                raise ValueError(
+                    f"Batch size mismatch between CNN offsets {self.cnn_offsets.shape} and "
+                    f"Zernike offsets {self.zernike_offsets.shape}"
+                )
+            if self.zernike_offsets.shape[-2:] != self.cnn_offsets.shape[-2:]:
+                raise ValueError(
+                    f"Spatial size mismatch between CNN offsets {self.cnn_offsets.shape} and "
+                    f"Zernike offsets {self.zernike_offsets.shape}"
+                )
 
         if kernel_sizes is None:
             kernel_sizes = np.array([7, 9, 11])
 
         self.kernel_sizes = kernel_sizes
         self.device = self.cnn_offsets.device
-        self.dtype = self.cnn_offsets.dtype if self.cnn_offsets.is_floating_point() else torch.float32
+        self.dtype = torch.float32
         self.batch_size = self.image.shape[0]
         self.height = self.image.shape[-2]
         self.width = self.image.shape[-1]
+        self.offset_fields = [self.normalize_offsets(self.cnn_offsets)]
+        if self.zernike_offsets is not None:
+            self.offset_fields.append(self.normalize_offsets(self.zernike_offsets))
         self.ones_map, self.x_map, self.y_map, self.x2_map, self.xy_map, self.y2_map = self.get_static_maps(
             self.height,
             self.width,
@@ -75,17 +100,23 @@ class MultiScaleDLF:
         if cached is not None:
             return cached
 
-        y, x = torch.meshgrid(
-            torch.arange(height, device=device, dtype=dtype),
-            torch.arange(width, device=device, dtype=dtype),
-            indexing="ij",
-        )
+        x_coords = torch.linspace(-1.0, 1.0, width, device=device, dtype=dtype) if width > 1 else torch.zeros(1, device=device, dtype=dtype)
+        y_coords = torch.linspace(-1.0, 1.0, height, device=device, dtype=dtype) if height > 1 else torch.zeros(1, device=device, dtype=dtype)
+        y, x = torch.meshgrid(y_coords, x_coords, indexing="ij")
         x = x.unsqueeze(0).unsqueeze(0)
         y = y.unsqueeze(0).unsqueeze(0)
         ones = torch.ones_like(x)
         static_maps = (ones, x, y, x * x, x * y, y * y)
         cls.STATIC_MAP_CACHE[key] = static_maps
         return static_maps
+
+    def normalize_offsets(self, offsets: torch.Tensor) -> torch.Tensor:
+        normalized = offsets.to(device=self.device, dtype=self.dtype).clone()
+        scale_x = float(max(self.width - 1, 1))
+        scale_y = float(max(self.height - 1, 1))
+        normalized[:, 0] = normalized[:, 0] / scale_x
+        normalized[:, 1] = normalized[:, 1] / scale_y
+        return normalized
 
     def box_sum(self, tensor: torch.Tensor, kernel_size: int) -> torch.Tensor:
         pad = kernel_size // 2
@@ -99,7 +130,10 @@ class MultiScaleDLF:
             + integral[..., :-kernel_size, :-kernel_size]
         )
 
-    def build_feature_stack(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def build_feature_stack(
+        self,
+        offsets: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         x_map = self.x_map.expand(self.batch_size, -1, -1, -1)
         y_map = self.y_map.expand(self.batch_size, -1, -1, -1)
         ones_map = self.ones_map.expand(self.batch_size, -1, -1, -1)
@@ -107,8 +141,8 @@ class MultiScaleDLF:
         xy_map = self.xy_map.expand(self.batch_size, -1, -1, -1)
         y2_map = self.y2_map.expand(self.batch_size, -1, -1, -1)
 
-        dx_map = self.cnn_offsets[:, 0:1, :, :].to(dtype=self.dtype)
-        dy_map = self.cnn_offsets[:, 1:2, :, :].to(dtype=self.dtype)
+        dx_map = offsets[:, 0:1, :, :].to(dtype=self.dtype)
+        dy_map = offsets[:, 1:2, :, :].to(dtype=self.dtype)
 
         feature_stack = torch.cat(
             (
@@ -169,7 +203,7 @@ class MultiScaleDLF:
         eps = 1e-2
         identity = torch.eye(3, device=self.device, dtype=XtX.dtype).view(1, 1, 1, 3, 3)
         regularized = XtX + eps * identity
-        return torch.matmul(torch.linalg.pinv(regularized), rhs)
+        return torch.linalg.solve(regularized, rhs)
 
     def compute_predictions(
         self,
@@ -190,7 +224,8 @@ class MultiScaleDLF:
         return dx_pred, dy_pred
 
     def compute_errors(self):
-        feature_stack, x_map, y_map, dx_map, dy_map = self.build_feature_stack()
+        mean_offsets = torch.stack(self.offset_fields, dim=0).mean(dim=0)
+        feature_stack, x_map, y_map, _, _ = self.build_feature_stack(mean_offsets)
         errors = []
 
         for kernel_size in self.kernel_sizes:
@@ -200,15 +235,20 @@ class MultiScaleDLF:
             theta = self.solve_coefficients(XtX, rhs)
 
             dx_pred, dy_pred = self.compute_predictions(theta, x_map, y_map)
-            residuals = torch.cat(
-                (
-                    (dx_map - dx_pred).square(),
-                    (dy_map - dy_pred).square(),
-                ),
-                dim=1,
-            )
-            residual_sums = self.box_sum(residuals, kernel_size)
-            error = residual_sums.sum(dim=1)
+            error = None
+            for offsets in self.offset_fields:
+                dx_map = offsets[:, 0:1, :, :]
+                dy_map = offsets[:, 1:2, :, :]
+                residuals = torch.cat(
+                    (
+                        (dx_map - dx_pred).square(),
+                        (dy_map - dy_pred).square(),
+                    ),
+                    dim=1,
+                )
+                residual_sums = self.box_sum(residuals, kernel_size).sum(dim=1)
+                error = residual_sums if error is None else (error + residual_sums)
+            error = error / float(len(self.offset_fields))
             errors.append(error)
 
         return torch.stack(errors, dim=1)

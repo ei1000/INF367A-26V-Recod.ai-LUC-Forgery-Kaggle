@@ -5,7 +5,7 @@ from dataset import Datasets
 
 
 def main():
-    output_dir = Path(__file__).resolve().parents[1] / "artifacts" / "cnn_pretrained_frozen_run"
+    output_dir = Path(__file__).resolve().parents[1] / "artifacts" / "changes_run"
     pipeline(
         datasets=Datasets.ALL_TRAIN,
         image_size=448,
@@ -29,6 +29,11 @@ def main():
         output_dir=output_dir,
         learning_rate=1e-4,
         mprime_loss_weight=0.6,
+        empty_target_penalty_weight=0.35,
+        post_process_confident_threshold=0.9,
+        post_process_threshold=0.6,
+        post_process_apply_closing=True,
+        post_process_min_component_area=256,
     )
 
 if __name__ == '__main__':

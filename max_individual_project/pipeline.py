@@ -62,7 +62,11 @@ def post_process_mask_batch(
     mask_probs: torch.Tensor,
     mask_util: MaskUtil,
     threshold: float = 0.5,
-    confident_threshold: float = 0.8,
+    confident_threshold: float | None = None,
+    min_component_area: int = 0,
+    smooth_probabilities: bool = False,
+    fill_holes: bool = True,
+    apply_closing: bool = False,
 ) -> torch.Tensor:
     if mask_probs.dim() == 2:
         mask_probs = mask_probs.unsqueeze(0)
@@ -73,11 +77,45 @@ def post_process_mask_batch(
             probs,
             threshold=threshold,
             confident_threshold=confident_threshold,
+            min_component_area=min_component_area,
+            smooth_probabilities=smooth_probabilities,
+            fill_holes=fill_holes,
+            apply_closing=apply_closing,
         )
         processed_masks.append(processed.astype(np.int64, copy=False))
 
     processed_np = np.stack(processed_masks, axis=0)
     return torch.from_numpy(processed_np).to(device=mask_probs.device, dtype=torch.long)
+
+
+def load_module_state(module, state_dict: dict[str, torch.Tensor], module_name: str) -> bool:
+    try:
+        incompatible = module.load_state_dict(state_dict, strict=False)
+    except RuntimeError:
+        current_state = module.state_dict()
+        compatible_state = {
+            key: value
+            for key, value in state_dict.items()
+            if key in current_state and current_state[key].shape == value.shape
+        }
+        missing_keys = sorted(set(current_state.keys()) - set(compatible_state.keys()))
+        skipped_keys = sorted(set(state_dict.keys()) - set(compatible_state.keys()))
+        module.load_state_dict(compatible_state, strict=False)
+        print(
+            f"[pipeline] Partially restored {module_name}: "
+            f"loaded {len(compatible_state)} tensors, skipped {len(skipped_keys)}, missing {len(missing_keys)}."
+        )
+        return False
+
+    missing = list(getattr(incompatible, "missing_keys", []))
+    unexpected = list(getattr(incompatible, "unexpected_keys", []))
+    if missing or unexpected:
+        print(
+            f"[pipeline] Restored {module_name} with non-strict loading: "
+            f"missing {len(missing)} keys, unexpected {len(unexpected)}."
+        )
+        return False
+    return True
 
 
 def set_optimizer_learning_rate(optimizer, learning_rate: float):
@@ -405,18 +443,30 @@ def dice_loss(pred_mask: torch.Tensor, target_mask: torch.Tensor, eps: float = 1
     return 1 - dice.mean()
 
 
-def normalize_dlf_error_maps(error_maps: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+def normalize_dlf_error_maps(
+    error_maps: torch.Tensor,
+    mode: str = "log1p",
+    eps: float = 1e-6,
+) -> torch.Tensor:
     if error_maps.dim() != 4:
         raise ValueError(f"Expected error maps shape [B,S,H,W], got {tuple(error_maps.shape)}")
 
     error_maps = torch.clamp_min(error_maps.float(), 0.0)
-    error_maps = torch.log1p(error_maps)
+    if mode == "none":
+        return error_maps
+    if mode == "log1p":
+        # Keep absolute error magnitude so the decoder can still distinguish
+        # "uniformly bad everywhere" from "locally good with a few peaks".
+        return torch.log1p(error_maps)
+    if mode == "zscore":
+        error_maps = torch.log1p(error_maps)
+        flattened = error_maps.flatten(start_dim=2)
+        mean = flattened.mean(dim=-1, keepdim=True).unsqueeze(-1)
+        std = flattened.std(dim=-1, keepdim=True, unbiased=False).unsqueeze(-1)
+        normalized = (error_maps - mean) / (std + eps)
+        return normalized.clamp(-6.0, 6.0)
 
-    flattened = error_maps.flatten(start_dim=2)
-    mean = flattened.mean(dim=-1, keepdim=True).unsqueeze(-1)
-    std = flattened.std(dim=-1, keepdim=True, unbiased=False).unsqueeze(-1)
-    normalized = (error_maps - mean) / (std + eps)
-    return normalized.clamp(-6.0, 6.0)
+    raise ValueError(f"Unsupported DLF error scaling mode: {mode}")
 
 
 def resize_offsets_to_image_grid(offsets: torch.Tensor, target_size: tuple[int, int]) -> torch.Tensor:
@@ -443,12 +493,54 @@ def localization_loss_terms(
     dlf_map: torch.Tensor,
     target_mask: torch.Tensor,
     mprime_loss_weight: float = 0.0,
+    empty_target_penalty_weight: float = 0.0,
 ):
+    def empty_target_penalty(pred_map: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        if pred_map.dim() == 3:
+            pred_map = pred_map.unsqueeze(1)
+        if mask.dim() == 3:
+            mask = mask.unsqueeze(1)
+
+        empty_samples = mask.flatten(start_dim=1).amax(dim=1) == 0
+        if not empty_samples.any():
+            return pred_map.new_tensor(0.0)
+
+        empty_preds = pred_map[empty_samples].flatten(start_dim=1)
+        # Penalize both diffuse foreground and single confident blobs on pristine images.
+        return 0.5 * empty_preds.mean(dim=1).mean() + 0.5 * empty_preds.amax(dim=1).mean()
+
     ldfm = dice_loss(refined_mask, target_mask)
     lmrd = dice_loss(target_map, target_mask)
     mprime_loss = dice_loss(dlf_map, target_mask)
-    total_loss = ldfm + lmrd + (mprime_loss_weight * mprime_loss)
-    return total_loss, ldfm, lmrd, mprime_loss
+    empty_target_loss = refined_mask.new_tensor(0.0)
+    empty_refined_loss = refined_mask.new_tensor(0.0)
+    empty_target_map_loss = refined_mask.new_tensor(0.0)
+    empty_mprime_map_loss = refined_mask.new_tensor(0.0)
+
+    if empty_target_penalty_weight > 0.0:
+        empty_refined_loss = empty_target_penalty(refined_mask, target_mask)
+        empty_target_map_loss = empty_target_penalty(target_map, target_mask)
+        empty_mprime_map_loss = empty_target_penalty(dlf_map, target_mask)
+        empty_target_loss = torch.stack(
+            (empty_refined_loss, empty_target_map_loss, empty_mprime_map_loss)
+        ).mean()
+
+    total_loss = (
+        ldfm
+        + lmrd
+        + (mprime_loss_weight * mprime_loss)
+        + (empty_target_penalty_weight * empty_target_loss)
+    )
+    return (
+        total_loss,
+        ldfm,
+        lmrd,
+        mprime_loss,
+        empty_target_loss,
+        empty_refined_loss,
+        empty_target_map_loss,
+        empty_mprime_map_loss,
+    )
 
 
 def summarize_branch_activity(dlf_map: torch.Tensor, target_map: torch.Tensor) -> dict[str, float]:
@@ -475,6 +567,7 @@ def extract_localization_inputs(
     pm_non_local_limit: float,
     pm_reduced_precision: bool = True,
     dino_match_native_resolution: bool = False,
+    dlf_error_scaling: str = "log1p",
     collect_stats: bool = False,
     train_feature_backbone: bool = False,
 ):
@@ -543,7 +636,7 @@ def extract_localization_inputs(
             synchronize_if_cuda(device)
             dlf_start = time.perf_counter()
         errors = MultiScaleDLF(images, batch_cnn_offsets).compute_errors()
-        errors = normalize_dlf_error_maps(errors)
+        errors = normalize_dlf_error_maps(errors, mode=dlf_error_scaling)
         if collect_stats:
             synchronize_if_cuda(device)
             dlf_time = time.perf_counter() - dlf_start
@@ -615,7 +708,15 @@ def pipeline(
     validation_seed=42,
     learning_rate=1e-3,
     mprime_loss_weight=0.5,
+    empty_target_penalty_weight=0.0,
+    dlf_error_scaling="log1p",
     do_post_process=True,
+    post_process_threshold=0.5,
+    post_process_confident_threshold=None,
+    post_process_smooth_probabilities=False,
+    post_process_fill_holes=True,
+    post_process_apply_closing=False,
+    post_process_min_component_area=0,
 ):
     print('[pipeline] Initializing training loop and datasets...')
     torch.set_float32_matmul_precision("medium")
@@ -763,8 +864,13 @@ def pipeline(
         epoch_ldfm_sum = 0.0
         epoch_lmrd_sum = 0.0
         epoch_mprime_loss_sum = 0.0
+        epoch_empty_target_loss_sum = 0.0
+        epoch_empty_refined_loss_sum = 0.0
+        epoch_empty_target_map_loss_sum = 0.0
+        epoch_empty_mprime_map_loss_sum = 0.0
         epoch_mprime_positive_rate_sum = 0.0
         epoch_mprime_wins_rate_sum = 0.0
+        epoch_target_positive_rate_sum = 0.0
         epoch_loss_steps = 0
 
         if optimizer is not None:
@@ -805,6 +911,7 @@ def pipeline(
                 pm_non_local_limit=pm_non_local_limit,
                 pm_reduced_precision=pm_reduced_precision,
                 dino_match_native_resolution=dino_match_native_resolution,
+                dlf_error_scaling=dlf_error_scaling,
                 collect_stats=collect_localization_stats,
                 train_feature_backbone=train_feature_backbone,
             )
@@ -831,16 +938,19 @@ def pipeline(
                     optimizer = torch.optim.Adam(optimizer_groups, lr=learning_rate)
 
                 if checkpoint is not None:
+                    fully_restored = True
                     if "pyramid_bb" in checkpoint:
-                        pyramid_bb.load_state_dict(checkpoint["pyramid_bb"])
-                    dlf_decoder.load_state_dict(checkpoint["dlf_decoder"])
-                    se_model.load_state_dict(checkpoint["se_model"])
-                    if optimizer is not None and checkpoint.get("optimizer") is not None:
+                        fully_restored = load_module_state(pyramid_bb, checkpoint["pyramid_bb"], "pyramid_bb") and fully_restored
+                    fully_restored = load_module_state(dlf_decoder, checkpoint["dlf_decoder"], "dlf_decoder") and fully_restored
+                    fully_restored = load_module_state(se_model, checkpoint["se_model"], "se_model") and fully_restored
+                    if optimizer is not None and checkpoint.get("optimizer") is not None and fully_restored:
                         optimizer.load_state_dict(checkpoint["optimizer"])
                         set_optimizer_learning_rate(optimizer, learning_rate)
                         feature_lr = learning_rate if feature_backbone_learning_rate is None else feature_backbone_learning_rate
                         set_optimizer_group_learning_rate(optimizer, "feature_backbone", feature_lr)
                         set_optimizer_group_learning_rate(optimizer, "feature_head", learning_rate)
+                    elif optimizer is not None and checkpoint.get("optimizer") is not None:
+                        print("[pipeline] Skipping optimizer restore because model weights were only partially restored.")
                     checkpoint = None
 
             refined_mask, target_map, dlf_map = decode_and_refine_masks(
@@ -855,17 +965,42 @@ def pipeline(
             if test_run:
                 display_image(images[0], masks[0])
                 display_pixel_offsets(batch_cnn_offsets[0], batch_zernike_offsets[0], images[0])
-                display_image(images[0], (refined_mask[0, 0] >= 0.5).long())
+                mask_probs = refined_mask.squeeze(1)
+                mask_preds = (
+                    post_process_mask_batch(
+                        mask_probs,
+                        util,
+                        threshold=post_process_threshold,
+                        confident_threshold=post_process_confident_threshold,
+                        min_component_area=post_process_min_component_area,
+                        smooth_probabilities=post_process_smooth_probabilities,
+                        fill_holes=post_process_fill_holes,
+                        apply_closing=post_process_apply_closing,
+                    )
+                    if do_post_process and util is not None
+                    else (mask_probs >= 0.5).long()
+                )
+                display_image(images[0], (mask_preds[0]))
                 return
 
             if optimizer is not None:
                 optimizer.zero_grad()
-                loss, ldfm, lmrd, mprime_loss = localization_loss_terms(
+                (
+                    loss,
+                    ldfm,
+                    lmrd,
+                    mprime_loss,
+                    empty_target_loss,
+                    empty_refined_loss,
+                    empty_target_map_loss,
+                    empty_mprime_map_loss,
+                ) = localization_loss_terms(
                     refined_mask,
                     target_map,
                     dlf_map,
                     masks,
                     mprime_loss_weight=mprime_loss_weight,
+                    empty_target_penalty_weight=empty_target_penalty_weight,
                 )
                 branch_stats = summarize_branch_activity(dlf_map, target_map)
                 loss.backward()
@@ -875,12 +1010,21 @@ def pipeline(
                 ldfm_value = ldfm.item()
                 lmrd_value = lmrd.item()
                 mprime_loss_value = mprime_loss.item()
+                empty_target_loss_value = empty_target_loss.item()
+                empty_refined_loss_value = empty_refined_loss.item()
+                empty_target_map_loss_value = empty_target_map_loss.item()
+                empty_mprime_map_loss_value = empty_mprime_map_loss.item()
                 epoch_loss_sum += loss_value
                 epoch_ldfm_sum += ldfm_value
                 epoch_lmrd_sum += lmrd_value
                 epoch_mprime_loss_sum += mprime_loss_value
+                epoch_empty_target_loss_sum += empty_target_loss_value
+                epoch_empty_refined_loss_sum += empty_refined_loss_value
+                epoch_empty_target_map_loss_sum += empty_target_map_loss_value
+                epoch_empty_mprime_map_loss_sum += empty_mprime_map_loss_value
                 epoch_mprime_positive_rate_sum += branch_stats["mprime_positive_rate"]
                 epoch_mprime_wins_rate_sum += branch_stats["mprime_wins_rate"]
+                epoch_target_positive_rate_sum += branch_stats["target_positive_rate"]
                 epoch_loss_steps += 1
 
                 if log_every > 0 and batch_idx % log_every == 0:
@@ -898,9 +1042,13 @@ def pipeline(
                         f"[epoch {epoch_idx + 1}/{epochs}] "
                         f"batch {batch_idx}/{len(train_loader)} "
                         f"loss: {loss_value:.4f} "
-                        f"(ldfm={ldfm_value:.4f}, lmrd={lmrd_value:.4f}, mprime={mprime_loss_value:.4f}, lambda={mprime_loss_weight:.2f}) "
+                        f"(ldfm={ldfm_value:.4f}, lmrd={lmrd_value:.4f}, mprime={mprime_loss_value:.4f}, "
+                        f"empty={empty_target_loss_value:.4f}[ref={empty_refined_loss_value:.4f}, "
+                        f"se={empty_target_map_loss_value:.4f}, dlf={empty_mprime_map_loss_value:.4f}], "
+                        f"lambda={mprime_loss_weight:.2f}, empty_lambda={empty_target_penalty_weight:.2f}) "
                         f"mprime_pos: {branch_stats['mprime_positive_rate']:.4%} "
                         f"mprime_wins: {branch_stats['mprime_wins_rate']:.4%} "
+                        f"target_pos: {branch_stats['target_positive_rate']:.4%} "
                         f"time spent: {(time.perf_counter() - batch_start):.2f}"
                         f"{localization_message}"
                     )
@@ -919,7 +1067,16 @@ def pipeline(
             if save_predictions:
                 mask_probs = refined_mask.squeeze(1)
                 mask_preds = (
-                    post_process_mask_batch(mask_probs, util)
+                    post_process_mask_batch(
+                        mask_probs,
+                        util,
+                        threshold=post_process_threshold,
+                        confident_threshold=post_process_confident_threshold,
+                        min_component_area=post_process_min_component_area,
+                        smooth_probabilities=post_process_smooth_probabilities,
+                        fill_holes=post_process_fill_holes,
+                        apply_closing=post_process_apply_closing,
+                    )
                     if do_post_process and util is not None
                     else (mask_probs >= 0.5).long()
                 )
@@ -936,8 +1093,13 @@ def pipeline(
             val_ldfm_sum = 0.0
             val_lmrd_sum = 0.0
             val_mprime_loss_sum = 0.0
+            val_empty_target_loss_sum = 0.0
+            val_empty_refined_loss_sum = 0.0
+            val_empty_target_map_loss_sum = 0.0
+            val_empty_mprime_map_loss_sum = 0.0
             val_mprime_positive_rate_sum = 0.0
             val_mprime_wins_rate_sum = 0.0
+            val_target_positive_rate_sum = 0.0
             val_loss_steps = 0
             val_counts = {
                 "tp": 0,
@@ -949,6 +1111,15 @@ def pipeline(
             }
             val_of1_sum = 0.0
             val_images = 0
+            val_pred_components_sum = 0
+            val_authentic_of1_sum = 0.0
+            val_authentic_images = 0
+            val_authentic_empty_pred_count = 0
+            val_authentic_pred_components_sum = 0
+            val_forged_of1_sum = 0.0
+            val_forged_images = 0
+            val_forged_pred_components_sum = 0
+            val_forged_gt_components_sum = 0
 
             with torch.no_grad():
                 for images, masks, labels, image_paths in val_loader:
@@ -972,6 +1143,7 @@ def pipeline(
                         pm_non_local_limit=pm_non_local_limit,
                         pm_reduced_precision=pm_reduced_precision,
                         dino_match_native_resolution=dino_match_native_resolution,
+                        dlf_error_scaling=dlf_error_scaling,
                         train_feature_backbone=False,
                     )
                     refined_mask, target_map, dlf_map = decode_and_refine_masks(
@@ -984,25 +1156,49 @@ def pipeline(
                     )
 
 
-                    val_loss, val_ldfm, val_lmrd, val_mprime_loss = localization_loss_terms(
+                    (
+                        val_loss,
+                        val_ldfm,
+                        val_lmrd,
+                        val_mprime_loss,
+                        val_empty_target_loss,
+                        val_empty_refined_loss,
+                        val_empty_target_map_loss,
+                        val_empty_mprime_map_loss,
+                    ) = localization_loss_terms(
                         refined_mask,
                         target_map,
                         dlf_map,
                         masks,
                         mprime_loss_weight=mprime_loss_weight,
+                        empty_target_penalty_weight=empty_target_penalty_weight,
                     )
                     branch_stats = summarize_branch_activity(dlf_map, target_map)
                     val_loss_sum += val_loss.item()
                     val_ldfm_sum += val_ldfm.item()
                     val_lmrd_sum += val_lmrd.item()
                     val_mprime_loss_sum += val_mprime_loss.item()
+                    val_empty_target_loss_sum += val_empty_target_loss.item()
+                    val_empty_refined_loss_sum += val_empty_refined_loss.item()
+                    val_empty_target_map_loss_sum += val_empty_target_map_loss.item()
+                    val_empty_mprime_map_loss_sum += val_empty_mprime_map_loss.item()
                     val_mprime_positive_rate_sum += branch_stats["mprime_positive_rate"]
                     val_mprime_wins_rate_sum += branch_stats["mprime_wins_rate"]
+                    val_target_positive_rate_sum += branch_stats["target_positive_rate"]
                     val_loss_steps += 1
 
                     mask_probs = refined_mask.squeeze(1)
                     mask_preds = (
-                        post_process_mask_batch(mask_probs, util)
+                        post_process_mask_batch(
+                            mask_probs,
+                            util,
+                            threshold=post_process_threshold,
+                            confident_threshold=post_process_confident_threshold,
+                            min_component_area=post_process_min_component_area,
+                            smooth_probabilities=post_process_smooth_probabilities,
+                            fill_holes=post_process_fill_holes,
+                            apply_closing=post_process_apply_closing,
+                        )
                         if do_post_process and util is not None
                         else (mask_probs >= 0.5).long()
                     )
@@ -1017,25 +1213,65 @@ def pipeline(
                             mask_dir_by_sample=mask_dir_by_sample,
                             image_size=image_size,
                         )
-                        val_of1_sum += optimal_f1_score(pred_instances, gt_instances)
+                        image_of1 = optimal_f1_score(pred_instances, gt_instances)
+                        pred_component_count = len(pred_instances)
+                        gt_component_count = len(gt_instances)
+
+                        val_of1_sum += image_of1
                         val_images += 1
+                        val_pred_components_sum += pred_component_count
+
+                        if gt_component_count == 0:
+                            val_authentic_of1_sum += image_of1
+                            val_authentic_images += 1
+                            val_authentic_pred_components_sum += pred_component_count
+                            if pred_component_count == 0:
+                                val_authentic_empty_pred_count += 1
+                        else:
+                            val_forged_of1_sum += image_of1
+                            val_forged_images += 1
+                            val_forged_pred_components_sum += pred_component_count
+                            val_forged_gt_components_sum += gt_component_count
 
             val_metrics = summarize_segmentation_counts(val_counts)
             val_mean_loss = val_loss_sum / max(val_loss_steps, 1)
             val_mean_ldfm = val_ldfm_sum / max(val_loss_steps, 1)
             val_mean_lmrd = val_lmrd_sum / max(val_loss_steps, 1)
             val_mean_mprime_loss = val_mprime_loss_sum / max(val_loss_steps, 1)
+            val_mean_empty_target_loss = val_empty_target_loss_sum / max(val_loss_steps, 1)
+            val_mean_empty_refined_loss = val_empty_refined_loss_sum / max(val_loss_steps, 1)
+            val_mean_empty_target_map_loss = val_empty_target_map_loss_sum / max(val_loss_steps, 1)
+            val_mean_empty_mprime_map_loss = val_empty_mprime_map_loss_sum / max(val_loss_steps, 1)
             val_mean_mprime_positive_rate = val_mprime_positive_rate_sum / max(val_loss_steps, 1)
             val_mean_mprime_wins_rate = val_mprime_wins_rate_sum / max(val_loss_steps, 1)
+            val_mean_target_positive_rate = val_target_positive_rate_sum / max(val_loss_steps, 1)
             val_mean_of1 = val_of1_sum / max(val_images, 1)
+            val_mean_pred_components = val_pred_components_sum / max(val_images, 1)
+            val_mean_authentic_of1 = val_authentic_of1_sum / max(val_authentic_images, 1)
+            val_mean_authentic_pred_components = val_authentic_pred_components_sum / max(val_authentic_images, 1)
+            val_authentic_empty_pred_rate = val_authentic_empty_pred_count / max(val_authentic_images, 1)
+            val_mean_forged_of1 = val_forged_of1_sum / max(val_forged_images, 1)
+            val_mean_forged_pred_components = val_forged_pred_components_sum / max(val_forged_images, 1)
+            val_mean_forged_gt_components = val_forged_gt_components_sum / max(val_forged_images, 1)
             print(
                 f"[epoch {epoch_idx + 1}/{epochs}] "
                 f"val_loss: {val_mean_loss:.4f} "
-                f"(ldfm={val_mean_ldfm:.4f}, lmrd={val_mean_lmrd:.4f}, mprime={val_mean_mprime_loss:.4f}, lambda={mprime_loss_weight:.2f}) "
+                f"(ldfm={val_mean_ldfm:.4f}, lmrd={val_mean_lmrd:.4f}, mprime={val_mean_mprime_loss:.4f}, "
+                f"empty={val_mean_empty_target_loss:.4f}[ref={val_mean_empty_refined_loss:.4f}, "
+                f"se={val_mean_empty_target_map_loss:.4f}, dlf={val_mean_empty_mprime_map_loss:.4f}], "
+                f"lambda={mprime_loss_weight:.2f}, empty_lambda={empty_target_penalty_weight:.2f}) "
                 f"val_oF1: {val_mean_of1:.4f} "
                 f"val_pred_pos: {val_metrics['pred_positive_rate']:.4%} "
                 f"val_mprime_pos: {val_mean_mprime_positive_rate:.4%} "
-                f"val_mprime_wins: {val_mean_mprime_wins_rate:.4%}"
+                f"val_mprime_wins: {val_mean_mprime_wins_rate:.4%} "
+                f"val_target_pos: {val_mean_target_positive_rate:.4%} "
+                f"pred_components/img: {val_mean_pred_components:.2f} "
+                f"auth_oF1: {val_mean_authentic_of1:.4f} "
+                f"auth_empty_pred: {val_authentic_empty_pred_rate:.2%} "
+                f"auth_components/img: {val_mean_authentic_pred_components:.2f} "
+                f"forged_oF1: {val_mean_forged_of1:.4f} "
+                f"forged_components/img: {val_mean_forged_pred_components:.2f} "
+                f"forged_gt_components/img: {val_mean_forged_gt_components:.2f}"
             )
 
             if optimizer is not None:
@@ -1049,16 +1285,26 @@ def pipeline(
             mean_ldfm = epoch_ldfm_sum / epoch_loss_steps
             mean_lmrd = epoch_lmrd_sum / epoch_loss_steps
             mean_mprime_loss = epoch_mprime_loss_sum / epoch_loss_steps
+            mean_empty_target_loss = epoch_empty_target_loss_sum / epoch_loss_steps
+            mean_empty_refined_loss = epoch_empty_refined_loss_sum / epoch_loss_steps
+            mean_empty_target_map_loss = epoch_empty_target_map_loss_sum / epoch_loss_steps
+            mean_empty_mprime_map_loss = epoch_empty_mprime_map_loss_sum / epoch_loss_steps
             mean_mprime_positive_rate = epoch_mprime_positive_rate_sum / epoch_loss_steps
             mean_mprime_wins_rate = epoch_mprime_wins_rate_sum / epoch_loss_steps
+            mean_target_positive_rate = epoch_target_positive_rate_sum / epoch_loss_steps
             metrics = {
                 "epoch": epoch_idx + 1,
                 "train_loss": mean_loss,
                 "train_ldfm": mean_ldfm,
                 "train_lmrd": mean_lmrd,
                 "train_mprime_loss": mean_mprime_loss,
+                "train_empty_target_loss": mean_empty_target_loss,
+                "train_empty_refined_loss": mean_empty_refined_loss,
+                "train_empty_target_map_loss": mean_empty_target_map_loss,
+                "train_empty_mprime_map_loss": mean_empty_mprime_map_loss,
                 "train_mprime_positive_rate": mean_mprime_positive_rate,
                 "train_mprime_wins_rate": mean_mprime_wins_rate,
+                "train_target_positive_rate": mean_target_positive_rate,
                 "steps": epoch_loss_steps,
                 "epoch_seconds": time.perf_counter() - epoch_start,
             }
@@ -1068,9 +1314,21 @@ def pipeline(
                 metrics["val_ldfm"] = val_mean_ldfm
                 metrics["val_lmrd"] = val_mean_lmrd
                 metrics["val_mprime_loss"] = val_mean_mprime_loss
+                metrics["val_empty_target_loss"] = val_mean_empty_target_loss
+                metrics["val_empty_refined_loss"] = val_mean_empty_refined_loss
+                metrics["val_empty_target_map_loss"] = val_mean_empty_target_map_loss
+                metrics["val_empty_mprime_map_loss"] = val_mean_empty_mprime_map_loss
                 metrics["val_mprime_positive_rate"] = val_mean_mprime_positive_rate
                 metrics["val_mprime_wins_rate"] = val_mean_mprime_wins_rate
+                metrics["val_target_positive_rate"] = val_mean_target_positive_rate
                 metrics["val_of1"] = val_mean_of1
+                metrics["val_pred_components_per_image"] = val_mean_pred_components
+                metrics["val_authentic_of1"] = val_mean_authentic_of1
+                metrics["val_authentic_empty_pred_rate"] = val_authentic_empty_pred_rate
+                metrics["val_authentic_pred_components_per_image"] = val_mean_authentic_pred_components
+                metrics["val_forged_of1"] = val_mean_forged_of1
+                metrics["val_forged_pred_components_per_image"] = val_mean_forged_pred_components
+                metrics["val_forged_gt_components_per_image"] = val_mean_forged_gt_components
                 metrics["val_iou"] = val_metrics["iou"]
                 metrics["val_dice"] = val_metrics["dice"]
                 metrics["val_pred_positive_rate"] = val_metrics["pred_positive_rate"]
@@ -1079,9 +1337,13 @@ def pipeline(
             print(
                 f"[epoch {epoch_idx + 1}/{epochs}] "
                 f"train_loss: {mean_loss:.4f} "
-                f"(ldfm={mean_ldfm:.4f}, lmrd={mean_lmrd:.4f}, mprime={mean_mprime_loss:.4f}, lambda={mprime_loss_weight:.2f}) "
+                f"(ldfm={mean_ldfm:.4f}, lmrd={mean_lmrd:.4f}, mprime={mean_mprime_loss:.4f}, "
+                f"empty={mean_empty_target_loss:.4f}[ref={mean_empty_refined_loss:.4f}, "
+                f"se={mean_empty_target_map_loss:.4f}, dlf={mean_empty_mprime_map_loss:.4f}], "
+                f"lambda={mprime_loss_weight:.2f}, empty_lambda={empty_target_penalty_weight:.2f}) "
                 f"mprime_pos: {mean_mprime_positive_rate:.4%} "
                 f"mprime_wins: {mean_mprime_wins_rate:.4%} "
+                f"target_pos: {mean_target_positive_rate:.4%} "
                 f"completed in: {metrics['epoch_seconds']:.2f}s"
             )
             append_metrics_log(output_dir, metrics)

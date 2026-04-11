@@ -3,13 +3,6 @@ import torch.nn as nn
 from datatypes import DLFDecoderInput
 
 
-def make_group_norm(num_channels: int, max_groups: int = 8) -> nn.GroupNorm:
-    group_count = min(max_groups, num_channels)
-    while num_channels % group_count != 0 and group_count > 1:
-        group_count -= 1
-    return nn.GroupNorm(group_count, num_channels)
-
-
 # TODO: This convblock is used both here and for feature extractors. Refactor to make more clean -
 # maybe a shared modules dir?
 class ConvBlock(nn.Module):
@@ -17,7 +10,7 @@ class ConvBlock(nn.Module):
         super().__init__()
         self.block = nn.Sequential(
             nn.Conv2d(in_dim, out_dim, kernel_size=3, stride=1, padding=1),
-            make_group_norm(out_dim),
+            nn.BatchNorm2d(out_dim),
             nn.ReLU(),
         )
     
