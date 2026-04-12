@@ -1,6 +1,6 @@
 # README.md
 
-_This readme contains documentation for the implementation._
+_This readme contains documentation and information for the implementation._
 
 ## Introduction and motivation
 
@@ -8,40 +8,54 @@ This implementation of Deep PatchMatch is based on the paper "Image Copy-Move Fo
 
 The implementation is tailored towards performance in the kaggle competition "Recod.ai/LUC - Scientific Image Forgery Detection" (https://www.kaggle.com/competitions/recodai-luc-scientific-image-forgery-detection/data). Because of this, there are a number of changes between my implementation and the paper version.
 
-Most significantly, the Kaggle competition involves single-channel CMFD. This is a prediction task where the model aims to generate a binary pixel map of the same size of the image
+Most significantly, the Kaggle competition involves single-channel CMFD. This is a prediction task where the model aims to generate a binary pixel map of the same size of the image, where a 0-value indicates an authentic pixel, whereas a 1-value indicates a forged pixel. A forged pixel is defined as one that is either part of the source region, where the object is copied from, or the target region, where the object is copied to.
 
-This means that I did not implement the components of the architecture which are related to three-channel CMFD (where the ). It is possible that
+The architecture proposed in the paper supports three-channel CMFD, where instead of a binary pixel map, the model should predict for each pixel whether it is part of the background, source, or target. I did not implement the components of the architecture related to performing three-channel CMFD.
 
 ## Architecture and code structure
 
 The architecture of the project is made to be as consistent as possible with the upper half of the architecture presented in the paper.
 
-[!TODO: image]
+![Deep Cross-Scale PatchMatch Architecture](architecture.jpg)
 
-One important difference is that although my version also can be configured to be end-to-end differentiable, I found it was more practical not to do so, insteading using a pretrained CNN for feature extraction.
+One important overrall difference is that although my version also can be configured to be end-to-end differentiable, I found it was more practical not to do so, insteading using a pretrained CNN for feature extraction.
+
+Following is a more detailed description of the code and structure.
 
 ### Feature extractors
 
-Inside `/feature_extractors` are the components utilized in the **Feature Extraction 1** part of the network.
-In this implementation, the most practical choice is to use a frozen pretrained extractor such as the ones that are options in `cnn_feature_extractor.py` (VGG16 and RESNET18).
-I also experimented with using Meta's _dinov2_vitb14_ model in `dino_feature_extractor.py`, but found that it was too memory-intensive to be safely utilized, particularly as my implementation batches and performs concurrent operations on . One option is to have a layer compressing Dino's output to a lower dimensionality, but then this compression layer would have to be trained, and
+Inside `/feature_extractors` are the components utilized in the **Feature Extraction 1** part of the network. These feature a CNN feature extractor and a Zernike feature extractor. My implementation applies both these feature extractors to each image in the scalings $0.75, 1,$ and $1.5$, as is consistent with the paper.
 
-Although the paper does not mention specifically whether the CNN feature extractor is pretrained or not, my interpretation is that it most likely was not, as this would be consistent with the claim that the architecture is end-to-end differentiable.
+#### CNN
+
+In this implementation, the most practical choice is to use a frozen pretrained extractor such as the ones that are options in `cnn_feature_extractor.py` (VGG16 and RESNET18).
+I also experimented with using Meta's _dinov2_vitb14_ model in `dino_feature_extractor.py`, but found that it was too memory-intensive to be safely utilized, particularly as my implementation batches and performs concurrent operations on the different image scaling. One option is to have a layer compressing Dino's output to a lower dimensionality, but then this compression layer would have to be trained, and
+
+Although the paper does not mention specifically whether the CNN feature extractor is pretrained or not, my interpretation is that it most likely was not, as this would be consistent with the fact that the architecture is end-to-end differentiable.
+
+#### Zernike
 
 In addition to the CNN feature extractor, the architecture features a parallell zernike feature extraction process based on zernike polynomials.
 
-My implementation may not be fully consistent with the one supplied in the architecture at this point. The reason is that I through my own
-It is not explained in the paper why they utilise this formula. Perhaps it a simplification that worked well in practice, or perhaps it is an implementation error.
+My implementation may not be fully consistent with the one supplied in the architecture at this point. The reason is that I through my own research found different formulas than the ones presented in the paper, and found compelling arguments to use these instead.
 
-```
-for s in range(m + 1):
-    c = (-1)**s * factorial(p - s) / (
-        factorial(s) *
-        factorial((p + abs(q)) // 2 - s) *
-        factorial((p - abs(q)) // 2 - s)
-    )
-    R += c * rho**(p - 2*s)
-```
+In the paper, the following formula is presented for the orthogonal radial polynomial $R_{p,q}(\rho)$:
+$R_{p, q}(\rho) = \sum_{s=0}^{(1 - |p|)/2} \frac{(-1)^s[(1-s)!]\rho^{1-2s}}{s!(\frac{1+|p|}{2}-s)!(\frac{1-|p|}{2}+s)!}$
+
+However, the source that the paper references for the zernike polynomials utilises this formula:
+$R_{p, q}(\rho) = \sum_{s=0}^{(p - |q|)/2} \frac{(-1)^s[(p-s)!]\rho^{p-2s}}{s!(\frac{p+|q|}{2}-s)!(\frac{p-|q|}{2}+s)!}$
+(rewritten to use the variables $p, q$ instead of $n, m$)
+
+(see: https://www.researchgate.net/profile/Simon-Liao/publication/6534347_Accurate_Computation_of_Zernike_Moments_in_Polar_Coordinates/links/0c960524df7a3c3257000000/Accurate-Computation-of-Zernike-Moments-in-Polar-Coordinates.pdf)
+
+These forms of the polynomials are also presented here by Wolfram Alpha: https://mathworld.wolfram.com/ZernikePolynomial.html
+Another reason this formula seemed more logical is that it actually depends on $q$.
+
+It is not explained in the paper why they utilise a different formula for the zernike polynomials. Perhaps it a simplification that worked well in practice, or perhaps it is an implementation error. Without further information, I found it more reasonable to use the formula presented by the other sources.
+
+This implementation uses the same variable settings of setting the maximum order of ZM to 5, and obtain a 12-dimensional feature map for each image scaling.
+
+As the zernike kernels are the same for each run, these are pre-computed and cached across runs.
 
 ### Deep Cross-Scale PatchMatch
 

@@ -110,3 +110,4 @@ run: started with LR = 1e-3 and mprime loss = 0.8, on epoch 9 lowered to 1e-4 an
 TODO:
 Try a run without CASIA CMFD.
 Refactor to move files out of main
+turn up learning rate and add zernike to DLF
