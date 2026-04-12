@@ -2,7 +2,7 @@ from pathlib import Path
 from enum import Enum
 import numpy as np
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import ConcatDataset, Dataset
 from torchvision.transforms import v2, InterpolationMode
 from PIL import Image
 
@@ -35,6 +35,12 @@ def imagenet_transform(size):
     )
     return v2.Compose([to_tensor, resize, to_float, normalize])
 
+
+def imagenet_normalize_tensor(x: torch.Tensor) -> torch.Tensor:
+    mean = torch.tensor([0.485, 0.456, 0.406], device=x.device).view(1, 3, 1, 1)
+    std = torch.tensor([0.229, 0.224, 0.225], device=x.device).view(1, 3, 1, 1)
+    return (x - mean) / std
+
 def regular_transform(size):
     to_tensor = v2.ToImage()
     resize = v2.Resize((size, size), antialias=True)
@@ -60,6 +66,59 @@ def normalize_mask_array(mask: np.ndarray) -> np.ndarray:
         return (mask > 0).astype(np.uint8)
 
     raise ValueError(f"Unsupported mask shape {mask.shape}")
+
+
+def resolve_image_transform(
+    feature_backbone: str,
+    use_dino_transform: bool,
+    cnn_backbone: str,
+    separate_transforms: bool,
+):
+    if separate_transforms:
+        return regular_transform
+    if feature_backbone == "dino" and use_dino_transform:
+        return dino_transform
+    if feature_backbone == "cnn" and cnn_backbone == "pretrained":
+        return imagenet_transform
+    return regular_transform
+
+
+def combine_datasets(dataset_list):
+    if not dataset_list:
+        return None
+    if len(dataset_list) == 1:
+        return dataset_list[0]
+    return ConcatDataset(dataset_list)
+
+
+def split_indices_by_label(samples, validation_split: float, seed: int):
+    if validation_split <= 0.0:
+        indices = list(range(len(samples)))
+        return indices, []
+
+    label_to_indices = {}
+    for idx, (_, label) in enumerate(samples):
+        label_to_indices.setdefault(label, []).append(idx)
+
+    generator = torch.Generator().manual_seed(seed)
+    train_indices = []
+    val_indices = []
+
+    for indices in label_to_indices.values():
+        if len(indices) < 2:
+            train_indices.extend(indices)
+            continue
+
+        shuffled = [indices[i] for i in torch.randperm(len(indices), generator=generator).tolist()]
+        val_count = int(round(len(shuffled) * validation_split))
+        val_count = min(max(val_count, 1), len(shuffled) - 1)
+
+        val_indices.extend(shuffled[:val_count])
+        train_indices.extend(shuffled[val_count:])
+
+    train_indices.sort()
+    val_indices.sort()
+    return train_indices, val_indices
 
 class ForgeryDataset(Dataset):
     def __init__(self, samples, mask_dir: Path | None=None, size=384, transform=dino_transform, return_path: bool = False):

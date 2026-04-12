@@ -18,11 +18,18 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from dataset import Datasets, ForgeryDataset, imagenet_transform, dino_transform, regular_transform, resolve_data_root
+from dataset import (
+    Datasets,
+    ForgeryDataset,
+    combine_datasets,
+    resolve_data_root,
+    resolve_image_transform,
+    split_indices_by_label,
+)
 from feature_extractors.cnn_feature_extractor import BackboneExtractor, PretrainedBackboneExtractor, PyramidFeatureExtractor
 from feature_extractors.dino_feature_extractor import PyramidDinoFeatureExtractor
 from feature_extractors.zernike_feature_extractor import PyramidZernikeExtractor, default_pq_list
-from pipeline import combine_datasets, decode_and_refine_masks, extract_localization_inputs, normalize_dlf_error_maps, split_indices_by_label
+from prediction.localization import decode_and_refine_masks, extract_localization_inputs, normalize_dlf_error_maps
 from prediction.decoder import DLFDecoder
 from prediction.se_u_net import SEUNet
 
@@ -66,13 +73,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def choose_transform(args: argparse.Namespace):
-    if args.separate_transforms:
-        return regular_transform
-    if args.feature_backbone == "dino" and args.use_dino_transform:
-        return dino_transform
-    if args.feature_backbone == "cnn" and args.cnn_backbone == "pretrained":
-        return imagenet_transform
-    return regular_transform
+    return resolve_image_transform(
+        feature_backbone=args.feature_backbone,
+        use_dino_transform=args.use_dino_transform,
+        cnn_backbone=args.cnn_backbone,
+        separate_transforms=args.separate_transforms,
+    )
 
 
 def build_validation_dataset(args: argparse.Namespace):

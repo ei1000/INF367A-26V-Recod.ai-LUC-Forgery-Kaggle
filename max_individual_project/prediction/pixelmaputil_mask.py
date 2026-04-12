@@ -1,6 +1,7 @@
 # CREDIT: Main project pixelmapUtil.py
 # This is a toned down version specificially for editing output masks, with some changes to the ordering to adress the specific issues of the architecture
 import numpy as np
+import torch
 from scipy import ndimage
 
 class MaskUtil:
@@ -94,3 +95,33 @@ class MaskUtil:
             mask = self.fill_components(mask)
 
         return mask.astype(np.uint8)
+
+
+def post_process_mask_batch(
+    mask_probs: torch.Tensor,
+    mask_util: MaskUtil,
+    threshold: float = 0.5,
+    confident_threshold: float | None = None,
+    min_component_area: int = 0,
+    smooth_probabilities: bool = False,
+    fill_holes: bool = True,
+    apply_closing: bool = False,
+) -> torch.Tensor:
+    if mask_probs.dim() == 2:
+        mask_probs = mask_probs.unsqueeze(0)
+
+    processed_masks = []
+    for probs in mask_probs.detach().cpu().numpy():
+        processed = mask_util.post_process_mask_probs(
+            probs,
+            threshold=threshold,
+            confident_threshold=confident_threshold,
+            min_component_area=min_component_area,
+            smooth_probabilities=smooth_probabilities,
+            fill_holes=fill_holes,
+            apply_closing=apply_closing,
+        )
+        processed_masks.append(processed.astype(np.int64, copy=False))
+
+    processed_np = np.stack(processed_masks, axis=0)
+    return torch.from_numpy(processed_np).to(device=mask_probs.device, dtype=torch.long)

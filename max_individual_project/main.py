@@ -29,7 +29,7 @@ def main():
         output_dir=output_dir,
         learning_rate=1e-4,
         mprime_loss_weight=0.6,
-        empty_target_penalty_weight=0.35,
+        empty_target_penalty_weight=0.5,
         post_process_confident_threshold=0.9,
         post_process_threshold=0.6,
         post_process_apply_closing=True,
