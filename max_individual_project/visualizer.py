@@ -29,10 +29,6 @@ def display_image(img, mask=None):
 
 
 '''
-Display errors computed 
-'''
-
-'''
 Display generated cnn and zernike offsets as heatmaps
 Optionally with original image as well
 Shows dx and dy separately (like the paper)

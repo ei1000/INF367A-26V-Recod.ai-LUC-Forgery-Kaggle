@@ -1,21 +1,9 @@
 import torch
 import torch.nn as nn
 from datatypes import DLFDecoderInput
+from model_components.blocks import ConvBNReLU
 
-
-# TODO: This convblock is used both here and for feature extractors. Refactor to make more clean -
-# maybe a shared modules dir?
-class ConvBlock(nn.Module):
-    def __init__(self, in_dim, out_dim):
-        super().__init__()
-        self.block = nn.Sequential(
-            nn.Conv2d(in_dim, out_dim, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(out_dim),
-            nn.ReLU(),
-        )
-    
-    def forward(self, x):
-        return self.block(x)
+ConvBlock = ConvBNReLU
 
 class DLFDecoder(nn.Module):
     def __init__(self, num_error_maps):
@@ -24,7 +12,7 @@ class DLFDecoder(nn.Module):
         in_channels = num_error_maps + 4
 
         self.blocks = nn.ModuleList([
-            ConvBlock(in_channels, 64), # input size is errors + offset map x and y's
+            ConvBlock(in_channels, 64),
             ConvBlock(64, 64),
             ConvBlock(64, 128),
             ConvBlock(128, 128),

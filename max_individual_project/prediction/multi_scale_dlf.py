@@ -121,6 +121,8 @@ class MultiScaleDLF:
     def box_sum(self, tensor: torch.Tensor, kernel_size: int) -> torch.Tensor:
         pad = kernel_size // 2
         padded = F.pad(tensor, (pad, pad, pad, pad))
+        # Integral images let us recover every local window sum with four tensor reads,
+        # which keeps the multi-scale affine fits cheap on full-resolution maps.
         integral = padded.cumsum(dim=-2).cumsum(dim=-1)
         integral = F.pad(integral, (1, 0, 1, 0))
         return (
@@ -171,6 +173,8 @@ class MultiScaleDLF:
         Sy = box_sums[:, self.Y_IDX]
         S1 = box_sums[:, self.ONE_IDX]
 
+        # Each pixel solves a local affine model dx = ax + by + c and dy = a'x + b'y + c'
+        # from windowed sums, so XtX/rhs are the normal equations for that 3-parameter fit.
         XtX = torch.stack(
             [
                 torch.stack([Sx2, Sxy, Sx], dim=-1),
@@ -248,6 +252,8 @@ class MultiScaleDLF:
                 )
                 residual_sums = self.box_sum(residuals, kernel_size).sum(dim=1)
                 error = residual_sums if error is None else (error + residual_sums)
+            # Averaging across offset families keeps CNN and Zernike residuals on the same
+            # footing instead of letting either branch dominate the DLF channels.
             error = error / float(len(self.offset_fields))
             errors.append(error)
 

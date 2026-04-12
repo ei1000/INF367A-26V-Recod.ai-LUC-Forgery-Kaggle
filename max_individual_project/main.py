@@ -27,7 +27,7 @@ def main():
         save_predictions=False,
         validation_split=0.1,
         output_dir=output_dir,
-        learning_rate=1e-4,
+        learning_rate=2e-4, # updated from 1e-4 to 2e-4 for epoch 14
         mprime_loss_weight=0.6,
         empty_target_penalty_weight=0.5,
         post_process_confident_threshold=0.9,

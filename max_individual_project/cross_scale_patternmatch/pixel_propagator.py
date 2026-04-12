@@ -106,6 +106,8 @@ class PixelPropagator:
         def roll_offsets(values: torch.Tensor, shift_h: int, shift_w: int) -> torch.Tensor:
             return torch.roll(values, shifts=(shift_h, shift_w), dims=(-2, -1))
 
+        # Propagation proposes offsets copied from immediate neighbors plus first-order
+        # extrapolations, mirroring the "good matches tend to cluster" PatchMatch prior.
         zero_dx = [
             roll_offsets(dx, 0, 1),
             roll_offsets(dx, 0, -1),
@@ -154,6 +156,8 @@ class PixelPropagator:
         B, H, W = dx.shape
         radius = max(1, self.random_window // 2) if radius is None else int(radius)
 
+        # Random search perturbs the current winner so each iteration can escape a bad
+        # local basin without reinitializing the whole offset field.
         rand_dx = torch.randint(-radius, radius + 1, (B, H, W, num_random), device=self.device)
         rand_dy = torch.randint(-radius, radius + 1, (B, H, W, num_random), device=self.device)
 
@@ -247,6 +251,8 @@ class PixelPropagator:
             for target_features in feature_list:
                 sampled = self.sample_candidates(target_features, x_candidate, y_candidate).squeeze(1)
                 for source_features in feature_list:
+                    # Each candidate keeps the cheapest pairing across feature families so
+                    # CNN and Zernike descriptors can complement rather than veto each other.
                     current = (source_features - sampled).abs().sum(dim=1, dtype=torch.float32)
                     best_pair = current if best_pair is None else torch.minimum(best_pair, current)
             l1[:, candidate_idx] = best_pair
@@ -280,6 +286,8 @@ class PixelPropagator:
             for source_features in feature_list:
                 current = (source_features.unsqueeze(1) - sampled_candidates).abs().sum(dim=2, dtype=torch.float32)
                 source_pair_costs.append(current)
+            # The vectorized path matches the reference implementation: for each target
+            # family, keep the best source-family cost before selecting the global winner.
             target_best = torch.amin(torch.stack(source_pair_costs, dim=1), dim=1)
             l1 = target_best if l1 is None else torch.minimum(l1, target_best)
 

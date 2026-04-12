@@ -116,6 +116,8 @@ def calculate_binary_f1(pred_mask: np.ndarray, gt_mask: np.ndarray) -> float:
 
 
 def optimal_f1_score(pred_masks: list[np.ndarray], gt_masks: list[np.ndarray]) -> float:
+    # Authentic images only receive full credit when both sets are empty; any predicted
+    # component on a pristine image should count as a complete failure for oF1.
     if not pred_masks and not gt_masks:
         return 1.0
     if not pred_masks or not gt_masks:
@@ -131,5 +133,7 @@ def optimal_f1_score(pred_masks: list[np.ndarray], gt_masks: list[np.ndarray]) -
         f1_matrix = np.vstack((f1_matrix, np.zeros((pad_rows, f1_matrix.shape[1]), dtype=np.float32)))
 
     row_ind, col_ind = scipy.optimize.linear_sum_assignment(-f1_matrix)
+    # Extra predicted components are penalized separately so one good match cannot hide a
+    # mask that fragments into many small blobs.
     excess_predictions_penalty = len(gt_masks) / max(len(pred_masks), len(gt_masks))
     return float(np.mean(f1_matrix[row_ind, col_ind]) * excess_predictions_penalty)

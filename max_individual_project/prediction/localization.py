@@ -82,6 +82,8 @@ def extract_localization_inputs(
 ):
     images_backbone = images
     if separate_transforms and feature_backbone == "cnn" and cnn_backbone == "pretrained":
+        # Only the pretrained CNN branch expects ImageNet normalization; the image-space
+        # branches still operate on the original tensor.
         images_backbone = imagenet_normalize_tensor(images)
 
     device = images.device
@@ -112,6 +114,8 @@ def extract_localization_inputs(
     if feature_backbone == "dino" and dino_match_native_resolution:
         dino_match_size = cnn_feats[1].shape[-2:]
         if dino_match_size != images.shape[-2:]:
+            # DINO descriptors live on their own feature grid, so PatchMatch can operate
+            # directly at that resolution instead of matching against upsampled features.
             patchmatch_images = F.interpolate(images, size=dino_match_size, mode="bilinear", align_corners=False)
 
     with match_context:
@@ -149,6 +153,8 @@ def extract_localization_inputs(
         if collect_stats:
             synchronize_if_cuda(device)
             dlf_time = time.perf_counter() - dlf_start
+            # These timings isolate the three expensive localization stages so training
+            # logs can distinguish feature extraction, PatchMatch, and DLF overhead.
             localization_stats = {
                 "feature_time_s": feature_time,
                 "patchmatch_time_s": propagation_time,

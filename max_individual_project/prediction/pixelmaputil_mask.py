@@ -1,5 +1,3 @@
-# CREDIT: Main project pixelmapUtil.py
-# This is a toned down version specificially for editing output masks, with some changes to the ordering to adress the specific issues of the architecture
 import numpy as np
 import torch
 from scipy import ndimage
@@ -80,6 +78,8 @@ class MaskUtil:
         probs = np.asarray(probs, dtype=np.float32).copy()
         probs = np.clip(probs, 0.0, 1.0)
 
+        # This behaves like seeded hysteresis cleanup: build a low-threshold support mask,
+        # prune noisy components, then keep only support regions touched by confident seeds.
         score_map = self.gaussian_blur(probs) if smooth_probabilities else probs
         mask = score_map >= threshold
 

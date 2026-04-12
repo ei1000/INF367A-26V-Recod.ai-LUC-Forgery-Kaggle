@@ -1,26 +1,13 @@
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
+from model_components.blocks import ConvBNReLU
 
-'''
-Convolution block with convolution, batchnorm and relu
-'''
-class ConvBlock(nn.Module):
-    def __init__(self, in_dim, out_dim):
-        super().__init__()
-        self.block = nn.Sequential(
-            nn.Conv2d(in_dim, out_dim, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(out_dim),
-            nn.ReLU(),
-        )
-    
-    def forward(self, x):
-        return self.block(x)
+ConvBlock = ConvBNReLU
 
-'''
-Full backbone utilizing multiple ConvBlocks
-'''
 class BackboneExtractor(nn.Module):
+    """Lightweight CNN backbone used to build dense descriptors from scratch."""
+
     def __init__(self, use_checkpoint: bool = False):
         super().__init__()
         self.use_checkpoint = use_checkpoint
@@ -43,11 +30,9 @@ class BackboneExtractor(nn.Module):
 
         return self.final_conv(x)
 
-'''
-Pretrained backbone with a small spatial footprint and a 32-dim projection.
-Intended as a drop-in alternative to the random-weight CNN.
-'''
 class PretrainedBackboneExtractor(nn.Module):
+    """Pretrained backbone with a small spatial footprint and optional projection."""
+
     def __init__(self, model_name="vgg16_bn", out_dim=32, freeze=True):
         super().__init__()
         self._features_frozen = False
@@ -111,11 +96,9 @@ class PretrainedBackboneExtractor(nn.Module):
         x = self.features(x)
         return self.proj(x)
 
-'''
-Pyramid feature extractor using the same backbone (shared weights) to 
-run the same backbone on a few different image scalings
-'''
 class PyramidFeatureExtractor(nn.Module):
+    """Runs one backbone at multiple scales and resizes features to a shared grid."""
+
     def __init__(self, backbone=None, rb=0.75, ru=1.5):
         super().__init__()
         self.backbone = backbone if backbone is not None else BackboneExtractor()
