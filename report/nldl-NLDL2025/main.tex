@@ -141,10 +141,14 @@ TODO: Show results of experiments. NB: Without interpretation at this stage!
 \\\\
 Align with method section.
 
+
 \section{Discussion}
 
 TODO: Interpret results, relate to objectives (did we achieve them?), compare against others
-
+\\\\
+One issue with this task is loss function misalignment. Although cross-entropy loss correctly penalizes incorrect pixel-level predictions, it is not fully aligned with the strict conditions that the oF1 metric expects. For instance, if a small area of forged pixels is predicted on an authentic image, the impact on the loss is not large, but this makes the oF1 metric $0$. This meant that we in the process of training different models observed that from epoch to epoch, even if the overall validation loss decreased, it could be the case that performance in regard to the oF1 metric became worse. 
+\\\\
+Although beyond the scope of this project, an interesting avenue for future research could be to create a differentiable loss more directly linked to the OF1 objective. As surrogates, we did employ additionally loss penalties for any forged pixels predicted on authentic images, but a more nuanced alternative would be interesting to experiment with.
 \subsection{Deep Cross-Scale PatchMatch}
 
 The Deep Cross-Scale PatchMatch architecture was proposed by Li \etal in 2024. \cites{li2024deeppatchmatch} It is an end-to-end differentiable deep-learning based architecture which also employs the patch match algorithm presented by Barnes \etal in 2009 \cites{barnes2019patchmatch} on different scales of each image in order to attain pixel similarities and offsets from each pixel to it's most similar pixel. The architecture supports three-channel CMFD, but is adapted to the single-channel CMFD by only using the top branch.
@@ -155,7 +159,7 @@ Inspired by the author's use of a large self-generated copy-move dataset, we use
 \\\\
 Another weakness with this method was its long runtime. The runtime is particularly dependent on the number of PatchMatch iterations which are performed. This module recurrently executes the propagation and evaluation layers "several times" \cite[p.~7]{li2024deeppatchmatch}.
 
- Of course, it may be possible to implement the architecture in a more efficient way. Available memory is also a major limitation, as the operations are performed concurrently on three different scalings of the image. Running on a NVIDIA RTX 4070 TI SUPER, feature extraction and prediction on each image was performed in less than $0.1$s, while the PatchMatch module and iterations took up to $7.3$s per image when employed with 24 iterations. 
+ Of course, it may be possible to implement the architecture in a more efficient way. Available memory is also a major limitation, as the operations are performed concurrently on three different scalings of the image. Running on a NVIDIA RTX 4070 TI SUPER, feature extraction and prediction on each batch was performed in less than $0.1$s, while the PatchMatch module and iterations took up to $7.3$s per batch when employed with 24 iterations. 
 \\\\
 TODO: Fill in table 
 \begin{table}[h!]
@@ -168,7 +172,7 @@ TODO: Fill in table
 	 	16 & 7.3s \\ \hline
 	 	24 &  \\ \hline
 	\end{tabular}
-	\caption{Runtime analysis of the PatchMatch module on a single image (GPU: NVIDIA RTX 4070 TI SUPER)}
+	\caption{Runtime analysis of the PatchMatch module on a batch of images $b=4$ (GPU: NVIDIA RTX 4070 TI SUPER)}
 \end{table}
 \\\\
 TODO: Figure comparing calculated pixel offsets for 8 iterations and 24 iterations, displayed in heatmaps.
