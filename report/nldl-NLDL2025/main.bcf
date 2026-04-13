@@ -2365,9 +2365,14 @@
   </bcf:bibdata>
   <bcf:section number="0">
     <bcf:citekey order="1" intorder="1">kaggle</bcf:citekey>
-    <bcf:citekey order="2" intorder="1">metric</bcf:citekey>
-    <bcf:citekey order="3" intorder="1">notebook</bcf:citekey>
-    <bcf:citekey order="4" intorder="1">kaggle</bcf:citekey>
+    <bcf:citekey order="2" intorder="1">fridrich2003copymove</bcf:citekey>
+    <bcf:citekey order="3" intorder="1">christlein2012evaluation</bcf:citekey>
+    <bcf:citekey order="4" intorder="1">li2024deeppatchmatch</bcf:citekey>
+    <bcf:citekey order="5" intorder="1">metric</bcf:citekey>
+    <bcf:citekey order="6" intorder="1">notebook</bcf:citekey>
+    <bcf:citekey order="7" intorder="1">li2024deeppatchmatch</bcf:citekey>
+    <bcf:citekey order="8" intorder="1">barnes2019patchmatch</bcf:citekey>
+    <bcf:citekey order="9" intorder="1">kaggle</bcf:citekey>
   </bcf:section>
   <!-- SORTING TEMPLATES -->
   <bcf:sortingtemplate name="noneyear">

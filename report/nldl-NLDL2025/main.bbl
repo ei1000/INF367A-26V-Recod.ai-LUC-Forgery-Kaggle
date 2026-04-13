@@ -41,6 +41,151 @@
       \field{title}{Recod.ai/LUC - Scientific Image Forgery Detection}
       \field{year}{2025}
     \endentry
+    \entry{fridrich2003copymove}{article}{}
+      \name{author}{3}{}{%
+        {{hash=0b7ff038c1a27c940c01a4fd0cc68365}{%
+           family={Fridrich},
+           familyi={F\bibinitperiod},
+           given={Jessica},
+           giveni={J\bibinitperiod}}}%
+        {{hash=71b65884f768a362d53ec76b99b2c931}{%
+           family={Soukal},
+           familyi={S\bibinitperiod},
+           given={David},
+           giveni={D\bibinitperiod}}}%
+        {{hash=1bb39fac9fa32ed99cf77efd68858d7f}{%
+           family={Lukáš},
+           familyi={L\bibinitperiod},
+           given={Jan},
+           giveni={J\bibinitperiod}}}%
+      }
+      \strng{namehash}{32f445c6ad2f0db01c6885ad768944c3}
+      \strng{fullhash}{d305a0089c5b295bb3669b876b79bdd2}
+      \strng{bibnamehash}{d305a0089c5b295bb3669b876b79bdd2}
+      \strng{authorbibnamehash}{d305a0089c5b295bb3669b876b79bdd2}
+      \strng{authornamehash}{32f445c6ad2f0db01c6885ad768944c3}
+      \strng{authorfullhash}{d305a0089c5b295bb3669b876b79bdd2}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{title}{Detection of {Copy-Move} Forgery in Digital Images}
+      \field{year}{2003}
+      \verb{urlraw}
+      \verb https://ws2.binghamton.edu/fridrich/Research/copymove.pdf
+      \endverb
+      \verb{url}
+      \verb https://ws2.binghamton.edu/fridrich/Research/copymove.pdf
+      \endverb
+    \endentry
+    \entry{christlein2012evaluation}{article}{}
+      \name{author}{5}{}{%
+        {{hash=f09f7eb62d827406dedc9efd01fc862a}{%
+           family={Christlein},
+           familyi={C\bibinitperiod},
+           given={Vincent},
+           giveni={V\bibinitperiod}}}%
+        {{hash=c3d772fd5167d4c651b648170ad5fe52}{%
+           family={Riess},
+           familyi={R\bibinitperiod},
+           given={Christian},
+           giveni={C\bibinitperiod}}}%
+        {{hash=f1d581b58d6e560e4e589f7b586cdeaf}{%
+           family={Jordan},
+           familyi={J\bibinitperiod},
+           given={Johannes},
+           giveni={J\bibinitperiod}}}%
+        {{hash=3f41856fbaeba5a1befac72cd2652423}{%
+           family={Riess},
+           familyi={R\bibinitperiod},
+           given={Corinna},
+           giveni={C\bibinitperiod}}}%
+        {{hash=92efd3cf3f31aa36467218f0125f24e8}{%
+           family={Angelopoulou},
+           familyi={A\bibinitperiod},
+           given={Elli},
+           giveni={E\bibinitperiod}}}%
+      }
+      \strng{namehash}{d20d917d29cf860b430cd91c4336b4e0}
+      \strng{fullhash}{c3bc3d13b53b57c3f7239b6589029964}
+      \strng{bibnamehash}{c3bc3d13b53b57c3f7239b6589029964}
+      \strng{authorbibnamehash}{c3bc3d13b53b57c3f7239b6589029964}
+      \strng{authornamehash}{d20d917d29cf860b430cd91c4336b4e0}
+      \strng{authorfullhash}{c3bc3d13b53b57c3f7239b6589029964}
+      \field{sortinit}{3}
+      \field{sortinithash}{ad6fe7482ffbd7b9f99c9e8b5dccd3d7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{IEEE Transactions on Information Forensics and Security}
+      \field{number}{6}
+      \field{title}{An Evaluation of Popular {Copy-Move} Forgery Detection Approaches}
+      \field{volume}{7}
+      \field{year}{2012}
+      \field{pages}{1841\bibrangedash 1854}
+      \range{pages}{14}
+      \verb{doi}
+      \verb 10.1109/TIFS.2012.2218597
+      \endverb
+      \verb{urlraw}
+      \verb https://arxiv.org/abs/1208.3665
+      \endverb
+      \verb{url}
+      \verb https://arxiv.org/abs/1208.3665
+      \endverb
+    \endentry
+    \entry{li2024deeppatchmatch}{article}{}
+      \name{author}{6}{}{%
+        {{hash=630a3fc1f43a232058d2b1e49101aa38}{%
+           family={Li},
+           familyi={L\bibinitperiod},
+           given={Yuanman},
+           giveni={Y\bibinitperiod}}}%
+        {{hash=df088006a277c5e229475a1d5c4eb4e5}{%
+           family={He},
+           familyi={H\bibinitperiod},
+           given={Yingjie},
+           giveni={Y\bibinitperiod}}}%
+        {{hash=8e153246d897ba6eecabfb47f7be9969}{%
+           family={Chen},
+           familyi={C\bibinitperiod},
+           given={Changsheng},
+           giveni={C\bibinitperiod}}}%
+        {{hash=d3349e5c2b2661f3b497e9f014ffcf7d}{%
+           family={Dong},
+           familyi={D\bibinitperiod},
+           given={Li},
+           giveni={L\bibinitperiod}}}%
+        {{hash=cd1e4e648b0074e1d1f4427d70297b0a}{%
+           family={Li},
+           familyi={L\bibinitperiod},
+           given={Bin},
+           giveni={B\bibinitperiod}}}%
+        {{hash=302408dc1135cfb6897a36da69afcbf8}{%
+           family={Zhou},
+           familyi={Z\bibinitperiod},
+           given={Jiantao},
+           giveni={J\bibinitperiod}}}%
+      }
+      \strng{namehash}{79766bde1f1e985eb5fba0c5e17c0c40}
+      \strng{fullhash}{d0cea8f0bbd2d62c9b27b71cb99af3e1}
+      \strng{bibnamehash}{d0cea8f0bbd2d62c9b27b71cb99af3e1}
+      \strng{authorbibnamehash}{d0cea8f0bbd2d62c9b27b71cb99af3e1}
+      \strng{authornamehash}{79766bde1f1e985eb5fba0c5e17c0c40}
+      \strng{authorfullhash}{d0cea8f0bbd2d62c9b27b71cb99af3e1}
+      \field{sortinit}{4}
+      \field{sortinithash}{9381316451d1b9788675a07e972a12a7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{note}{Also available at: https://arxiv.org/pdf/2404.17310}
+      \field{title}{Image Copy-Move Forgery Detection via Deep PatchMatch and Pairwise Ranking Learning}
+      \field{year}{2024}
+      \verb{urlraw}
+      \verb https://ieeexplore.ieee.org/document/10736426
+      \endverb
+      \verb{url}
+      \verb https://ieeexplore.ieee.org/document/10736426
+      \endverb
+    \endentry
     \entry{metric}{misc}{}
       \name{author}{1}{}{%
         {{hash=8fec9765921cfa63cb331e42a924c27c}{%
@@ -54,8 +199,8 @@
       \strng{authornamehash}{8fec9765921cfa63cb331e42a924c27c}
       \strng{authorfullhash}{8fec9765921cfa63cb331e42a924c27c}
       \field{extraname}{2}
-      \field{sortinit}{2}
-      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{sortinit}{5}
+      \field{sortinithash}{20e9b4b0b173788c5dace24730f47d8c}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{howpublished}{\url{https://www.kaggle.com/code/metric/recodai-f1/}}
@@ -77,14 +222,56 @@
       \strng{authorbibnamehash}{6282df62bc027d3cb2e954927ba1fec1}
       \strng{authornamehash}{6282df62bc027d3cb2e954927ba1fec1}
       \strng{authorfullhash}{6282df62bc027d3cb2e954927ba1fec1}
-      \field{sortinit}{3}
-      \field{sortinithash}{ad6fe7482ffbd7b9f99c9e8b5dccd3d7}
+      \field{sortinit}{6}
+      \field{sortinithash}{b33bc299efb3c36abec520a4c896a66d}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{howpublished}{\url{https://www.kaggle.com/code/gauravparkhedkar/dinov2-base-0-332-high-res-4500px-robust-inf}}
       \field{note}{[Online; accessed January-2026]}
       \field{title}{DINOv2 Base [0.332] | High-Res 4500px | Robust Inf}
       \field{year}{2026}
+    \endentry
+    \entry{barnes2019patchmatch}{article}{}
+      \name{author}{4}{}{%
+        {{hash=4e74e92ac258a7344d22dd0661d08dd2}{%
+           family={Barnes},
+           familyi={B\bibinitperiod},
+           given={Connelly},
+           giveni={C\bibinitperiod}}}%
+        {{hash=739ef881fb9e0c2c8d7110c90325d960}{%
+           family={Shechtman},
+           familyi={S\bibinitperiod},
+           given={Eli},
+           giveni={E\bibinitperiod}}}%
+        {{hash=6f8bf2b360bfdaa449b42edbd887cb99}{%
+           family={Finkelstein},
+           familyi={F\bibinitperiod},
+           given={Adam},
+           giveni={A\bibinitperiod}}}%
+        {{hash=73f1f1fd46977d69cc9ca95d408b9373}{%
+           family={Goldman},
+           familyi={G\bibinitperiod},
+           given={Dan\bibnamedelima B},
+           giveni={D\bibinitperiod\bibinitdelim B\bibinitperiod}}}%
+      }
+      \strng{namehash}{f2bdfaf37a494ea69981af1e3f4153b2}
+      \strng{fullhash}{feef9d33b86feffc265169bb0a69eae7}
+      \strng{bibnamehash}{feef9d33b86feffc265169bb0a69eae7}
+      \strng{authorbibnamehash}{feef9d33b86feffc265169bb0a69eae7}
+      \strng{authornamehash}{f2bdfaf37a494ea69981af1e3f4153b2}
+      \strng{authorfullhash}{feef9d33b86feffc265169bb0a69eae7}
+      \field{sortinit}{8}
+      \field{sortinithash}{a231b008ebf0ecbe0b4d96dcc159445f}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{title}{PatchMatch: A Randomized Correspondence Algorithm for Structural Image Editing}
+      \field{year}{2009}
+      \verb{urlraw}
+      \verb https://dl.acm.org/doi/10.1145/1531326.1531330
+      \endverb
+      \verb{url}
+      \verb https://dl.acm.org/doi/10.1145/1531326.1531330
+      \endverb
     \endentry
   \enddatalist
 \endrefsection
