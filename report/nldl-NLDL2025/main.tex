@@ -81,14 +81,38 @@ Copy-Move Forgery is a class of image forgery where regions of an image are dupl
 TODO: What have others tried to solve this problem? 
 Are there similar problems studied?
 
+Copy-move image forgery detection has been studied through the lens of many different techniques. Early approaches focused on hand-crafted descriptors extracted either densely over overlapping blocks or sparsely at keypoints, followed by nearest-neighbour matching and geometric consistency checks.
+
 \subsection{Objectives}
 TODO
 \\\\
-We aimed to create a full pipeline for CMFD which could perform well on the Recoid.ai Scientific Image Forgery Detection dataset.
-
+We aimed to create a full pipeline for CMFD which could perform well on the Recoid.ai Scientific Image Forgery Detection dataset. Ideally, our model should be robust towards post-processing techniques. The main goal is to perform well on the competition metric, which is a modified version of F1 which computes pixelwise F1 on pairs of (\emph{predicted mask, ground truth mask}) using the following formula \cites{metric}:
+\\
+$$
+F1 = \frac{2TP}{2TP + FP + FN}
+$$
+\\
+This calculation is applied to every connected component of forged pixels in the image (belonging to either the source or target). Predictions given by the model are matched up with the best corresponding ground-truth areas using the Hungarian algorithm.
+For any additional predicted areas predicted by the model above the actual amount of ground-truth components, a penalty is computed:
+\\
+$$
+P = \frac{n_{gt}}{\max({n_{pred}, n_{gt}})}
+$$
+\\
+Finally, the per-image score is given as:
+\\
+$$
+oF1 = \text{mean(best matched pairwise F1 scores)} \times P
+$$
+\\
+The competition metric is challenging for a few reasons. Firstly, it requires high pixel-level precision for the output masks. In addition, a score of $0$ for a given image is given if any pixels are predicted as forged on a ground-truth authentic image. Finally, it is highly punishing if any additional components are predicted, even if they should be small, as this affects the penalty $P$.
 
 \subsection{Contributions}
 TODO: What can the reader learn from this paper?
+
+This paper presents a wide range of techniques for Copy-Move forgery and discusses strengths and weaknesses of the different techniques, particularly in relation to Copy-Move forgery on scientific images.
+\\\\
+A number of different methods and architectures are tested in attempt to give a more comprehensive picture and explain in what circumstances different techniques may be useful. 
 
 \section{Methods}
 
@@ -97,6 +121,13 @@ Reader should be able to reproduce results.
 
 Basically, detailed breakdown of final implementation goes here.
 
+Our initial implementation was inspired by a notebook by Kaggle user Gaurav Parkhedkar \cites{notebook}, who successfully employed a range of different techniques to perform a score of $0.332$ on the competition metric on the test set.
+
+\subsection{Dataset}
+
+Unfortunately, we were unable to test our implementation against the Kaggle test-set, as we were too late to enter the competition. As we did not have access to the test data, we instead chose to use the available training data in a train (80\%), evaluate (10\%), test (10\%) split. The training data consists of a base $2751$ forged and $2377$ authentic images as well as an additional $48$ forged images.
+
+
 \section{Results}
 
 TODO: Show results of experiments. NB: Without interpretation at this stage!
@@ -104,10 +135,30 @@ Align with method section.
 
 \section{Discussion}
 
-
 TODO: Interpret results
 Relate to objectives (did we achieve them?)
-Compare against others (kaggle leaderboard?)
+Compare against others
+
+\subsection{Mask post-processing}
+
+\subsection{Deep Cross-Scale PatchMatch}
+
+Inspired by the paper, we used a slightly larger dataset to train this model, inspired by the author's use of a large self-generated copy-move dataset. The hope was that this simpler dataset would be helpful in allowing the model to generalize. 
+
+For this implementation 
+
+We assess that several factors contributed to the worse performance of this architecture. Firstly, it was discovered after training was terminated that the images often contain the same object copied multiple times (TODO: EXAMPLE). As each pixel only keeps it's most similar offset, this means that any object which is copied more than once risks unstable performance within the PatchMatch module. For instance, let the source region $A$ have two copied target regions $A'$ and $A''$ within the image. The PatchMatch algorithm may match some pixels from $A$ to $A'$, while other pixels may be matched to their corresponding pixel within $A''$. Then, the generated offsets for $A$ are less consistent, causing high DLF errors and in turn giving a poor signal to the decoder.
+
+A better implementation for future work should involve some remedy for this, such as keeping the top-k matches per pixel instead of only one. In contrast, this is not an issue for purely feature-extraction based approaches such as our main pipeline.
+
+\subsection{Comments on kaggle submissions}
+
+
+At the time of writing, the maximum oF1 score achieved on hold-out test data was 0.458, achieved by Kaggle user \emph{orshanec}. \cites{kaggle} 
+
+
+
+
 \printbibliography
 
 \appendix
