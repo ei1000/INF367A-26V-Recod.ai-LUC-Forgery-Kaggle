@@ -80,9 +80,9 @@ Copy-Move Forgery is a class of image forgery where regions of an image are dupl
 \subsection{Related works}
 TODO: What have others tried to solve this problem? Are there similar problems studied?
 \\\\
-Copy-move image forgery detection has been studied through the lens of many different techniques. Early approaches focused on hand-crafted descriptors extracted either densely over overlapping blocks or sparsely at keypoints, followed by nearest-neighbour matching and geometric consistency checks. \cites{fridrich2003copymove} \cites{christlein2012evaluation}
+Copy-move image forgery detection has been studied through the lens of many different techniques. Early approaches focused on hand-crafted descriptors extracted either densely over overlapping blocks or sparsely at keypoints, followed by nearest-neighbour matching and geometric consistency checks \cite{fridrich2003copymove,christlein2012evaluation}. These methods established the basic copy-move detection pipeline and showed that explicit correspondence search can be effective, but they are often sensitive to strong post-processing, complex geometric transformations, and repeated structures in the scene \cite{christlein2012evaluation}.
 \\\\
-In recent work, the focus has shifted towards using deep learning for copy-move detection. Some methods retain the classical pixel-matching intuition while replacing hand-crafted features with learned representations .
+In more recent work, the focus has shifted towards deep learning for copy-move detection. Some methods retain the classical matching intuition while replacing hand-crafted features with learned representations and stronger dense matching modules \cite{liu2022twostage}. Others formulate the task as end-to-end forgery localization, using CNN-based architectures to jointly detect duplicated content and localize manipulated regions \cite{wu2018busternet}. Attention-based models have further improved localization by explicitly modelling patch relationships and co-occurrence cues \cite{islam2020doagan}, while more recent transformer-based approaches have explored global context modelling for copy-move detection \cite{liu2024cmfdformer}. In parallel, source-target disambiguation has also emerged as an important subproblem, since detecting near-duplicate regions alone is not always sufficient to identify the truly manipulated area \cite{barni2021copymove}.
 \\\\
 One of the other architectures we tried for this task even combines both perspectives by using both CNN crafted features and features computed through Zernike kernels. \cites{li2024deeppatchmatch}
 
@@ -116,7 +116,6 @@ TODO: What can the reader learn from this paper?
 This paper presents a wide range of techniques for Copy-Move forgery and discusses strengths and weaknesses of the different techniques, particularly in relation to Copy-Move forgery on scientific images.
 \\\\
 A number of different methods and architectures are tested in attempt to give a more comprehensive picture and explain in what circumstances different techniques may be useful. 
-
 \section{Methods}
 
 TODO: What did we do?
@@ -152,7 +151,7 @@ Compare against others
 
 The Deep Cross-Scale PatchMatch architecture was proposed by Li \etal in 2024. \cites{li2024deeppatchmatch} It is an end-to-end differentiable deep-learning based architecture which also employs the patch match algorithm presented by Barnes \etal in 2009 \cites{barnes2019patchmatch} on different scales of each image in order to attain pixel similarities and offsets from each pixel to it's most similar pixel.
 \\\\
-Inspired by the paper, we used a slightly larger dataset to train this model, inspired by the author's use of a large self-generated copy-move dataset. The hope was that this simpler dataset would be helpful in allowing the model to generalize. 
+Inspired by the author's use of a large self-generated copy-move dataset, we used a slightly larger dataset to train this model, in the hope that this would be helpful in allowing the model to generalize. The extended dataset contains the original dataset as well as the CASIA-CMFD dataset downloaded from Kaggle. \cites{casiakaggle}
 \\\\
 For this implementation 
 \\\\
@@ -165,11 +164,7 @@ A better implementation for future work should involve some remedy for this, suc
 
 At the time of writing, the maximum oF1 score achieved on hold-out test data was 0.458, achieved by Kaggle user \emph{orshanec}. \cites{kaggle} 
 
-
-
-
 \printbibliography
-
 \appendix
 \section{Appendix Example}
 

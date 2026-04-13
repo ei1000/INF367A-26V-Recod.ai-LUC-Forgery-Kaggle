@@ -112,8 +112,8 @@
       \strng{authorbibnamehash}{c3bc3d13b53b57c3f7239b6589029964}
       \strng{authornamehash}{d20d917d29cf860b430cd91c4336b4e0}
       \strng{authorfullhash}{c3bc3d13b53b57c3f7239b6589029964}
-      \field{sortinit}{3}
-      \field{sortinithash}{ad6fe7482ffbd7b9f99c9e8b5dccd3d7}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{journaltitle}{IEEE Transactions on Information Forensics and Security}
@@ -131,6 +131,251 @@
       \endverb
       \verb{url}
       \verb https://arxiv.org/abs/1208.3665
+      \endverb
+    \endentry
+    \entry{liu2022twostage}{article}{}
+      \name{author}{4}{}{%
+        {{hash=08552ba2e5fab7862d46bf9379ad8f48}{%
+           family={Liu},
+           familyi={L\bibinitperiod},
+           given={Yaqi},
+           giveni={Y\bibinitperiod}}}%
+        {{hash=d29e725f2ac4829fcb2293c20fb7eac3}{%
+           family={Xia},
+           familyi={X\bibinitperiod},
+           given={Chao},
+           giveni={C\bibinitperiod}}}%
+        {{hash=2e6d083223535c9739fa361dbc391d63}{%
+           family={Zhu},
+           familyi={Z\bibinitperiod},
+           given={Xiaobin},
+           giveni={X\bibinitperiod}}}%
+        {{hash=99506ff9425d76d3530457ac402aff20}{%
+           family={Xu},
+           familyi={X\bibinitperiod},
+           given={Shengwei},
+           giveni={S\bibinitperiod}}}%
+      }
+      \strng{namehash}{85c4b5e6cb963012fb3f1012309a5574}
+      \strng{fullhash}{3da0031c1d9e34c8bed146976d5409c5}
+      \strng{bibnamehash}{3da0031c1d9e34c8bed146976d5409c5}
+      \strng{authorbibnamehash}{3da0031c1d9e34c8bed146976d5409c5}
+      \strng{authornamehash}{85c4b5e6cb963012fb3f1012309a5574}
+      \strng{authorfullhash}{3da0031c1d9e34c8bed146976d5409c5}
+      \field{extraname}{1}
+      \field{sortinit}{4}
+      \field{sortinithash}{9381316451d1b9788675a07e972a12a7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{IEEE Transactions on Image Processing}
+      \field{title}{Two-Stage Copy-Move Forgery Detection With Self Deep Matching and Proposal SuperGlue}
+      \field{volume}{31}
+      \field{year}{2022}
+      \field{pages}{541\bibrangedash 555}
+      \range{pages}{15}
+      \verb{doi}
+      \verb 10.1109/TIP.2021.3132828
+      \endverb
+      \verb{urlraw}
+      \verb https://doi.org/10.1109/TIP.2021.3132828
+      \endverb
+      \verb{url}
+      \verb https://doi.org/10.1109/TIP.2021.3132828
+      \endverb
+    \endentry
+    \entry{wu2018busternet}{article}{}
+      \name{author}{3}{}{%
+        {{hash=5054d8715f6746af9ed28c566f168046}{%
+           family={Wu},
+           familyi={W\bibinitperiod},
+           given={Yue},
+           giveni={Y\bibinitperiod}}}%
+        {{hash=6f5db9b8b3ee51eb9bdf64e8cb349d25}{%
+           family={Abd-Almageed},
+           familyi={A\bibinithyphendelim A\bibinitperiod},
+           given={Wael},
+           giveni={W\bibinitperiod}}}%
+        {{hash=b6c68ced71af9c98eac31a228222a7ca}{%
+           family={Natarajan},
+           familyi={N\bibinitperiod},
+           given={Prem},
+           giveni={P\bibinitperiod}}}%
+      }
+      \strng{namehash}{77aa4285bb0660bf6222f13bc03c3431}
+      \strng{fullhash}{123394ce93a72cfa5632ed133e4a36cf}
+      \strng{bibnamehash}{123394ce93a72cfa5632ed133e4a36cf}
+      \strng{authorbibnamehash}{123394ce93a72cfa5632ed133e4a36cf}
+      \strng{authornamehash}{77aa4285bb0660bf6222f13bc03c3431}
+      \strng{authorfullhash}{123394ce93a72cfa5632ed133e4a36cf}
+      \field{sortinit}{5}
+      \field{sortinithash}{20e9b4b0b173788c5dace24730f47d8c}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Computer Vision -- ECCV 2018}
+      \field{title}{BusterNet: Detecting Copy-Move Image Forgery with Source/Target Localization}
+      \field{year}{2018}
+      \field{pages}{170\bibrangedash 186}
+      \range{pages}{17}
+      \verb{urlraw}
+      \verb https://openaccess.thecvf.com/content_ECCV_2018/papers/Rex_Yue_Wu_BusterNet_Detecting_Copy-Move_ECCV_2018_paper.pdf
+      \endverb
+      \verb{url}
+      \verb https://openaccess.thecvf.com/content_ECCV_2018/papers/Rex_Yue_Wu_BusterNet_Detecting_Copy-Move_ECCV_2018_paper.pdf
+      \endverb
+    \endentry
+    \entry{islam2020doagan}{article}{}
+      \name{author}{4}{}{%
+        {{hash=9b8203a57891aed541e6df5e6762cb84}{%
+           family={Islam},
+           familyi={I\bibinitperiod},
+           given={Ashraful},
+           giveni={A\bibinitperiod}}}%
+        {{hash=2aad34f1eab459256b87aad71f61e253}{%
+           family={Long},
+           familyi={L\bibinitperiod},
+           given={Chengjiang},
+           giveni={C\bibinitperiod}}}%
+        {{hash=6c89e0058d43043f76c40be80b89e9b1}{%
+           family={Basharat},
+           familyi={B\bibinitperiod},
+           given={Arslan},
+           giveni={A\bibinitperiod}}}%
+        {{hash=75399d609fe5b8c4ece123c9b39cf69f}{%
+           family={Hoogs},
+           familyi={H\bibinitperiod},
+           given={Anthony},
+           giveni={A\bibinitperiod}}}%
+      }
+      \strng{namehash}{05d07157560299c4de07f74fb28aa3d0}
+      \strng{fullhash}{399c8d126f2b97ff3f9aee963cffacef}
+      \strng{bibnamehash}{399c8d126f2b97ff3f9aee963cffacef}
+      \strng{authorbibnamehash}{399c8d126f2b97ff3f9aee963cffacef}
+      \strng{authornamehash}{05d07157560299c4de07f74fb28aa3d0}
+      \strng{authorfullhash}{399c8d126f2b97ff3f9aee963cffacef}
+      \field{sortinit}{6}
+      \field{sortinithash}{b33bc299efb3c36abec520a4c896a66d}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)}
+      \field{title}{DOA-GAN: Dual-Order Attentive Generative Adversarial Network for Image Copy-Move Forgery Detection and Localization}
+      \field{year}{2020}
+      \field{pages}{4676\bibrangedash 4685}
+      \range{pages}{10}
+      \verb{doi}
+      \verb 10.1109/CVPR42600.2020.00473
+      \endverb
+      \verb{urlraw}
+      \verb https://doi.org/10.1109/CVPR42600.2020.00473
+      \endverb
+      \verb{url}
+      \verb https://doi.org/10.1109/CVPR42600.2020.00473
+      \endverb
+    \endentry
+    \entry{liu2024cmfdformer}{article}{}
+      \name{author}{7}{}{%
+        {{hash=08552ba2e5fab7862d46bf9379ad8f48}{%
+           family={Liu},
+           familyi={L\bibinitperiod},
+           given={Yaqi},
+           giveni={Y\bibinitperiod}}}%
+        {{hash=d29e725f2ac4829fcb2293c20fb7eac3}{%
+           family={Xia},
+           familyi={X\bibinitperiod},
+           given={Chao},
+           giveni={C\bibinitperiod}}}%
+        {{hash=79d1423d5f08c46558858972371f2656}{%
+           family={Xiao},
+           familyi={X\bibinitperiod},
+           given={Song},
+           giveni={S\bibinitperiod}}}%
+        {{hash=e5feea3ff55264a4c9912b7143d6ef71}{%
+           family={Guan},
+           familyi={G\bibinitperiod},
+           given={Qingxiao},
+           giveni={Q\bibinitperiod}}}%
+        {{hash=cc3edf60f50432996e74b9a5200ff94e}{%
+           family={Dong},
+           familyi={D\bibinitperiod},
+           given={Wenqian},
+           giveni={W\bibinitperiod}}}%
+        {{hash=614fdf51ce9628d993d9e0dc779c15a2}{%
+           family={Zhang},
+           familyi={Z\bibinitperiod},
+           given={Yifan},
+           giveni={Y\bibinitperiod}}}%
+        {{hash=944469c286535032f6c946dad972fe16}{%
+           family={Yu},
+           familyi={Y\bibinitperiod},
+           given={Nenghai},
+           giveni={N\bibinitperiod}}}%
+      }
+      \strng{namehash}{85c4b5e6cb963012fb3f1012309a5574}
+      \strng{fullhash}{e78c3b4dc49e40ff223dbfe2946b4b1b}
+      \strng{bibnamehash}{e78c3b4dc49e40ff223dbfe2946b4b1b}
+      \strng{authorbibnamehash}{e78c3b4dc49e40ff223dbfe2946b4b1b}
+      \strng{authornamehash}{85c4b5e6cb963012fb3f1012309a5574}
+      \strng{authorfullhash}{e78c3b4dc49e40ff223dbfe2946b4b1b}
+      \field{extraname}{2}
+      \field{sortinit}{7}
+      \field{sortinithash}{108d0be1b1bee9773a1173443802c0a3}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{CoRR}
+      \field{title}{CMFDFormer: Transformer-based Copy-Move Forgery Detection with Continual Learning}
+      \field{volume}{abs/2311.13263}
+      \field{year}{2023}
+      \verb{doi}
+      \verb 10.48550/ARXIV.2311.13263
+      \endverb
+      \verb{urlraw}
+      \verb https://arxiv.org/abs/2311.13263
+      \endverb
+      \verb{url}
+      \verb https://arxiv.org/abs/2311.13263
+      \endverb
+    \endentry
+    \entry{barni2021copymove}{article}{}
+      \name{author}{3}{}{%
+        {{hash=fed080f345f0809455f584a20941e966}{%
+           family={Barni},
+           familyi={B\bibinitperiod},
+           given={Mauro},
+           giveni={M\bibinitperiod}}}%
+        {{hash=23dc5b05a2b43645f7ebfc2498426209}{%
+           family={Phan},
+           familyi={P\bibinitperiod},
+           given={Quoc-Tin},
+           giveni={Q\bibinithyphendelim T\bibinitperiod}}}%
+        {{hash=476bb14e94deae0f166d812d15bbd092}{%
+           family={Tondi},
+           familyi={T\bibinitperiod},
+           given={Benedetta},
+           giveni={B\bibinitperiod}}}%
+      }
+      \strng{namehash}{aacf0074683790d535f8f37dc86d8ff0}
+      \strng{fullhash}{0af98ec91dcb2ddd68147346dfe6349c}
+      \strng{bibnamehash}{0af98ec91dcb2ddd68147346dfe6349c}
+      \strng{authorbibnamehash}{0af98ec91dcb2ddd68147346dfe6349c}
+      \strng{authornamehash}{aacf0074683790d535f8f37dc86d8ff0}
+      \strng{authorfullhash}{0af98ec91dcb2ddd68147346dfe6349c}
+      \field{sortinit}{8}
+      \field{sortinithash}{a231b008ebf0ecbe0b4d96dcc159445f}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{IEEE Transactions on Information Forensics and Security}
+      \field{title}{Copy Move Source-Target Disambiguation Through Multi-Branch CNNs}
+      \field{volume}{16}
+      \field{year}{2021}
+      \field{pages}{1825\bibrangedash 1840}
+      \range{pages}{16}
+      \verb{doi}
+      \verb 10.1109/TIFS.2020.3045903
+      \endverb
+      \verb{urlraw}
+      \verb https://doi.org/10.1109/TIFS.2020.3045903
+      \endverb
+      \verb{url}
+      \verb https://doi.org/10.1109/TIFS.2020.3045903
       \endverb
     \endentry
     \entry{li2024deeppatchmatch}{article}{}
@@ -172,8 +417,8 @@
       \strng{authorbibnamehash}{d0cea8f0bbd2d62c9b27b71cb99af3e1}
       \strng{authornamehash}{79766bde1f1e985eb5fba0c5e17c0c40}
       \strng{authorfullhash}{d0cea8f0bbd2d62c9b27b71cb99af3e1}
-      \field{sortinit}{4}
-      \field{sortinithash}{9381316451d1b9788675a07e972a12a7}
+      \field{sortinit}{9}
+      \field{sortinithash}{0a5ebc79d83c96b6579069544c73c7d4}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{note}{Also available at: https://arxiv.org/pdf/2404.17310}
@@ -199,8 +444,8 @@
       \strng{authornamehash}{8fec9765921cfa63cb331e42a924c27c}
       \strng{authorfullhash}{8fec9765921cfa63cb331e42a924c27c}
       \field{extraname}{2}
-      \field{sortinit}{5}
-      \field{sortinithash}{20e9b4b0b173788c5dace24730f47d8c}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{howpublished}{\url{https://www.kaggle.com/code/metric/recodai-f1/}}
@@ -222,8 +467,8 @@
       \strng{authorbibnamehash}{6282df62bc027d3cb2e954927ba1fec1}
       \strng{authornamehash}{6282df62bc027d3cb2e954927ba1fec1}
       \strng{authorfullhash}{6282df62bc027d3cb2e954927ba1fec1}
-      \field{sortinit}{6}
-      \field{sortinithash}{b33bc299efb3c36abec520a4c896a66d}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{howpublished}{\url{https://www.kaggle.com/code/gauravparkhedkar/dinov2-base-0-332-high-res-4500px-robust-inf}}
@@ -260,8 +505,8 @@
       \strng{authorbibnamehash}{feef9d33b86feffc265169bb0a69eae7}
       \strng{authornamehash}{f2bdfaf37a494ea69981af1e3f4153b2}
       \strng{authorfullhash}{feef9d33b86feffc265169bb0a69eae7}
-      \field{sortinit}{8}
-      \field{sortinithash}{a231b008ebf0ecbe0b4d96dcc159445f}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{title}{PatchMatch: A Randomized Correspondence Algorithm for Structural Image Editing}
@@ -271,6 +516,33 @@
       \endverb
       \verb{url}
       \verb https://dl.acm.org/doi/10.1145/1531326.1531330
+      \endverb
+    \endentry
+    \entry{casiakaggle}{article}{}
+      \name{author}{1}{}{%
+        {{hash=3cde5d84935df6ef6919ab268669270d}{%
+           family={m\_ashraffarouk},
+           familyi={m\bibinitperiod}}}%
+      }
+      \strng{namehash}{3cde5d84935df6ef6919ab268669270d}
+      \strng{fullhash}{3cde5d84935df6ef6919ab268669270d}
+      \strng{bibnamehash}{3cde5d84935df6ef6919ab268669270d}
+      \strng{authorbibnamehash}{3cde5d84935df6ef6919ab268669270d}
+      \strng{authornamehash}{3cde5d84935df6ef6919ab268669270d}
+      \strng{authorfullhash}{3cde5d84935df6ef6919ab268669270d}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Kaggle}
+      \field{note}{Dataset, accessed 2026-03-15}
+      \field{title}{CASIA-CMFD}
+      \field{year}{2025}
+      \verb{urlraw}
+      \verb https://www.kaggle.com/datasets/mashraffarouk/casia-cmfd
+      \endverb
+      \verb{url}
+      \verb https://www.kaggle.com/datasets/mashraffarouk/casia-cmfd
       \endverb
     \endentry
   \enddatalist
