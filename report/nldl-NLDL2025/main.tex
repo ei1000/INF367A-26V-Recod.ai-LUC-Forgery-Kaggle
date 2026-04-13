@@ -78,13 +78,11 @@ TODO - "Short summary of the paper, including results. Often written last".
 
 Copy-Move Forgery is a class of image forgery where regions of an image are duplicated and moved to other areas of the image. Commonly, techniques such as rotation, flipping and scaling of the copied region are applied, as well as post-processing such as edge smoothing, brightness adjustment and adding extra noise. These techniques can lead to forgeries which are hard to detect both through manual review and automated detectors. This method of forgery can be used within scientific images in order to fabricate results, where the complexity of the figures creates additional difficulties. \cites{kaggle}
 \subsection{Related works}
-TODO: What have others tried to solve this problem? Are there similar problems studied?
-\\\\
 Copy-move image forgery detection has been studied through the lens of many different techniques. Early approaches focused on hand-crafted descriptors extracted either densely over overlapping blocks or sparsely at keypoints, followed by nearest-neighbour matching and geometric consistency checks \cite{fridrich2003copymove,christlein2012evaluation}. These methods established the basic copy-move detection pipeline and showed that explicit correspondence search can be effective, but they are often sensitive to strong post-processing, complex geometric transformations, and repeated structures in the scene \cite{christlein2012evaluation}.
 \\\\
 In more recent work, the focus has shifted towards deep learning for copy-move detection. Some methods retain the classical matching intuition while replacing hand-crafted features with learned representations and stronger dense matching modules \cite{liu2022twostage}. Others formulate the task as end-to-end forgery localization, using CNN-based architectures to jointly detect duplicated content and localize manipulated regions \cite{wu2018busternet}. Attention-based models have further improved localization by explicitly modelling patch relationships and co-occurrence cues \cite{islam2020doagan}, while more recent transformer-based approaches have explored global context modelling for copy-move detection \cite{liu2024cmfdformer}. In parallel, source-target disambiguation has also emerged as an important subproblem, since detecting near-duplicate regions alone is not always sufficient to identify the truly manipulated area \cite{barni2021copymove}.
 \\\\
-One of the other architectures we tried for this task even combines both perspectives by using both CNN crafted features and features computed through Zernike kernels. \cites{li2024deeppatchmatch}
+One of the other architectures we tried for this task even combines both perspectives by using CNN crafted features in combination with features computed through Zernike kernels. \cites{li2024deeppatchmatch}
 
 \subsection{Objectives}
 TODO: What do we aim to achieve?
@@ -123,6 +121,8 @@ TODO: What did we do?
 \\\\
 Our initial implementation was inspired by a notebook by Kaggle user Gaurav Parkhedkar \cites{notebook}, who successfully employed a range of different techniques to perform a score of $0.332$ on the competition metric on the test set.
 
+\subsection{Feature Extraction}
+To perform feature extraction on the images, we employ Meta AI's powerful DINOv2 model using the pretrained \emph{ViT-B/14} segmentation head \cites{oquab2023dinov2}. 
 \subsection{Dataset}
 
 Unfortunately, we were unable to test our implementation against the Kaggle test-set, as we were too late to enter the competition. As we did not have access to the test data, we instead chose to use the available training data in a train (80\%), evaluate (10\%), test (10\%) split. The training data consists of a base $2751$ forged and $2377$ authentic images as well as an additional $48$ forged images.
@@ -143,26 +143,44 @@ Align with method section.
 
 \section{Discussion}
 
-TODO: Interpret results
-Relate to objectives (did we achieve them?)
-Compare against others
+TODO: Interpret results, relate to objectives (did we achieve them?), compare against others
 
 \subsection{Deep Cross-Scale PatchMatch}
 
-The Deep Cross-Scale PatchMatch architecture was proposed by Li \etal in 2024. \cites{li2024deeppatchmatch} It is an end-to-end differentiable deep-learning based architecture which also employs the patch match algorithm presented by Barnes \etal in 2009 \cites{barnes2019patchmatch} on different scales of each image in order to attain pixel similarities and offsets from each pixel to it's most similar pixel.
+The Deep Cross-Scale PatchMatch architecture was proposed by Li \etal in 2024. \cites{li2024deeppatchmatch} It is an end-to-end differentiable deep-learning based architecture which also employs the patch match algorithm presented by Barnes \etal in 2009 \cites{barnes2019patchmatch} on different scales of each image in order to attain pixel similarities and offsets from each pixel to it's most similar pixel. The architecture supports three-channel CMFD, but is adapted to the single-channel CMFD by only using the top branch.
 \\\\
-Inspired by the author's use of a large self-generated copy-move dataset, we used a slightly larger dataset to train this model, in the hope that this would be helpful in allowing the model to generalize. The extended dataset contains the original dataset as well as the CASIA-CMFD dataset downloaded from Kaggle. \cites{casiakaggle}
+The implementation assessed here has some differences from the version by Li \etal. This is partly due to practical concerns, and partly due to ambiguity or lack of detail in the paper regarding specific implementation details. 
 \\\\
-For this implementation 
+Inspired by the author's use of a large self-generated copy-move dataset, we used a slightly larger dataset to train this model, in the hope that this would be helpful in allowing the model to generalize. The extended dataset contains the original dataset as well as the CASIA-CMFD dataset downloaded from Kaggle. \cites{casiakaggle} However, this may have led to 
 \\\\
-We assess that several factors contributed to the worse performance of this architecture. Firstly, it was discovered after training was terminated that the images often contain the same object copied multiple times (TODO: EXAMPLE). As each pixel only keeps it's most similar offset, this means that any object which is copied more than once risks unstable performance within the PatchMatch module. For instance, let the source region $A$ have two copied target regions $A'$ and $A''$ within the image. The PatchMatch algorithm may match some pixels from $A$ to $A'$, while other pixels may be matched to their corresponding pixel within $A''$. Then, the generated offsets for $A$ are less consistent, causing high DLF errors and in turn giving a poor signal to the decoder.
+Another weakness with this method was its long runtime. The runtime is particularly dependent on the number of PatchMatch iterations which are performed. This module recurrently executes the propagation and evaluation layers "several times" \cite[p.~7]{li2024deeppatchmatch}.
 
-A better implementation for future work should involve some remedy for this, such as keeping the top-k matches per pixel instead of only one. In contrast, this is not an issue for purely feature-extraction based approaches such as our main pipeline.
+ Of course, it may be possible to implement the architecture in a more efficient way. Available memory is also a major limitation, as the operations are performed concurrently on three different scalings of the image. Running on a NVIDIA RTX 4070 TI SUPER, feature extraction and prediction on each image was performed in less than $0.1$s, while the PatchMatch module and iterations took up to $7.3$s per image when employed with 24 iterations. 
+\\\\
+TODO: Fill in table 
+\begin{table}[h!]
+	\centering
+	\begin{tabular}{|c|c|}
+		\hline
+		PatchMatch Iterations & Runtime \\ \hline
+		4 &  \\ \hline
+	 	8 &  \\ \hline
+	 	16 & 7.3s \\ \hline
+	 	24 &  \\ \hline
+	\end{tabular}
+	\caption{Runtime analysis of the PatchMatch module on a single image (GPU: NVIDIA RTX 4070 TI SUPER)}
+\end{table}
+\\\\
+TODO: Figure comparing calculated pixel offsets for 8 iterations and 24 iterations, displayed in heatmaps.
+\\\\
+We assess that several factors contributed to the worse performance of this architecture. Firstly, it was discovered after training was terminated that the images often contain the same object copied multiple times (TODO: EXAMPLE). As each pixel only keeps it's most similar offset, this means that any object which is copied more than once risks unstable performance within the PatchMatch module. For instance, let the source region $A$ have two copied target regions $A'$ and $A''$ within the image. The PatchMatch algorithm may match some pixels from $A$ to $A'$, while other pixels may be matched to their corresponding pixel within $A''$. Then, the generated offsets for $A$ are less consistent, causing high DLF errors and in turn giving a poor signal to the decoder. A better implementation for future work should involve some remedy for this, such as keeping the top-k matches per pixel instead of only one. In contrast, this is not an issue for purely feature-extraction based approaches such as our main pipeline.
+\\\\
+PatchMatch's reliance on finding groups of pixels with high feature similarity may have some other fundamental issues in regards to this particular dataset. In the paper, the architecture trains on a training set generated from MS COCO \cites{lin2014coco} by applying a random copy-move, rotation and scaling operation to a random area. It is then evaluated 
+\\\\
 
-\subsection{Comments on kaggle submissions}
+\subsection{Comments on Kaggle submissions}
 
-
-At the time of writing, the maximum oF1 score achieved on hold-out test data was 0.458, achieved by Kaggle user \emph{orshanec}. \cites{kaggle} 
+At the time of writing, the maximum oF1 score achieved on hold-out test data was 0.458, achieved by Kaggle user \emph{orshanec}. \cites{kaggle} We again emphasize that our architecture cannot be directly compared with this metric due to us being unable to access the Kaggle hold-out test set.
 
 \printbibliography
 \appendix

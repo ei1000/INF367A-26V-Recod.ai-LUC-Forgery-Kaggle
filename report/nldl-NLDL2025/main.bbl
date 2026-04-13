@@ -476,6 +476,82 @@
       \field{title}{DINOv2 Base [0.332] | High-Res 4500px | Robust Inf}
       \field{year}{2026}
     \endentry
+    \entry{oquab2023dinov2}{article}{}
+      \true{moreauthor}
+      \true{morelabelname}
+      \name{author}{10}{}{%
+        {{hash=837bdf8ff88db746f81a2e1284a60422}{%
+           family={Oquab},
+           familyi={O\bibinitperiod},
+           given={Maxime},
+           giveni={M\bibinitperiod}}}%
+        {{hash=c7aaaf1f5fc651003103cdbeca6243a5}{%
+           family={Darcet},
+           familyi={D\bibinitperiod},
+           given={Timothée},
+           giveni={T\bibinitperiod}}}%
+        {{hash=3f350fb55b5ad4080157ddbaf564948b}{%
+           family={Moutakanni},
+           familyi={M\bibinitperiod},
+           given={Theo},
+           giveni={T\bibinitperiod}}}%
+        {{hash=20d862649896a8eb9e0794ab060c0b0f}{%
+           family={Vo},
+           familyi={V\bibinitperiod},
+           given={Huy\bibnamedelima V.},
+           giveni={H\bibinitperiod\bibinitdelim V\bibinitperiod}}}%
+        {{hash=5b93cc67d00372e1b5b40bfa6e60eb53}{%
+           family={Szafraniec},
+           familyi={S\bibinitperiod},
+           given={Marc},
+           giveni={M\bibinitperiod}}}%
+        {{hash=5dc4b47031c8b2907cad670adafdeed4}{%
+           family={Khalidov},
+           familyi={K\bibinitperiod},
+           given={Vasil},
+           giveni={V\bibinitperiod}}}%
+        {{hash=f4329de85325465dd871adf4af9a1903}{%
+           family={Fernandez},
+           familyi={F\bibinitperiod},
+           given={Pierre},
+           giveni={P\bibinitperiod}}}%
+        {{hash=e95875c24fa3832f61892aeb77b3adc7}{%
+           family={Haziza},
+           familyi={H\bibinitperiod},
+           given={Daniel},
+           giveni={D\bibinitperiod}}}%
+        {{hash=e5dfae4582081d649e3a0d5342050016}{%
+           family={Massa},
+           familyi={M\bibinitperiod},
+           given={Francisco},
+           giveni={F\bibinitperiod}}}%
+        {{hash=25ec75200061b14f2e37b3872b718180}{%
+           family={El-Nouby},
+           familyi={E\bibinithyphendelim N\bibinitperiod},
+           given={Alaaeldin},
+           giveni={A\bibinitperiod}}}%
+      }
+      \strng{namehash}{618ed95633c96d24beb38093a078f50c}
+      \strng{fullhash}{e2ecc1b040b19f9a394a94ddf1dbd9d1}
+      \strng{bibnamehash}{e2ecc1b040b19f9a394a94ddf1dbd9d1}
+      \strng{authorbibnamehash}{e2ecc1b040b19f9a394a94ddf1dbd9d1}
+      \strng{authornamehash}{618ed95633c96d24beb38093a078f50c}
+      \strng{authorfullhash}{e2ecc1b040b19f9a394a94ddf1dbd9d1}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{arXiv preprint arXiv:2304.07193}
+      \field{note}{implementation: \url{https://github.com/facebookresearch/dinov2}}
+      \field{title}{DINOv2: Learning Robust Visual Features without Supervision}
+      \field{year}{2023}
+      \verb{urlraw}
+      \verb https://arxiv.org/abs/2304.07193
+      \endverb
+      \verb{url}
+      \verb https://arxiv.org/abs/2304.07193
+      \endverb
+    \endentry
     \entry{barnes2019patchmatch}{article}{}
       \name{author}{4}{}{%
         {{hash=4e74e92ac258a7344d22dd0661d08dd2}{%
@@ -544,6 +620,65 @@
       \verb{url}
       \verb https://www.kaggle.com/datasets/mashraffarouk/casia-cmfd
       \endverb
+    \endentry
+    \entry{lin2014coco}{inproceedings}{}
+      \name{author}{8}{}{%
+        {{hash=08f925fe4692d130a1d7cb7d94483351}{%
+           family={Lin},
+           familyi={L\bibinitperiod},
+           given={Tsung-Yi},
+           giveni={T\bibinithyphendelim Y\bibinitperiod}}}%
+        {{hash=d980bc6930f008a0fb5fa667785f2309}{%
+           family={Maire},
+           familyi={M\bibinitperiod},
+           given={Michael},
+           giveni={M\bibinitperiod}}}%
+        {{hash=044d1db5259b74e4975282f599d8e767}{%
+           family={Belongie},
+           familyi={B\bibinitperiod},
+           given={Serge},
+           giveni={S\bibinitperiod}}}%
+        {{hash=797fc3624ba315db58eef7279ace5bf3}{%
+           family={Hays},
+           familyi={H\bibinitperiod},
+           given={James},
+           giveni={J\bibinitperiod}}}%
+        {{hash=e52876f830a8a20786ff3e4d7dd6f083}{%
+           family={Perona},
+           familyi={P\bibinitperiod},
+           given={Pietro},
+           giveni={P\bibinitperiod}}}%
+        {{hash=aedcd3831845183e070aef16857d83ea}{%
+           family={Ramanan},
+           familyi={R\bibinitperiod},
+           given={Deva},
+           giveni={D\bibinitperiod}}}%
+        {{hash=ecd149fdcb3e0503881d49e545744c3d}{%
+           family={Dollár},
+           familyi={D\bibinitperiod},
+           given={Piotr},
+           giveni={P\bibinitperiod}}}%
+        {{hash=0eae2d56a9cbb037c64028d6573877a7}{%
+           family={Zitnick},
+           familyi={Z\bibinitperiod},
+           given={C.\bibnamedelimi Lawrence},
+           giveni={C\bibinitperiod\bibinitdelim L\bibinitperiod}}}%
+      }
+      \strng{namehash}{3b7e00bc88d7aca4d4d5ddb8c252e36c}
+      \strng{fullhash}{efa664e154982dfbb2d86b95a77d1448}
+      \strng{bibnamehash}{efa664e154982dfbb2d86b95a77d1448}
+      \strng{authorbibnamehash}{efa664e154982dfbb2d86b95a77d1448}
+      \strng{authornamehash}{3b7e00bc88d7aca4d4d5ddb8c252e36c}
+      \strng{authorfullhash}{efa664e154982dfbb2d86b95a77d1448}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{booktitle}{European Conference on Computer Vision (ECCV)}
+      \field{title}{Microsoft COCO: Common Objects in Context}
+      \field{year}{2014}
+      \field{pages}{740\bibrangedash 755}
+      \range{pages}{16}
     \endentry
   \enddatalist
 \endrefsection
