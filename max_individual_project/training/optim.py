@@ -31,7 +31,7 @@ def collect_backbone_parameter_groups(
     backbone_lr = learning_rate if feature_backbone_learning_rate is None else feature_backbone_learning_rate
     parameter_groups = []
 
-    if feature_backbone == "dino" and hasattr(pyramid_bb, "backbone"):
+    if feature_backbone in ("dino", "dino_single") and hasattr(pyramid_bb, "backbone"):
         dino_backbone = pyramid_bb.backbone
         head_params = list(dino_backbone.proj.parameters()) if getattr(dino_backbone, "proj", None) is not None else []
         encoder_params = [

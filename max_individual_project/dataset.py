@@ -76,7 +76,7 @@ def resolve_image_transform(
 ):
     if separate_transforms:
         return regular_transform
-    if feature_backbone == "dino" and use_dino_transform:
+    if feature_backbone in ("dino", "dino_single") and use_dino_transform:
         return dino_transform
     if feature_backbone == "cnn" and cnn_backbone == "pretrained":
         return imagenet_transform

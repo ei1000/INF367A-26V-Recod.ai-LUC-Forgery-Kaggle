@@ -40,12 +40,12 @@ from visualizer import display_image, display_pixel_offsets
 
 def pipeline(
     datasets=Datasets.TRAIN,
-    image_size=448,
+    image_size=3000,
     epochs=1,
     test_run=False,
-    feature_backbone="cnn",
+    feature_backbone="dino_single",
     use_dino_transform=False,
-    batch_size=4,
+    batch_size=1,
     override_batch_size=False,
     dino_model_name="dinov2_vits14",
     dino_proj_dim=64,
@@ -53,14 +53,18 @@ def pipeline(
     cnn_pretrained_model="vgg16_bn",
     cnn_feature_norm=True,
     separate_transforms=True,
-    pm_iters=16,
+    pm_iters=24,
     pm_beta=10.0,
-    pm_hard_selection=False,
+    pm_hard_selection=True,
     pm_random_window=50,
-    pm_use_non_local=False,
+    pm_use_non_local=True,
     pm_non_local_limit=25.0,
+    pm_flat_threshold=0.15,
+    pm_margin_threshold=0.10,
+    pm_topk=1,
     pm_reduced_precision=True,
     dino_match_native_resolution=False,
+    localization_resolution="image",
     train_feature_backbone=False,
     feature_backbone_learning_rate=None,
     dino_finetune_blocks=0,
@@ -108,10 +112,22 @@ def pipeline(
         separate_transforms=separate_transforms,
     )
 
+    if feature_backbone == "dino_single":
+        if not dino_match_native_resolution:
+            print("[pipeline] Enabling dino_match_native_resolution for dino_single mode.")
+            dino_match_native_resolution = True
+        if localization_resolution != "feature_grid":
+            print("[pipeline] Using localization_resolution='feature_grid' for dino_single mode.")
+            localization_resolution = "feature_grid"
+
     if batch_size > 8 and not override_batch_size:
         print("[pipeline] PatchMatch is memory-heavy; forcing batch_size=8 for 16GB VRAM safety")
         print("[pipeline] Override on powerful devices by adding override=True")
         batch_size = 8
+    if feature_backbone == "dino_single" and image_size > 1024 and batch_size > 1 and not override_batch_size:
+        print("[pipeline] Single-scale DINO at large image sizes is memory-heavy; forcing batch_size=1 for 16GB VRAM safety")
+        print("[pipeline] Override on powerful devices by adding override=True")
+        batch_size = 1
 
     train_dataset_list = []
     val_dataset_list = []
@@ -174,10 +190,11 @@ def pipeline(
         )
 
     print('Loading models and creating ZernikeFeatures...')
-    if feature_backbone == "dino":
-        from feature_extractors.dino_feature_extractor import PyramidDinoFeatureExtractor
+    if feature_backbone in ("dino", "dino_single"):
+        from feature_extractors.dino_feature_extractor import PyramidDinoFeatureExtractor, SingleScaleDinoFeatureExtractor
 
-        pyramid_bb = PyramidDinoFeatureExtractor(
+        dino_extractor_cls = SingleScaleDinoFeatureExtractor if feature_backbone == "dino_single" else PyramidDinoFeatureExtractor
+        pyramid_bb = dino_extractor_cls(
             model_name=dino_model_name,
             freeze=not train_feature_backbone,
             finetune_blocks=dino_finetune_blocks if train_feature_backbone else 0,
@@ -257,7 +274,7 @@ def pipeline(
                     )
 
             collect_localization_stats = log_every > 0 and batch_idx % log_every == 0
-            errors, batch_cnn_offsets, batch_zernike_offsets, localization_stats = extract_localization_inputs(
+            errors, cnn_branch_result, zernike_branch_result, localization_images, localization_stats = extract_localization_inputs(
                 images=images,
                 pyramid_bb=pyramid_bb,
                 pyramid_zm=pyramid_zm,
@@ -271,15 +288,22 @@ def pipeline(
                 pm_hard_selection=pm_hard_selection,
                 pm_use_non_local=pm_use_non_local,
                 pm_non_local_limit=pm_non_local_limit,
+                pm_flat_threshold=pm_flat_threshold,
+                pm_margin_threshold=pm_margin_threshold,
+                pm_topk=pm_topk,
                 pm_reduced_precision=pm_reduced_precision,
                 dino_match_native_resolution=dino_match_native_resolution,
+                localization_resolution=localization_resolution,
                 dlf_error_scaling=dlf_error_scaling,
                 collect_stats=collect_localization_stats,
                 train_feature_backbone=train_feature_backbone,
             )
 
             if dlf_decoder is None:
-                dlf_decoder = DLFDecoder(num_error_maps=errors.shape[1]).to(device)
+                dlf_decoder = DLFDecoder(
+                    num_error_maps=errors.shape[1],
+                    include_topk_dispersion=pm_topk > 1,
+                ).to(device)
                 if test_run or not supervised:
                     dlf_decoder.eval()
                 else:
@@ -318,15 +342,17 @@ def pipeline(
             refined_mask, target_map, dlf_map = decode_and_refine_masks(
                 images=images,
                 errors=errors,
-                batch_cnn_offsets=batch_cnn_offsets,
-                batch_zernike_offsets=batch_zernike_offsets,
+                cnn_branch_result=cnn_branch_result,
+                zernike_branch_result=zernike_branch_result,
                 dlf_decoder=dlf_decoder,
                 se_model=se_model,
+                localization_images=localization_images,
+                output_size=images.shape[-2:],
             )
 
             if test_run:
                 display_image(images[0], masks[0])
-                display_pixel_offsets(batch_cnn_offsets[0], batch_zernike_offsets[0], images[0])
+                display_pixel_offsets(cnn_branch_result.offsets[0], zernike_branch_result.offsets[0], images[0])
                 mask_probs = refined_mask.squeeze(1)
                 mask_preds = (
                     post_process_mask_batch(
@@ -489,7 +515,7 @@ def pipeline(
                     masks = masks.to(device=device, dtype=torch.float32)
                     labels = labels.to(device)
 
-                    errors, batch_cnn_offsets, batch_zernike_offsets, _ = extract_localization_inputs(
+                    errors, cnn_branch_result, zernike_branch_result, localization_images, _ = extract_localization_inputs(
                         images=images,
                         pyramid_bb=pyramid_bb,
                         pyramid_zm=pyramid_zm,
@@ -503,18 +529,24 @@ def pipeline(
                         pm_hard_selection=pm_hard_selection,
                         pm_use_non_local=pm_use_non_local,
                         pm_non_local_limit=pm_non_local_limit,
+                        pm_flat_threshold=pm_flat_threshold,
+                        pm_margin_threshold=pm_margin_threshold,
+                        pm_topk=pm_topk,
                         pm_reduced_precision=pm_reduced_precision,
                         dino_match_native_resolution=dino_match_native_resolution,
+                        localization_resolution=localization_resolution,
                         dlf_error_scaling=dlf_error_scaling,
                         train_feature_backbone=False,
                     )
                     refined_mask, target_map, dlf_map = decode_and_refine_masks(
                         images=images,
                         errors=errors,
-                        batch_cnn_offsets=batch_cnn_offsets,
-                        batch_zernike_offsets=batch_zernike_offsets,
+                        cnn_branch_result=cnn_branch_result,
+                        zernike_branch_result=zernike_branch_result,
                         dlf_decoder=dlf_decoder,
                         se_model=se_model,
+                        localization_images=localization_images,
+                        output_size=images.shape[-2:],
                     )
 
 

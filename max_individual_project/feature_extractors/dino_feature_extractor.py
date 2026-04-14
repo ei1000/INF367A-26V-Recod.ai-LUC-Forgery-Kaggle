@@ -166,3 +166,16 @@ class PyramidDinoFeatureExtractor(nn.Module):
                 Fu = F.interpolate(Fu, size=output_size, mode='bilinear', align_corners=False)
 
         return Fb, Fo, Fu
+
+
+class SingleScaleDinoFeatureExtractor(nn.Module):
+    def __init__(self, upsample_to_input: bool = True, **dino_kwargs):
+        super().__init__()
+        self.backbone = DinoFeatureExtractor(**dino_kwargs)
+        self.upsample_to_input = upsample_to_input
+
+    def forward(self, Io):
+        features = self.backbone(Io)
+        if self.upsample_to_input and features.shape[-2:] != Io.shape[-2:]:
+            features = F.interpolate(features, size=Io.shape[-2:], mode='bilinear', align_corners=False)
+        return (features,)

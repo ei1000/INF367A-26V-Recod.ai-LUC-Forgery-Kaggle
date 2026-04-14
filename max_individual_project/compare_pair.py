@@ -28,7 +28,7 @@ def _imagenet_normalize_tensor(x: torch.Tensor) -> torch.Tensor:
 def _build_transform(feature_backbone: str, use_dino_transform: bool, cnn_backbone: str, separate_transforms: bool):
     if separate_transforms:
         return regular_transform
-    if feature_backbone == "dino" and use_dino_transform:
+    if feature_backbone in ("dino", "dino_single") and use_dino_transform:
         return dino_transform
     if feature_backbone == "cnn" and cnn_backbone == "pretrained":
         return imagenet_transform
@@ -45,9 +45,11 @@ def _build_backbone(
     separate_transforms: bool,
     device: str,
 ):
-    if feature_backbone == "dino":
-        from feature_extractors.dino_feature_extractor import PyramidDinoFeatureExtractor
-        return PyramidDinoFeatureExtractor(
+    if feature_backbone in ("dino", "dino_single"):
+        from feature_extractors.dino_feature_extractor import PyramidDinoFeatureExtractor, SingleScaleDinoFeatureExtractor
+
+        dino_extractor_cls = SingleScaleDinoFeatureExtractor if feature_backbone == "dino_single" else PyramidDinoFeatureExtractor
+        return dino_extractor_cls(
             model_name=dino_model_name,
             normalize_input=True if separate_transforms else not use_dino_transform,
             proj_dim=dino_proj_dim,
@@ -126,7 +128,7 @@ def run_compare(
         img_zernike_feats = tuple(f[0] for f in zernike_feats)
 
         propagator = PixelPropagator(images[0], img_cnn_feats, img_zernike_feats, random_window=pm_random_window)
-        cnn_offsets, zernike_offsets = propagator.propagation_layer(
+        cnn_result, zernike_result = propagator.propagation_layer(
             iters=iters,
             beta=beta,
             use_non_local=pm_use_non_local,
@@ -135,7 +137,7 @@ def run_compare(
 
         print(f"[compare] {labels[idx]} - iters={iters}, beta={beta}, non_local={pm_use_non_local}")
         display_image(images[0], mask)
-        display_pixel_offsets(cnn_offsets, zernike_offsets, images[0])
+        display_pixel_offsets(cnn_result.offsets, zernike_result.offsets, images[0])
 
 
 if __name__ == "__main__":

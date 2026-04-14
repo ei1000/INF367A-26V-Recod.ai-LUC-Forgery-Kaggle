@@ -111,3 +111,5 @@ TODO:
 Try a run without CASIA CMFD.
 Refactor to move files out of main
 turn up learning rate and add zernike to DLF
+
+# updated from 1e-4 to 2e-4 for epoch 14

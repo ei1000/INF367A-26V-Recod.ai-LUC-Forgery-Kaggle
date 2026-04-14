@@ -23,7 +23,7 @@ if str(ROOT) not in sys.path:
 
 from dataset import Datasets, ForgeryDataset, resolve_data_root, resolve_image_transform, split_indices_by_label
 from feature_extractors.cnn_feature_extractor import BackboneExtractor, PretrainedBackboneExtractor, PyramidFeatureExtractor
-from feature_extractors.dino_feature_extractor import PyramidDinoFeatureExtractor
+from feature_extractors.dino_feature_extractor import PyramidDinoFeatureExtractor, SingleScaleDinoFeatureExtractor
 from feature_extractors.zernike_feature_extractor import PyramidZernikeExtractor, default_pq_list
 from prediction.decoder import DLFDecoder
 from prediction.localization import decode_and_refine_masks, extract_localization_inputs
@@ -99,7 +99,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--image-size", type=int, default=448)
     parser.add_argument("--validation-split", type=float, default=0.1)
     parser.add_argument("--validation-seed", type=int, default=42)
-    parser.add_argument("--feature-backbone", choices=("cnn", "dino"), default="cnn")
+    parser.add_argument("--feature-backbone", choices=("cnn", "dino", "dino_single"), default="cnn")
     parser.add_argument("--use-dino-transform", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--dino-model-name", default="dinov2_vits14")
     parser.add_argument("--dino-proj-dim", type=int, default=64)
@@ -114,8 +114,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pm-random-window", type=int, default=50)
     parser.add_argument("--pm-use-non-local", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--pm-non-local-limit", type=float, default=25.0)
+    parser.add_argument("--pm-flat-threshold", type=float, default=0.15)
+    parser.add_argument("--pm-margin-threshold", type=float, default=0.10)
+    parser.add_argument("--pm-topk", type=int, default=1)
     parser.add_argument("--pm-reduced-precision", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--dino-match-native-resolution", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--localization-resolution", choices=("image", "feature_grid"), default="image")
     parser.add_argument("--dlf-error-scaling", choices=("none", "log1p", "zscore"), default="log1p")
     parser.add_argument("--post-process-threshold", type=float, default=0.6)
     parser.add_argument("--post-process-confident-threshold", type=float, default=0.9)
@@ -246,8 +250,9 @@ def select_sample(args: argparse.Namespace) -> SampleRecord:
 
 
 def build_feature_extractors(args: argparse.Namespace, device: torch.device):
-    if args.feature_backbone == "dino":
-        pyramid_bb = PyramidDinoFeatureExtractor(
+    if args.feature_backbone in ("dino", "dino_single"):
+        dino_extractor_cls = SingleScaleDinoFeatureExtractor if args.feature_backbone == "dino_single" else PyramidDinoFeatureExtractor
+        pyramid_bb = dino_extractor_cls(
             model_name=args.dino_model_name,
             freeze=True,
             finetune_blocks=args.dino_finetune_blocks,
@@ -518,6 +523,9 @@ def print_component_summary(report: dict[str, object]) -> None:
 
 def main() -> None:
     args = parse_args()
+    if args.feature_backbone == "dino_single":
+        args.dino_match_native_resolution = True
+        args.localization_resolution = "feature_grid"
     checkpoint_path, run_dir = resolve_checkpoint_path(args.run_dir)
     output_dir = args.output_dir.resolve() if args.output_dir is not None else (run_dir / "blob_analysis")
     device = resolve_device(args)
@@ -540,7 +548,7 @@ def main() -> None:
     se_model.eval()
 
     with torch.no_grad():
-        errors, batch_cnn_offsets, batch_zernike_offsets, _ = extract_localization_inputs(
+        errors, cnn_branch_result, zernike_branch_result, localization_images, _ = extract_localization_inputs(
             images=images,
             pyramid_bb=pyramid_bb,
             pyramid_zm=pyramid_zm,
@@ -554,24 +562,33 @@ def main() -> None:
             pm_hard_selection=args.pm_hard_selection,
             pm_use_non_local=args.pm_use_non_local,
             pm_non_local_limit=args.pm_non_local_limit,
+            pm_flat_threshold=args.pm_flat_threshold,
+            pm_margin_threshold=args.pm_margin_threshold,
+            pm_topk=args.pm_topk,
             pm_reduced_precision=args.pm_reduced_precision,
             dino_match_native_resolution=args.dino_match_native_resolution,
+            localization_resolution=args.localization_resolution,
             dlf_error_scaling=args.dlf_error_scaling,
             collect_stats=False,
             train_feature_backbone=False,
         )
 
-        dlf_decoder = DLFDecoder(num_error_maps=errors.shape[1]).to(device)
+        dlf_decoder = DLFDecoder(
+            num_error_maps=errors.shape[1],
+            include_topk_dispersion=args.pm_topk > 1,
+        ).to(device)
         load_module_state(dlf_decoder, checkpoint["dlf_decoder"], "dlf_decoder")
         dlf_decoder.eval()
 
         refined_mask, target_map, dlf_map = decode_and_refine_masks(
             images=images,
             errors=errors,
-            batch_cnn_offsets=batch_cnn_offsets,
-            batch_zernike_offsets=batch_zernike_offsets,
+            cnn_branch_result=cnn_branch_result,
+            zernike_branch_result=zernike_branch_result,
             dlf_decoder=dlf_decoder,
             se_model=se_model,
+            localization_images=localization_images,
+            output_size=images.shape[-2:],
         )
 
         refined_probs = refined_mask.squeeze(0).squeeze(0).detach().cpu().numpy().astype(np.float32)
