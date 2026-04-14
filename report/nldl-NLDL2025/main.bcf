@@ -2377,13 +2377,15 @@
     <bcf:citekey order="10" intorder="1">metric</bcf:citekey>
     <bcf:citekey order="11" intorder="1">notebook</bcf:citekey>
     <bcf:citekey order="12" intorder="1">oquab2023dinov2</bcf:citekey>
-    <bcf:citekey order="13" intorder="1">oquab2023dinov2</bcf:citekey>
-    <bcf:citekey order="14" intorder="1">li2024deeppatchmatch</bcf:citekey>
-    <bcf:citekey order="15" intorder="1">barnes2019patchmatch</bcf:citekey>
-    <bcf:citekey order="16" intorder="1">casiakaggle</bcf:citekey>
-    <bcf:citekey order="17" intorder="1">li2024deeppatchmatch</bcf:citekey>
-    <bcf:citekey order="18" intorder="1">lin2014coco</bcf:citekey>
-    <bcf:citekey order="19" intorder="1">kaggle</bcf:citekey>
+    <bcf:citekey order="13" intorder="1">kaggle</bcf:citekey>
+    <bcf:citekey order="14" intorder="1">oquab2023dinov2</bcf:citekey>
+    <bcf:citekey order="15" intorder="1">li2024deeppatchmatch</bcf:citekey>
+    <bcf:citekey order="16" intorder="1">barnes2019patchmatch</bcf:citekey>
+    <bcf:citekey order="17" intorder="1">casiakaggle</bcf:citekey>
+    <bcf:citekey order="18" intorder="1">li2024deeppatchmatch</bcf:citekey>
+    <bcf:citekey order="19" intorder="1">simonyan2014vgg16</bcf:citekey>
+    <bcf:citekey order="20" intorder="1">lin2014coco</bcf:citekey>
+    <bcf:citekey order="21" intorder="1">kaggle</bcf:citekey>
   </bcf:section>
   <!-- SORTING TEMPLATES -->
   <bcf:sortingtemplate name="noneyear">
