@@ -15,7 +15,17 @@ def ensure_output_dirs(output_dir: str | Path):
     return output_dir, checkpoints_dir, predictions_dir
 
 
-def save_checkpoint(path: Path, epoch: int, dlf_decoder, se_model, optimizer, best_score: float | None, pyramid_bb=None):
+def save_checkpoint(
+    path: Path,
+    epoch: int,
+    dlf_decoder,
+    se_model,
+    optimizer,
+    best_score: float | None,
+    pyramid_bb=None,
+    dino_extractor=None,
+    pm_backbone=None,
+):
     checkpoint = {
         "epoch": epoch,
         "dlf_decoder": dlf_decoder.state_dict(),
@@ -26,6 +36,10 @@ def save_checkpoint(path: Path, epoch: int, dlf_decoder, se_model, optimizer, be
     }
     if pyramid_bb is not None:
         checkpoint["pyramid_bb"] = pyramid_bb.state_dict()
+    if dino_extractor is not None:
+        checkpoint["dino_extractor"] = dino_extractor.state_dict()
+    if pm_backbone is not None:
+        checkpoint["pm_backbone"] = pm_backbone.state_dict()
     torch.save(checkpoint, path)
 
 

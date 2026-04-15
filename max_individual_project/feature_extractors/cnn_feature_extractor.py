@@ -120,3 +120,18 @@ class PyramidFeatureExtractor(nn.Module):
         Fu = F.interpolate(Fu, size=(H, W), mode='bilinear', align_corners=True)
 
         return Fb, Fo, Fu
+
+
+class SingleScaleFeatureExtractor(nn.Module):
+    """Runs one backbone once and optionally upsamples descriptors to the image grid."""
+
+    def __init__(self, backbone=None, upsample_to_input: bool = True):
+        super().__init__()
+        self.backbone = backbone if backbone is not None else BackboneExtractor()
+        self.upsample_to_input = upsample_to_input
+
+    def forward(self, image):
+        features = self.backbone(image)
+        if self.upsample_to_input and features.shape[-2:] != image.shape[-2:]:
+            features = F.interpolate(features, size=image.shape[-2:], mode="bilinear", align_corners=True)
+        return (features,)

@@ -9,8 +9,6 @@ __all__ = [
     "DecoderStage",
     "SEUNet",
     "as_batched_image",
-    "as_batched_mask",
-    "build_se_unet_input",
 ]
 
 
@@ -22,29 +20,13 @@ def as_batched_image(image: torch.Tensor) -> torch.Tensor:
     return image
 
 
-def as_batched_mask(mask: torch.Tensor) -> torch.Tensor:
-    if mask.dim() == 2:
-        mask = mask.unsqueeze(0).unsqueeze(0)
-    elif mask.dim() == 3:
-        if mask.shape[0] == 1:
-            mask = mask.unsqueeze(0)
-        else:
-            mask = mask.unsqueeze(1)
-    if mask.dim() != 4 or mask.shape[1] != 1:
-        raise ValueError(f"Expected mask shape [H,W], [1,H,W], [B,H,W], or [B,1,H,W], got {tuple(mask.shape)}")
-    return mask
-
-
-def build_se_unet_input(image: torch.Tensor) -> torch.Tensor:
-    return as_batched_image(image)
-
-
 class SEUNet(nn.Module):
     """
     Scaffold for a copy-move refinement head.
 
     Typical usage:
     - `SEUNet(in_channels=3, out_channels=1, final_activation="sigmoid")` for image-only refinement
+    - `SEUNet(in_channels=dino_channels, ...)` for frozen DINO feature refinement
     """
 
     def __init__(

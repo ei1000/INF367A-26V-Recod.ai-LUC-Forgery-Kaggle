@@ -20,12 +20,12 @@ class PatchMatchBranchResult:
 
 @dataclass
 class DLFDecoderInput:
-    """Container for batched DLF decoder inputs."""
+    """Container for batched DLF decoder inputs.
 
-    cross_scale_errors: torch.Tensor
+    `cnn_*` currently refers to the frozen ResNet18 PatchMatch branch.
+    """
+
+    cnn_error_maps: torch.Tensor
+    zernike_error_maps: torch.Tensor
     cnn_offsets: torch.Tensor
     zernike_offsets: torch.Tensor
-    cnn_confidence: torch.Tensor
-    zernike_confidence: torch.Tensor
-    structure_map: torch.Tensor
-    topk_dispersion: torch.Tensor | None = None

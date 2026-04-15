@@ -1,5 +1,6 @@
 from pathlib import Path
 from enum import Enum
+import math
 import numpy as np
 import torch
 from torch.utils.data import ConcatDataset, Dataset
@@ -91,10 +92,87 @@ def combine_datasets(dataset_list):
     return ConcatDataset(dataset_list)
 
 
-def split_indices_by_label(samples, validation_split: float, seed: int):
-    if validation_split <= 0.0:
+def _allocate_split_counts(total_count: int, validation_split: float, test_split: float) -> tuple[int, int, int]:
+    if total_count < 0:
+        raise ValueError(f"total_count must be non-negative, got {total_count}")
+    if validation_split < 0.0 or test_split < 0.0:
+        raise ValueError(
+            f"validation_split and test_split must be non-negative, got {validation_split} and {test_split}"
+        )
+    if (validation_split + test_split) >= 1.0:
+        raise ValueError(
+            f"validation_split + test_split must be < 1.0, got {validation_split + test_split:.4f}"
+        )
+    if total_count == 0:
+        return 0, 0, 0
+    if validation_split <= 0.0 and test_split <= 0.0:
+        return total_count, 0, 0
+
+    train_split = 1.0 - validation_split - test_split
+    split_targets = {
+        "train": total_count * train_split,
+        "val": total_count * validation_split,
+        "test": total_count * test_split,
+    }
+    split_counts = {name: int(math.floor(target)) for name, target in split_targets.items()}
+    remainder = total_count - sum(split_counts.values())
+    if remainder > 0:
+        for name, _ in sorted(
+            split_targets.items(),
+            key=lambda item: item[1] - math.floor(item[1]),
+            reverse=True,
+        ):
+            if remainder <= 0:
+                break
+            split_counts[name] += 1
+            remainder -= 1
+
+    required_min = {
+        "train": 1,
+        "val": 1 if validation_split > 0.0 else 0,
+        "test": 1 if test_split > 0.0 else 0,
+    }
+    required_total = sum(required_min.values())
+    if total_count < required_total:
+        # Not enough examples to honor all three non-empty splits for this label. Keep
+        # at least one training sample and allocate the remainder to validation/test by ratio.
+        split_counts = {"train": 1, "val": 0, "test": 0}
+        remaining = total_count - 1
+        if remaining > 0 and validation_split > 0.0:
+            split_counts["val"] = 1
+            remaining -= 1
+        if remaining > 0 and test_split > 0.0:
+            split_counts["test"] = 1
+            remaining -= 1
+        while remaining > 0:
+            if validation_split >= test_split:
+                split_counts["val"] += 1
+            else:
+                split_counts["test"] += 1
+            remaining -= 1
+        return split_counts["train"], split_counts["val"], split_counts["test"]
+
+    for name, minimum in required_min.items():
+        while split_counts[name] < minimum:
+            donor = max(
+                (candidate for candidate in split_counts if split_counts[candidate] > required_min[candidate]),
+                key=lambda candidate: split_counts[candidate],
+            )
+            split_counts[donor] -= 1
+            split_counts[name] += 1
+
+    return split_counts["train"], split_counts["val"], split_counts["test"]
+
+
+def split_indices_by_label_three_way(
+    samples,
+    validation_split: float,
+    test_split: float,
+    seed: int,
+):
+    if validation_split <= 0.0 and test_split <= 0.0:
         indices = list(range(len(samples)))
-        return indices, []
+        return indices, [], []
 
     label_to_indices = {}
     for idx, (_, label) in enumerate(samples):
@@ -103,21 +181,38 @@ def split_indices_by_label(samples, validation_split: float, seed: int):
     generator = torch.Generator().manual_seed(seed)
     train_indices = []
     val_indices = []
+    test_indices = []
 
     for indices in label_to_indices.values():
-        if len(indices) < 2:
-            train_indices.extend(indices)
-            continue
-
         shuffled = [indices[i] for i in torch.randperm(len(indices), generator=generator).tolist()]
-        val_count = int(round(len(shuffled) * validation_split))
-        val_count = min(max(val_count, 1), len(shuffled) - 1)
+        train_count, val_count, test_count = _allocate_split_counts(
+            len(shuffled),
+            validation_split=validation_split,
+            test_split=test_split,
+        )
 
-        val_indices.extend(shuffled[:val_count])
-        train_indices.extend(shuffled[val_count:])
+        val_end = val_count
+        test_end = val_end + test_count
+        val_indices.extend(shuffled[:val_end])
+        test_indices.extend(shuffled[val_end:test_end])
+        train_indices.extend(shuffled[test_end:])
+
+        if len(shuffled[test_end:]) != train_count:
+            raise RuntimeError("Split allocation mismatch while building train/val/test partitions.")
 
     train_indices.sort()
     val_indices.sort()
+    test_indices.sort()
+    return train_indices, val_indices, test_indices
+
+
+def split_indices_by_label(samples, validation_split: float, seed: int):
+    train_indices, val_indices, _ = split_indices_by_label_three_way(
+        samples,
+        validation_split=validation_split,
+        test_split=0.0,
+        seed=seed,
+    )
     return train_indices, val_indices
 
 class ForgeryDataset(Dataset):
@@ -171,3 +266,4 @@ class Datasets(Enum):
     SELF_PROCURED = [{'images': 'self_procured', 'masks': None}]
 
     ALL_TRAIN = TRAIN + CASIA + SUPPLEMENT
+    KAGGLE_TRAIN = TRAIN + SUPPLEMENT

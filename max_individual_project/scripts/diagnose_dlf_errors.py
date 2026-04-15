@@ -26,7 +26,7 @@ from dataset import (
     resolve_image_transform,
     split_indices_by_label,
 )
-from feature_extractors.cnn_feature_extractor import BackboneExtractor, PretrainedBackboneExtractor, PyramidFeatureExtractor
+from feature_extractors.cnn_feature_extractor import PretrainedBackboneExtractor, SingleScaleFeatureExtractor
 from feature_extractors.dino_feature_extractor import PyramidDinoFeatureExtractor, SingleScaleDinoFeatureExtractor
 from feature_extractors.zernike_feature_extractor import PyramidZernikeExtractor, default_pq_list
 from prediction.localization import decode_and_refine_masks, extract_localization_inputs, normalize_dlf_error_maps
@@ -154,32 +154,30 @@ def select_balanced_indices(dataset, samples_per_class: int) -> list[int]:
 
 
 def build_feature_extractors(args: argparse.Namespace, device: torch.device):
-    if args.feature_backbone in ("dino", "dino_single"):
-        dino_extractor_cls = SingleScaleDinoFeatureExtractor if args.feature_backbone == "dino_single" else PyramidDinoFeatureExtractor
-        pyramid_bb = dino_extractor_cls(
-            model_name=args.dino_model_name,
+    dino_extractor_cls = PyramidDinoFeatureExtractor if args.feature_backbone == "dino" else SingleScaleDinoFeatureExtractor
+    dino_extractor = dino_extractor_cls(
+        model_name=args.dino_model_name,
+        freeze=True,
+        finetune_blocks=0,
+        normalize_input=True if args.separate_transforms else not args.use_dino_transform,
+        proj_dim=None,
+        upsample_to_input=False,
+    ).to(device)
+    pm_backbone = SingleScaleFeatureExtractor(
+        backbone=PretrainedBackboneExtractor(
+            model_name="resnet18",
+            out_dim=32,
             freeze=True,
-            finetune_blocks=args.dino_finetune_blocks,
-            normalize_input=True if args.separate_transforms else not args.use_dino_transform,
-            proj_dim=args.dino_proj_dim,
-            upsample_to_input=not args.dino_match_native_resolution,
-        ).to(device)
-    else:
-        if args.cnn_backbone == "pretrained":
-            backbone = PretrainedBackboneExtractor(
-                model_name=args.cnn_pretrained_model,
-                out_dim=32,
-                freeze=True,
-            )
-            pyramid_bb = PyramidFeatureExtractor(backbone=backbone).to(device)
-        else:
-            pyramid_bb = PyramidFeatureExtractor(backbone=BackboneExtractor(use_checkpoint=False)).to(device)
+        ),
+        upsample_to_input=True,
+    ).to(device)
 
     pq_list = default_pq_list(max_order=5)
     pyramid_zm = PyramidZernikeExtractor(pq_list, kernel_size=13).to(device)
-    pyramid_bb.eval()
+    pm_backbone.eval()
+    dino_extractor.eval()
     pyramid_zm.eval()
-    return pyramid_bb, pyramid_zm
+    return pm_backbone, dino_extractor, pyramid_zm
 
 
 def summarize_array(values: np.ndarray) -> dict[str, float]:
@@ -412,9 +410,6 @@ def save_visual_grid(
 
 def main() -> None:
     args = parse_args()
-    if args.feature_backbone == "dino_single":
-        args.dino_match_native_resolution = True
-        args.localization_resolution = "feature_grid"
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -430,7 +425,7 @@ def main() -> None:
 
     analysis_dataset = Subset(val_dataset, selected_indices)
     loader = DataLoader(analysis_dataset, batch_size=args.batch_size, shuffle=False)
-    pyramid_bb, pyramid_zm = build_feature_extractors(args, device)
+    pm_backbone, dino_extractor, pyramid_zm = build_feature_extractors(args, device)
 
     checkpoint = None
     if args.checkpoint.exists():
@@ -464,12 +459,11 @@ def main() -> None:
             images = images.to(device)
             masks = masks.to(device=device, dtype=torch.float32)
 
-            raw_errors, cnn_branch_result, zernike_branch_result, localization_images, _ = extract_localization_inputs(
+            cnn_raw_errors, zernike_raw_errors, cnn_branch_result, zernike_branch_result, dino_features, _ = extract_localization_inputs(
                 images=images,
-                pyramid_bb=pyramid_bb,
+                pm_backbone=pm_backbone,
                 pyramid_zm=pyramid_zm,
-                feature_backbone=args.feature_backbone,
-                cnn_backbone=args.cnn_backbone,
+                dino_extractor=dino_extractor,
                 separate_transforms=args.separate_transforms,
                 cnn_feature_norm=args.cnn_feature_norm,
                 pm_random_window=args.pm_random_window,
@@ -482,21 +476,23 @@ def main() -> None:
                 pm_margin_threshold=args.pm_margin_threshold,
                 pm_topk=args.pm_topk,
                 pm_reduced_precision=args.pm_reduced_precision,
-                dino_match_native_resolution=args.dino_match_native_resolution,
                 localization_resolution=args.localization_resolution,
                 dlf_error_scaling="none",
-                train_feature_backbone=False,
             )
+            raw_errors = torch.cat((cnn_raw_errors, zernike_raw_errors), dim=1)
 
             if dlf_decoder is None and checkpoint is not None:
                 dlf_decoder = DLFDecoder(
-                    num_error_maps=raw_errors.shape[1],
-                    include_topk_dispersion=args.pm_topk > 1,
+                    num_error_maps=cnn_raw_errors.shape[1],
                 ).to(device)
                 load_module_state(dlf_decoder, checkpoint["dlf_decoder"], "dlf_decoder")
                 dlf_decoder.eval()
 
-                se_model = SEUNet(in_channels=3, out_channels=1, final_activation="sigmoid").to(device)
+                se_model = SEUNet(
+                    in_channels=dino_features.shape[1],
+                    out_channels=1,
+                    final_activation="sigmoid",
+                ).to(device)
                 load_module_state(se_model, checkpoint["se_model"], "se_model")
                 se_model.eval()
 
@@ -507,15 +503,17 @@ def main() -> None:
             is_forged_list.extend(bool(mask.any().item()) for mask in masks)
 
             if dlf_decoder is not None and se_model is not None:
-                scaled_errors = normalize_dlf_error_maps(raw_errors, mode=args.current_scaling)
+                scaled_cnn_errors = normalize_dlf_error_maps(cnn_raw_errors, mode=args.current_scaling)
+                scaled_zernike_errors = normalize_dlf_error_maps(zernike_raw_errors, mode=args.current_scaling)
                 refined_mask, target_map, dlf_map = decode_and_refine_masks(
                     images=images,
-                    errors=scaled_errors,
+                    cnn_error_maps=scaled_cnn_errors,
+                    zernike_error_maps=scaled_zernike_errors,
                     cnn_branch_result=cnn_branch_result,
                     zernike_branch_result=zernike_branch_result,
                     dlf_decoder=dlf_decoder,
                     se_model=se_model,
-                    localization_images=localization_images,
+                    dino_features=dino_features,
                     output_size=images.shape[-2:],
                 )
 

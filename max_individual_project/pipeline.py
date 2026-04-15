@@ -1,5 +1,6 @@
 from pathlib import Path
 import time
+import json
 
 import numpy as np
 import torch
@@ -12,9 +13,12 @@ from dataset import (
     combine_datasets,
     resolve_data_root,
     resolve_image_transform,
-    split_indices_by_label,
+    split_indices_by_label_three_way,
 )
-from feature_extractors.cnn_feature_extractor import BackboneExtractor, PretrainedBackboneExtractor, PyramidFeatureExtractor
+from feature_extractors.cnn_feature_extractor import (
+    PretrainedBackboneExtractor,
+    SingleScaleFeatureExtractor,
+)
 from feature_extractors.zernike_feature_extractor import PyramidZernikeExtractor, default_pq_list
 from prediction.decoder import DLFDecoder
 from prediction.localization import decode_and_refine_masks, extract_localization_inputs
@@ -31,8 +35,6 @@ from training.checkpointing import ensure_output_dirs, load_module_state, save_c
 from training.losses import localization_loss_terms, summarize_branch_activity
 from training.metrics_logging import append_metrics_log, save_metrics_plot
 from training.optim import (
-    collect_backbone_parameter_groups,
-    set_optimizer_group_learning_rate,
     set_optimizer_learning_rate,
 )
 from visualizer import display_image, display_pixel_offsets
@@ -74,6 +76,7 @@ def pipeline(
     resume=True,
     save_predictions=False,
     validation_split=0.0,
+    test_split=0.0,
     validation_seed=42,
     learning_rate=1e-3,
     mprime_loss_weight=0.5,
@@ -87,9 +90,27 @@ def pipeline(
     post_process_apply_closing=False,
     post_process_min_component_area=0,
 ):
+    """Train or inspect the copy-move localization pipeline.
+
+    Current architecture:
+    - frozen ResNet18 PatchMatch branch
+    - frozen multi-scale Zernike PatchMatch branch
+    - frozen DINO features feeding an SEUNet refinement head
+    """
+
     print('[pipeline] Initializing training loop and datasets...')
     torch.set_float32_matmul_precision("medium")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if train_feature_backbone:
+        print("[pipeline] Keeping DINO and ResNet backbones frozen; train_feature_backbone=True is ignored in this setup.")
+    if dino_proj_dim is not None:
+        print("[pipeline] Ignoring dino_proj_dim so the SEUNet branch consumes raw frozen DINO features.")
+    if dino_match_native_resolution:
+        print("[pipeline] Ignoring dino_match_native_resolution because localization now always runs on the image grid.")
+    if feature_backbone_learning_rate is not None:
+        print("[pipeline] Ignoring feature_backbone_learning_rate because all feature extractors are frozen.")
+    if dino_finetune_blocks:
+        print("[pipeline] Ignoring dino_finetune_blocks because the DINO branch stays frozen in this pipeline.")
     output_dir, checkpoints_dir, predictions_dir = ensure_output_dirs(output_dir)
     checkpoint_path = checkpoints_dir / checkpoint_name
     best_checkpoint_path = checkpoints_dir / "best.pt"
@@ -112,14 +133,6 @@ def pipeline(
         separate_transforms=separate_transforms,
     )
 
-    if feature_backbone == "dino_single":
-        if not dino_match_native_resolution:
-            print("[pipeline] Enabling dino_match_native_resolution for dino_single mode.")
-            dino_match_native_resolution = True
-        if localization_resolution != "feature_grid":
-            print("[pipeline] Using localization_resolution='feature_grid' for dino_single mode.")
-            localization_resolution = "feature_grid"
-
     if batch_size > 8 and not override_batch_size:
         print("[pipeline] PatchMatch is memory-heavy; forcing batch_size=8 for 16GB VRAM safety")
         print("[pipeline] Override on powerful devices by adding override=True")
@@ -133,6 +146,14 @@ def pipeline(
     val_dataset_list = []
     mask_dir_by_sample = {}
     supervised = all(dataset["masks"] is not None for dataset in datasets.value)
+    split_manifest = {
+        "config": {
+            "validation_split": validation_split,
+            "test_split": test_split,
+            "split_seed": validation_seed,
+        },
+        "datasets": [],
+    }
 
     util = MaskUtil() if do_post_process else None
 
@@ -152,7 +173,7 @@ def pipeline(
             return_path=False,
         )
 
-        if supervised and validation_split > 0.0:
+        if supervised and (validation_split > 0.0 or test_split > 0.0):
             val_forgery_dataset = ForgeryDataset(
                 samples=samples,
                 mask_dir=mask_dir,
@@ -160,19 +181,58 @@ def pipeline(
                 transform=transform,
                 return_path=True,
             )
-            train_indices, val_indices = split_indices_by_label(
+            train_indices, val_indices, test_indices = split_indices_by_label_three_way(
                 samples,
                 validation_split=validation_split,
+                test_split=test_split,
                 seed=validation_seed + dataset_idx,
             )
             train_dataset_list.append(Subset(train_forgery_dataset, train_indices))
             if val_indices:
                 val_dataset_list.append(Subset(val_forgery_dataset, val_indices))
+            split_manifest["datasets"].append(
+                {
+                    "dataset_name": Path(dataset["images"]).name,
+                    "mask_dir": str(mask_dir) if mask_dir is not None else None,
+                    "seed": validation_seed + dataset_idx,
+                    "train_count": len(train_indices),
+                    "val_count": len(val_indices),
+                    "test_count": len(test_indices),
+                    "train_samples": [str(samples[idx][0]) for idx in train_indices],
+                    "val_samples": [str(samples[idx][0]) for idx in val_indices],
+                    "test_samples": [str(samples[idx][0]) for idx in test_indices],
+                }
+            )
         else:
             train_dataset_list.append(train_forgery_dataset)
+            split_manifest["datasets"].append(
+                {
+                    "dataset_name": Path(dataset["images"]).name,
+                    "mask_dir": str(mask_dir) if mask_dir is not None else None,
+                    "seed": validation_seed + dataset_idx,
+                    "train_count": len(samples),
+                    "val_count": 0,
+                    "test_count": 0,
+                    "train_samples": [str(sample_path) for sample_path, _ in samples],
+                    "val_samples": [],
+                    "test_samples": [],
+                }
+            )
 
     train_dataset = combine_datasets(train_dataset_list)
     val_dataset = combine_datasets(val_dataset_list)
+    split_manifest["summary"] = {
+        "train_total": int(sum(entry["train_count"] for entry in split_manifest["datasets"])),
+        "val_total": int(sum(entry["val_count"] for entry in split_manifest["datasets"])),
+        "test_total": int(sum(entry["test_count"] for entry in split_manifest["datasets"])),
+    }
+    split_manifest_path = output_dir / "split_manifest.json"
+    split_manifest_path.write_text(json.dumps(split_manifest, indent=2), encoding="utf-8")
+    print(f"[pipeline] Wrote split manifest to {split_manifest_path}")
+    heldout_test_samples = [sample for entry in split_manifest["datasets"] for sample in entry["test_samples"]]
+    heldout_test_path = output_dir / "heldout_test_samples.txt"
+    heldout_test_path.write_text("\n".join(heldout_test_samples), encoding="utf-8")
+    print(f"[pipeline] Wrote held-out test sample list to {heldout_test_path}")
 
     train_loader = DataLoader(
         train_dataset,
@@ -188,47 +248,46 @@ def pipeline(
             shuffle=False,
             pin_memory=device.type == "cuda",
         )
+    split_summary = split_manifest["summary"]
+    print(
+        "[pipeline] Split summary: "
+        f"train={split_summary['train_total']} "
+        f"val={split_summary['val_total']} "
+        f"test={split_summary['test_total']} "
+        f"(seed={validation_seed})"
+    )
 
     print('Loading models and creating ZernikeFeatures...')
-    if feature_backbone in ("dino", "dino_single"):
-        from feature_extractors.dino_feature_extractor import PyramidDinoFeatureExtractor, SingleScaleDinoFeatureExtractor
+    from feature_extractors.dino_feature_extractor import PyramidDinoFeatureExtractor, SingleScaleDinoFeatureExtractor
 
-        dino_extractor_cls = SingleScaleDinoFeatureExtractor if feature_backbone == "dino_single" else PyramidDinoFeatureExtractor
-        pyramid_bb = dino_extractor_cls(
-            model_name=dino_model_name,
-            freeze=not train_feature_backbone,
-            finetune_blocks=dino_finetune_blocks if train_feature_backbone else 0,
-            normalize_input=True if separate_transforms else not use_dino_transform,
-            proj_dim=dino_proj_dim,
-            upsample_to_input=not dino_match_native_resolution,
-        ).to(device)
-    else:
-        if cnn_backbone == "pretrained":
-            backbone = PretrainedBackboneExtractor(
-                model_name=cnn_pretrained_model,
-                out_dim=32,
-                freeze=not train_feature_backbone,
-            )
-            pyramid_bb = PyramidFeatureExtractor(backbone=backbone).to(device)
-        else:
-            pyramid_bb = PyramidFeatureExtractor(backbone=BackboneExtractor(use_checkpoint=train_feature_backbone)).to(device)
+    # `feature_backbone` now selects the frozen DINO feature extractor used by the refinement branch.
+    dino_extractor_cls = PyramidDinoFeatureExtractor if feature_backbone == "dino" else SingleScaleDinoFeatureExtractor
+    dino_extractor = dino_extractor_cls(
+        model_name=dino_model_name,
+        freeze=True,
+        finetune_blocks=0,
+        normalize_input=True if separate_transforms else not use_dino_transform,
+        proj_dim=None,
+        upsample_to_input=False,
+    ).to(device)
+    pm_backbone = SingleScaleFeatureExtractor(
+        backbone=PretrainedBackboneExtractor(
+            model_name="resnet18",
+            out_dim=32,
+            freeze=True,
+        ),
+        upsample_to_input=True,
+    ).to(device)
 
     pq_list = default_pq_list(max_order=5)
     pyramid_zm = PyramidZernikeExtractor(pq_list, kernel_size=13).to(device)
-    if train_feature_backbone and supervised and not test_run:
-        pyramid_bb.train()
-    else:
-        pyramid_bb.eval()
+    pm_backbone.eval()
+    dino_extractor.eval()
     pyramid_zm.eval()
 
     dlf_decoder = None
-    se_model = SEUNet(in_channels=3, out_channels=1, final_activation="sigmoid").to(device)
+    se_model = None
     optimizer = None
-
-    if test_run or not supervised:
-        se_model.eval()
-    else:
-        se_model.train()
 
     batch_counter = 0
     run_start = time.perf_counter()
@@ -253,16 +312,16 @@ def pipeline(
         epoch_loss_steps = 0
 
         if optimizer is not None:
-            if train_feature_backbone:
-                pyramid_bb.train()
+            pm_backbone.eval()
+            dino_extractor.eval()
+            pyramid_zm.eval()
             dlf_decoder.train()
             se_model.train()
 
-        for batch_idx, (images, masks, labels) in enumerate(train_loader, start=1):
+        for batch_idx, (images, masks, _labels) in enumerate(train_loader, start=1):
             batch_start = time.perf_counter()
             images = images.to(device)
             masks = masks.to(device=device, dtype=torch.float32)
-            labels = labels.to(device)
 
             if supervised:
                 mask_min = int(masks.min().item())
@@ -274,12 +333,11 @@ def pipeline(
                     )
 
             collect_localization_stats = log_every > 0 and batch_idx % log_every == 0
-            errors, cnn_branch_result, zernike_branch_result, localization_images, localization_stats = extract_localization_inputs(
+            cnn_errors, zernike_errors, cnn_branch_result, zernike_branch_result, dino_features, localization_stats = extract_localization_inputs(
                 images=images,
-                pyramid_bb=pyramid_bb,
+                pm_backbone=pm_backbone,
                 pyramid_zm=pyramid_zm,
-                feature_backbone=feature_backbone,
-                cnn_backbone=cnn_backbone,
+                dino_extractor=dino_extractor,
                 separate_transforms=separate_transforms,
                 cnn_feature_norm=cnn_feature_norm,
                 pm_random_window=pm_random_window,
@@ -292,61 +350,62 @@ def pipeline(
                 pm_margin_threshold=pm_margin_threshold,
                 pm_topk=pm_topk,
                 pm_reduced_precision=pm_reduced_precision,
-                dino_match_native_resolution=dino_match_native_resolution,
                 localization_resolution=localization_resolution,
                 dlf_error_scaling=dlf_error_scaling,
                 collect_stats=collect_localization_stats,
-                train_feature_backbone=train_feature_backbone,
             )
 
-            if dlf_decoder is None:
+            if dlf_decoder is None or se_model is None:
                 dlf_decoder = DLFDecoder(
-                    num_error_maps=errors.shape[1],
-                    include_topk_dispersion=pm_topk > 1,
+                    num_error_maps=cnn_errors.shape[1],
+                ).to(device)
+                se_model = SEUNet(
+                    in_channels=dino_features.shape[1],
+                    out_channels=1,
+                    final_activation="sigmoid",
                 ).to(device)
                 if test_run or not supervised:
                     dlf_decoder.eval()
+                    se_model.eval()
                 else:
                     dlf_decoder.train()
-                    optimizer_groups = [
-                        {"params": list(dlf_decoder.parameters()), "lr": learning_rate, "name": "dlf_decoder"},
-                        {"params": list(se_model.parameters()), "lr": learning_rate, "name": "se_model"},
-                    ]
-                    optimizer_groups.extend(
-                        collect_backbone_parameter_groups(
-                            pyramid_bb=pyramid_bb,
-                            feature_backbone=feature_backbone,
-                            cnn_backbone=cnn_backbone,
-                            learning_rate=learning_rate,
-                            feature_backbone_learning_rate=feature_backbone_learning_rate,
-                        )
+                    se_model.train()
+                    optimizer = torch.optim.Adam(
+                        [
+                            {"params": list(dlf_decoder.parameters()), "lr": learning_rate, "name": "dlf_decoder"},
+                            {"params": list(se_model.parameters()), "lr": learning_rate, "name": "se_model"},
+                        ],
+                        lr=learning_rate,
                     )
-                    optimizer = torch.optim.Adam(optimizer_groups, lr=learning_rate)
 
                 if checkpoint is not None:
                     fully_restored = True
-                    if "pyramid_bb" in checkpoint:
-                        fully_restored = load_module_state(pyramid_bb, checkpoint["pyramid_bb"], "pyramid_bb") and fully_restored
-                    fully_restored = load_module_state(dlf_decoder, checkpoint["dlf_decoder"], "dlf_decoder") and fully_restored
-                    fully_restored = load_module_state(se_model, checkpoint["se_model"], "se_model") and fully_restored
+                    if "pm_backbone" in checkpoint:
+                        fully_restored = load_module_state(pm_backbone, checkpoint["pm_backbone"], "pm_backbone") and fully_restored
+                    if "dino_extractor" in checkpoint:
+                        fully_restored = load_module_state(dino_extractor, checkpoint["dino_extractor"], "dino_extractor") and fully_restored
+                    elif "pyramid_bb" in checkpoint:
+                        fully_restored = load_module_state(dino_extractor, checkpoint["pyramid_bb"], "dino_extractor") and fully_restored
+                    if checkpoint.get("dlf_decoder") is not None:
+                        fully_restored = load_module_state(dlf_decoder, checkpoint["dlf_decoder"], "dlf_decoder") and fully_restored
+                    if checkpoint.get("se_model") is not None:
+                        fully_restored = load_module_state(se_model, checkpoint["se_model"], "se_model") and fully_restored
                     if optimizer is not None and checkpoint.get("optimizer") is not None and fully_restored:
                         optimizer.load_state_dict(checkpoint["optimizer"])
                         set_optimizer_learning_rate(optimizer, learning_rate)
-                        feature_lr = learning_rate if feature_backbone_learning_rate is None else feature_backbone_learning_rate
-                        set_optimizer_group_learning_rate(optimizer, "feature_backbone", feature_lr)
-                        set_optimizer_group_learning_rate(optimizer, "feature_head", learning_rate)
                     elif optimizer is not None and checkpoint.get("optimizer") is not None:
                         print("[pipeline] Skipping optimizer restore because model weights were only partially restored.")
                     checkpoint = None
 
             refined_mask, target_map, dlf_map = decode_and_refine_masks(
                 images=images,
-                errors=errors,
+                cnn_error_maps=cnn_errors,
+                zernike_error_maps=zernike_errors,
                 cnn_branch_result=cnn_branch_result,
                 zernike_branch_result=zernike_branch_result,
                 dlf_decoder=dlf_decoder,
                 se_model=se_model,
-                localization_images=localization_images,
+                dino_features=dino_features,
                 output_size=images.shape[-2:],
             )
 
@@ -473,8 +532,10 @@ def pipeline(
             batch_counter += 1
 
         val_metrics = None
-        if val_loader is not None and dlf_decoder is not None:
-            pyramid_bb.eval()
+        if val_loader is not None and dlf_decoder is not None and se_model is not None:
+            pm_backbone.eval()
+            dino_extractor.eval()
+            pyramid_zm.eval()
             dlf_decoder.eval()
             se_model.eval()
             val_loss_sum = 0.0
@@ -510,17 +571,15 @@ def pipeline(
             val_forged_gt_components_sum = 0
 
             with torch.no_grad():
-                for images, masks, labels, image_paths in val_loader:
+                for images, masks, _labels, image_paths in val_loader:
                     images = images.to(device)
                     masks = masks.to(device=device, dtype=torch.float32)
-                    labels = labels.to(device)
 
-                    errors, cnn_branch_result, zernike_branch_result, localization_images, _ = extract_localization_inputs(
+                    cnn_errors, zernike_errors, cnn_branch_result, zernike_branch_result, dino_features, _ = extract_localization_inputs(
                         images=images,
-                        pyramid_bb=pyramid_bb,
+                        pm_backbone=pm_backbone,
                         pyramid_zm=pyramid_zm,
-                        feature_backbone=feature_backbone,
-                        cnn_backbone=cnn_backbone,
+                        dino_extractor=dino_extractor,
                         separate_transforms=separate_transforms,
                         cnn_feature_norm=cnn_feature_norm,
                         pm_random_window=pm_random_window,
@@ -533,19 +592,18 @@ def pipeline(
                         pm_margin_threshold=pm_margin_threshold,
                         pm_topk=pm_topk,
                         pm_reduced_precision=pm_reduced_precision,
-                        dino_match_native_resolution=dino_match_native_resolution,
                         localization_resolution=localization_resolution,
                         dlf_error_scaling=dlf_error_scaling,
-                        train_feature_backbone=False,
                     )
                     refined_mask, target_map, dlf_map = decode_and_refine_masks(
                         images=images,
-                        errors=errors,
+                        cnn_error_maps=cnn_errors,
+                        zernike_error_maps=zernike_errors,
                         cnn_branch_result=cnn_branch_result,
                         zernike_branch_result=zernike_branch_result,
                         dlf_decoder=dlf_decoder,
                         se_model=se_model,
-                        localization_images=localization_images,
+                        dino_features=dino_features,
                         output_size=images.shape[-2:],
                     )
 
@@ -669,8 +727,9 @@ def pipeline(
             )
 
             if optimizer is not None:
-                if train_feature_backbone:
-                    pyramid_bb.train()
+                pm_backbone.eval()
+                dino_extractor.eval()
+                pyramid_zm.eval()
                 dlf_decoder.train()
                 se_model.train()
 
@@ -752,7 +811,8 @@ def pipeline(
                     se_model=se_model,
                     optimizer=optimizer,
                     best_score=checkpoint_score,
-                    pyramid_bb=pyramid_bb if train_feature_backbone else None,
+                    dino_extractor=dino_extractor,
+                    pm_backbone=pm_backbone,
                 )
                 if best_score is None or checkpoint_score > best_score:
                     best_score = checkpoint_score
@@ -763,7 +823,8 @@ def pipeline(
                         se_model=se_model,
                         optimizer=optimizer,
                         best_score=best_score,
-                        pyramid_bb=pyramid_bb if train_feature_backbone else None,
+                        dino_extractor=dino_extractor,
+                        pm_backbone=pm_backbone,
                     )
 
     save_metrics_plot(output_dir)
