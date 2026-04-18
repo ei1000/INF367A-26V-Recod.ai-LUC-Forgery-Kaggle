@@ -1,5 +1,5 @@
 % $ biblatex auxiliary file $
-% $ biblatex bbl format version 3.3 $
+% $ biblatex bbl format version 3.2 $
 % Do not modify the above lines!
 %
 % This is an auxiliary file used by the 'biblatex' package.
@@ -18,8 +18,8 @@
 
 
 \refsection{0}
-  \datalist[entry]{noneyear/global//global/global/global}
-    \entry{kaggle}{misc}{}{}
+  \datalist[entry]{noneyear/global//global/global}
+    \entry{kaggle}{misc}{}
       \name{author}{1}{}{%
         {{hash=8fec9765921cfa63cb331e42a924c27c}{%
            family={Kaggle},
@@ -27,12 +27,10 @@
       }
       \strng{namehash}{8fec9765921cfa63cb331e42a924c27c}
       \strng{fullhash}{8fec9765921cfa63cb331e42a924c27c}
-      \strng{fullhashraw}{8fec9765921cfa63cb331e42a924c27c}
       \strng{bibnamehash}{8fec9765921cfa63cb331e42a924c27c}
       \strng{authorbibnamehash}{8fec9765921cfa63cb331e42a924c27c}
       \strng{authornamehash}{8fec9765921cfa63cb331e42a924c27c}
       \strng{authorfullhash}{8fec9765921cfa63cb331e42a924c27c}
-      \strng{authorfullhashraw}{8fec9765921cfa63cb331e42a924c27c}
       \field{extraname}{1}
       \field{sortinit}{1}
       \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
@@ -43,7 +41,7 @@
       \field{title}{Recod.ai/LUC - Scientific Image Forgery Detection}
       \field{year}{2025}
     \endentry
-    \entry{fridrich2003copymove}{article}{}{}
+    \entry{fridrich2003copymove}{article}{}
       \name{author}{3}{}{%
         {{hash=0b7ff038c1a27c940c01a4fd0cc68365}{%
            family={Fridrich},
@@ -63,12 +61,10 @@
       }
       \strng{namehash}{32f445c6ad2f0db01c6885ad768944c3}
       \strng{fullhash}{d305a0089c5b295bb3669b876b79bdd2}
-      \strng{fullhashraw}{d305a0089c5b295bb3669b876b79bdd2}
       \strng{bibnamehash}{d305a0089c5b295bb3669b876b79bdd2}
       \strng{authorbibnamehash}{d305a0089c5b295bb3669b876b79bdd2}
       \strng{authornamehash}{32f445c6ad2f0db01c6885ad768944c3}
       \strng{authorfullhash}{d305a0089c5b295bb3669b876b79bdd2}
-      \strng{authorfullhashraw}{d305a0089c5b295bb3669b876b79bdd2}
       \field{sortinit}{2}
       \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
       \field{labelnamesource}{author}
@@ -82,7 +78,7 @@
       \verb https://ws2.binghamton.edu/fridrich/Research/copymove.pdf
       \endverb
     \endentry
-    \entry{christlein2012evaluation}{article}{}{}
+    \entry{christlein2012evaluation}{article}{}
       \name{author}{5}{}{%
         {{hash=f09f7eb62d827406dedc9efd01fc862a}{%
            family={Christlein},
@@ -112,12 +108,10 @@
       }
       \strng{namehash}{d20d917d29cf860b430cd91c4336b4e0}
       \strng{fullhash}{c3bc3d13b53b57c3f7239b6589029964}
-      \strng{fullhashraw}{c3bc3d13b53b57c3f7239b6589029964}
       \strng{bibnamehash}{c3bc3d13b53b57c3f7239b6589029964}
       \strng{authorbibnamehash}{c3bc3d13b53b57c3f7239b6589029964}
       \strng{authornamehash}{d20d917d29cf860b430cd91c4336b4e0}
       \strng{authorfullhash}{c3bc3d13b53b57c3f7239b6589029964}
-      \strng{authorfullhashraw}{c3bc3d13b53b57c3f7239b6589029964}
       \field{sortinit}{2}
       \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
       \field{labelnamesource}{author}
@@ -139,7 +133,7 @@
       \verb https://arxiv.org/abs/1208.3665
       \endverb
     \endentry
-    \entry{liu2022twostage}{article}{}{}
+    \entry{liu2022twostage}{article}{}
       \name{author}{4}{}{%
         {{hash=08552ba2e5fab7862d46bf9379ad8f48}{%
            family={Liu},
@@ -164,12 +158,10 @@
       }
       \strng{namehash}{85c4b5e6cb963012fb3f1012309a5574}
       \strng{fullhash}{3da0031c1d9e34c8bed146976d5409c5}
-      \strng{fullhashraw}{3da0031c1d9e34c8bed146976d5409c5}
       \strng{bibnamehash}{3da0031c1d9e34c8bed146976d5409c5}
       \strng{authorbibnamehash}{3da0031c1d9e34c8bed146976d5409c5}
       \strng{authornamehash}{85c4b5e6cb963012fb3f1012309a5574}
       \strng{authorfullhash}{3da0031c1d9e34c8bed146976d5409c5}
-      \strng{authorfullhashraw}{3da0031c1d9e34c8bed146976d5409c5}
       \field{extraname}{1}
       \field{sortinit}{4}
       \field{sortinithash}{9381316451d1b9788675a07e972a12a7}
@@ -191,7 +183,7 @@
       \verb https://doi.org/10.1109/TIP.2021.3132828
       \endverb
     \endentry
-    \entry{wu2018busternet}{article}{}{}
+    \entry{wu2018busternet}{article}{}
       \name{author}{3}{}{%
         {{hash=5054d8715f6746af9ed28c566f168046}{%
            family={Wu},
@@ -211,12 +203,10 @@
       }
       \strng{namehash}{77aa4285bb0660bf6222f13bc03c3431}
       \strng{fullhash}{123394ce93a72cfa5632ed133e4a36cf}
-      \strng{fullhashraw}{123394ce93a72cfa5632ed133e4a36cf}
       \strng{bibnamehash}{123394ce93a72cfa5632ed133e4a36cf}
       \strng{authorbibnamehash}{123394ce93a72cfa5632ed133e4a36cf}
       \strng{authornamehash}{77aa4285bb0660bf6222f13bc03c3431}
       \strng{authorfullhash}{123394ce93a72cfa5632ed133e4a36cf}
-      \strng{authorfullhashraw}{123394ce93a72cfa5632ed133e4a36cf}
       \field{sortinit}{5}
       \field{sortinithash}{20e9b4b0b173788c5dace24730f47d8c}
       \field{labelnamesource}{author}
@@ -233,7 +223,7 @@
       \verb https://openaccess.thecvf.com/content_ECCV_2018/papers/Rex_Yue_Wu_BusterNet_Detecting_Copy-Move_ECCV_2018_paper.pdf
       \endverb
     \endentry
-    \entry{islam2020doagan}{article}{}{}
+    \entry{islam2020doagan}{article}{}
       \name{author}{4}{}{%
         {{hash=9b8203a57891aed541e6df5e6762cb84}{%
            family={Islam},
@@ -258,12 +248,10 @@
       }
       \strng{namehash}{05d07157560299c4de07f74fb28aa3d0}
       \strng{fullhash}{399c8d126f2b97ff3f9aee963cffacef}
-      \strng{fullhashraw}{399c8d126f2b97ff3f9aee963cffacef}
       \strng{bibnamehash}{399c8d126f2b97ff3f9aee963cffacef}
       \strng{authorbibnamehash}{399c8d126f2b97ff3f9aee963cffacef}
       \strng{authornamehash}{05d07157560299c4de07f74fb28aa3d0}
       \strng{authorfullhash}{399c8d126f2b97ff3f9aee963cffacef}
-      \strng{authorfullhashraw}{399c8d126f2b97ff3f9aee963cffacef}
       \field{sortinit}{6}
       \field{sortinithash}{b33bc299efb3c36abec520a4c896a66d}
       \field{labelnamesource}{author}
@@ -283,7 +271,7 @@
       \verb https://doi.org/10.1109/CVPR42600.2020.00473
       \endverb
     \endentry
-    \entry{liu2024cmfdformer}{article}{}{}
+    \entry{liu2024cmfdformer}{article}{}
       \name{author}{7}{}{%
         {{hash=08552ba2e5fab7862d46bf9379ad8f48}{%
            family={Liu},
@@ -323,12 +311,10 @@
       }
       \strng{namehash}{85c4b5e6cb963012fb3f1012309a5574}
       \strng{fullhash}{e78c3b4dc49e40ff223dbfe2946b4b1b}
-      \strng{fullhashraw}{e78c3b4dc49e40ff223dbfe2946b4b1b}
       \strng{bibnamehash}{e78c3b4dc49e40ff223dbfe2946b4b1b}
       \strng{authorbibnamehash}{e78c3b4dc49e40ff223dbfe2946b4b1b}
       \strng{authornamehash}{85c4b5e6cb963012fb3f1012309a5574}
       \strng{authorfullhash}{e78c3b4dc49e40ff223dbfe2946b4b1b}
-      \strng{authorfullhashraw}{e78c3b4dc49e40ff223dbfe2946b4b1b}
       \field{extraname}{2}
       \field{sortinit}{7}
       \field{sortinithash}{108d0be1b1bee9773a1173443802c0a3}
@@ -348,7 +334,7 @@
       \verb https://arxiv.org/abs/2311.13263
       \endverb
     \endentry
-    \entry{barni2021copymove}{article}{}{}
+    \entry{barni2021copymove}{article}{}
       \name{author}{3}{}{%
         {{hash=fed080f345f0809455f584a20941e966}{%
            family={Barni},
@@ -368,12 +354,10 @@
       }
       \strng{namehash}{aacf0074683790d535f8f37dc86d8ff0}
       \strng{fullhash}{0af98ec91dcb2ddd68147346dfe6349c}
-      \strng{fullhashraw}{0af98ec91dcb2ddd68147346dfe6349c}
       \strng{bibnamehash}{0af98ec91dcb2ddd68147346dfe6349c}
       \strng{authorbibnamehash}{0af98ec91dcb2ddd68147346dfe6349c}
       \strng{authornamehash}{aacf0074683790d535f8f37dc86d8ff0}
       \strng{authorfullhash}{0af98ec91dcb2ddd68147346dfe6349c}
-      \strng{authorfullhashraw}{0af98ec91dcb2ddd68147346dfe6349c}
       \field{sortinit}{8}
       \field{sortinithash}{a231b008ebf0ecbe0b4d96dcc159445f}
       \field{labelnamesource}{author}
@@ -394,7 +378,7 @@
       \verb https://doi.org/10.1109/TIFS.2020.3045903
       \endverb
     \endentry
-    \entry{li2024deeppatchmatch}{article}{}{}
+    \entry{li2024deeppatchmatch}{article}{}
       \name{author}{6}{}{%
         {{hash=630a3fc1f43a232058d2b1e49101aa38}{%
            family={Li},
@@ -429,12 +413,10 @@
       }
       \strng{namehash}{79766bde1f1e985eb5fba0c5e17c0c40}
       \strng{fullhash}{d0cea8f0bbd2d62c9b27b71cb99af3e1}
-      \strng{fullhashraw}{d0cea8f0bbd2d62c9b27b71cb99af3e1}
       \strng{bibnamehash}{d0cea8f0bbd2d62c9b27b71cb99af3e1}
       \strng{authorbibnamehash}{d0cea8f0bbd2d62c9b27b71cb99af3e1}
       \strng{authornamehash}{79766bde1f1e985eb5fba0c5e17c0c40}
       \strng{authorfullhash}{d0cea8f0bbd2d62c9b27b71cb99af3e1}
-      \strng{authorfullhashraw}{d0cea8f0bbd2d62c9b27b71cb99af3e1}
       \field{sortinit}{9}
       \field{sortinithash}{0a5ebc79d83c96b6579069544c73c7d4}
       \field{labelnamesource}{author}
@@ -449,7 +431,7 @@
       \verb https://ieeexplore.ieee.org/document/10736426
       \endverb
     \endentry
-    \entry{metric}{misc}{}{}
+    \entry{metric}{misc}{}
       \name{author}{1}{}{%
         {{hash=8fec9765921cfa63cb331e42a924c27c}{%
            family={Kaggle},
@@ -457,12 +439,10 @@
       }
       \strng{namehash}{8fec9765921cfa63cb331e42a924c27c}
       \strng{fullhash}{8fec9765921cfa63cb331e42a924c27c}
-      \strng{fullhashraw}{8fec9765921cfa63cb331e42a924c27c}
       \strng{bibnamehash}{8fec9765921cfa63cb331e42a924c27c}
       \strng{authorbibnamehash}{8fec9765921cfa63cb331e42a924c27c}
       \strng{authornamehash}{8fec9765921cfa63cb331e42a924c27c}
       \strng{authorfullhash}{8fec9765921cfa63cb331e42a924c27c}
-      \strng{authorfullhashraw}{8fec9765921cfa63cb331e42a924c27c}
       \field{extraname}{2}
       \field{sortinit}{1}
       \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
@@ -473,7 +453,7 @@
       \field{title}{RecodAI F1}
       \field{year}{2025}
     \endentry
-    \entry{notebook}{misc}{}{}
+    \entry{notebook}{misc}{}
       \name{author}{1}{}{%
         {{hash=6282df62bc027d3cb2e954927ba1fec1}{%
            family={Parkhedkar},
@@ -483,12 +463,10 @@
       }
       \strng{namehash}{6282df62bc027d3cb2e954927ba1fec1}
       \strng{fullhash}{6282df62bc027d3cb2e954927ba1fec1}
-      \strng{fullhashraw}{6282df62bc027d3cb2e954927ba1fec1}
       \strng{bibnamehash}{6282df62bc027d3cb2e954927ba1fec1}
       \strng{authorbibnamehash}{6282df62bc027d3cb2e954927ba1fec1}
       \strng{authornamehash}{6282df62bc027d3cb2e954927ba1fec1}
       \strng{authorfullhash}{6282df62bc027d3cb2e954927ba1fec1}
-      \strng{authorfullhashraw}{6282df62bc027d3cb2e954927ba1fec1}
       \field{sortinit}{1}
       \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
       \field{labelnamesource}{author}
@@ -498,7 +476,7 @@
       \field{title}{DINOv2 Base [0.332] | High-Res 4500px | Robust Inf}
       \field{year}{2026}
     \endentry
-    \entry{oquab2023dinov2}{article}{}{}
+    \entry{oquab2023dinov2}{article}{}
       \true{moreauthor}
       \true{morelabelname}
       \name{author}{10}{}{%
@@ -555,12 +533,10 @@
       }
       \strng{namehash}{618ed95633c96d24beb38093a078f50c}
       \strng{fullhash}{e2ecc1b040b19f9a394a94ddf1dbd9d1}
-      \strng{fullhashraw}{e2ecc1b040b19f9a394a94ddf1dbd9d1}
       \strng{bibnamehash}{e2ecc1b040b19f9a394a94ddf1dbd9d1}
       \strng{authorbibnamehash}{e2ecc1b040b19f9a394a94ddf1dbd9d1}
       \strng{authornamehash}{618ed95633c96d24beb38093a078f50c}
       \strng{authorfullhash}{e2ecc1b040b19f9a394a94ddf1dbd9d1}
-      \strng{authorfullhashraw}{e2ecc1b040b19f9a394a94ddf1dbd9d1}
       \field{sortinit}{1}
       \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
       \field{labelnamesource}{author}
@@ -576,7 +552,7 @@
       \verb https://arxiv.org/abs/2304.07193
       \endverb
     \endentry
-    \entry{barnes2019patchmatch}{article}{}{}
+    \entry{barnes2009patchmatch}{article}{}
       \name{author}{4}{}{%
         {{hash=4e74e92ac258a7344d22dd0661d08dd2}{%
            family={Barnes},
@@ -601,12 +577,10 @@
       }
       \strng{namehash}{f2bdfaf37a494ea69981af1e3f4153b2}
       \strng{fullhash}{feef9d33b86feffc265169bb0a69eae7}
-      \strng{fullhashraw}{feef9d33b86feffc265169bb0a69eae7}
       \strng{bibnamehash}{feef9d33b86feffc265169bb0a69eae7}
       \strng{authorbibnamehash}{feef9d33b86feffc265169bb0a69eae7}
       \strng{authornamehash}{f2bdfaf37a494ea69981af1e3f4153b2}
       \strng{authorfullhash}{feef9d33b86feffc265169bb0a69eae7}
-      \strng{authorfullhashraw}{feef9d33b86feffc265169bb0a69eae7}
       \field{sortinit}{1}
       \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
       \field{labelnamesource}{author}
@@ -620,36 +594,7 @@
       \verb https://dl.acm.org/doi/10.1145/1531326.1531330
       \endverb
     \endentry
-    \entry{casiakaggle}{article}{}{}
-      \name{author}{1}{}{%
-        {{hash=3cde5d84935df6ef6919ab268669270d}{%
-           family={m\_ashraffarouk},
-           familyi={m\bibinitperiod}}}%
-      }
-      \strng{namehash}{3cde5d84935df6ef6919ab268669270d}
-      \strng{fullhash}{3cde5d84935df6ef6919ab268669270d}
-      \strng{fullhashraw}{3cde5d84935df6ef6919ab268669270d}
-      \strng{bibnamehash}{3cde5d84935df6ef6919ab268669270d}
-      \strng{authorbibnamehash}{3cde5d84935df6ef6919ab268669270d}
-      \strng{authornamehash}{3cde5d84935df6ef6919ab268669270d}
-      \strng{authorfullhash}{3cde5d84935df6ef6919ab268669270d}
-      \strng{authorfullhashraw}{3cde5d84935df6ef6919ab268669270d}
-      \field{sortinit}{1}
-      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
-      \field{labelnamesource}{author}
-      \field{labeltitlesource}{title}
-      \field{journaltitle}{Kaggle}
-      \field{note}{Dataset, accessed 2026-03-15}
-      \field{title}{CASIA-CMFD}
-      \field{year}{2025}
-      \verb{urlraw}
-      \verb https://www.kaggle.com/datasets/mashraffarouk/casia-cmfd
-      \endverb
-      \verb{url}
-      \verb https://www.kaggle.com/datasets/mashraffarouk/casia-cmfd
-      \endverb
-    \endentry
-    \entry{simonyan2014vgg16}{article}{}{}
+    \entry{simonyan2014vgg16}{article}{}
       \name{author}{2}{}{%
         {{hash=9d16b7284df92c9adaee86c37ab992df}{%
            family={Simonyan},
@@ -664,12 +609,10 @@
       }
       \strng{namehash}{25d2f3c4577a6632d37f0126cc781232}
       \strng{fullhash}{25d2f3c4577a6632d37f0126cc781232}
-      \strng{fullhashraw}{25d2f3c4577a6632d37f0126cc781232}
       \strng{bibnamehash}{25d2f3c4577a6632d37f0126cc781232}
       \strng{authorbibnamehash}{25d2f3c4577a6632d37f0126cc781232}
       \strng{authornamehash}{25d2f3c4577a6632d37f0126cc781232}
       \strng{authorfullhash}{25d2f3c4577a6632d37f0126cc781232}
-      \strng{authorfullhashraw}{25d2f3c4577a6632d37f0126cc781232}
       \field{sortinit}{1}
       \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
       \field{labelnamesource}{author}
@@ -684,7 +627,50 @@
       \verb https://arxiv.org/abs/1409.1556
       \endverb
     \endentry
-    \entry{lin2014coco}{inproceedings}{}{}
+    \entry{he2016deep}{article}{}
+      \name{author}{4}{}{%
+        {{hash=6b4b60e909e78633945f3f9c9dc83e01}{%
+           family={He},
+           familyi={H\bibinitperiod},
+           given={Kaiming},
+           giveni={K\bibinitperiod}}}%
+        {{hash=5e72bc22dbcf0984c6d113d280e36990}{%
+           family={Zhang},
+           familyi={Z\bibinitperiod},
+           given={Xiangyu},
+           giveni={X\bibinitperiod}}}%
+        {{hash=bb295293acacd54387339079ebbe4ead}{%
+           family={Ren},
+           familyi={R\bibinitperiod},
+           given={Shaoqing},
+           giveni={S\bibinitperiod}}}%
+        {{hash=f85751488058842b5777c7b4074077b5}{%
+           family={Sun},
+           familyi={S\bibinitperiod},
+           given={Jian},
+           giveni={J\bibinitperiod}}}%
+      }
+      \strng{namehash}{6edb98fe38401d2fe4a026f5ce6e8451}
+      \strng{fullhash}{42c4b52dc3a62cebabbc11c73e1afb53}
+      \strng{bibnamehash}{42c4b52dc3a62cebabbc11c73e1afb53}
+      \strng{authorbibnamehash}{42c4b52dc3a62cebabbc11c73e1afb53}
+      \strng{authornamehash}{6edb98fe38401d2fe4a026f5ce6e8451}
+      \strng{authorfullhash}{42c4b52dc3a62cebabbc11c73e1afb53}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{arXiv preprint arXiv:1512.03385}
+      \field{title}{Deep Residual Learning for Image Recognition}
+      \field{year}{2016}
+      \verb{urlraw}
+      \verb https://arxiv.org/abs/1512.03385
+      \endverb
+      \verb{url}
+      \verb https://arxiv.org/abs/1512.03385
+      \endverb
+    \endentry
+    \entry{lin2014coco}{inproceedings}{}
       \name{author}{8}{}{%
         {{hash=08f925fe4692d130a1d7cb7d94483351}{%
            family={Lin},
@@ -729,14 +715,12 @@
       }
       \strng{namehash}{3b7e00bc88d7aca4d4d5ddb8c252e36c}
       \strng{fullhash}{efa664e154982dfbb2d86b95a77d1448}
-      \strng{fullhashraw}{efa664e154982dfbb2d86b95a77d1448}
       \strng{bibnamehash}{efa664e154982dfbb2d86b95a77d1448}
       \strng{authorbibnamehash}{efa664e154982dfbb2d86b95a77d1448}
       \strng{authornamehash}{3b7e00bc88d7aca4d4d5ddb8c252e36c}
       \strng{authorfullhash}{efa664e154982dfbb2d86b95a77d1448}
-      \strng{authorfullhashraw}{efa664e154982dfbb2d86b95a77d1448}
-      \field{sortinit}{2}
-      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{booktitle}{European Conference on Computer Vision (ECCV)}
@@ -744,6 +728,119 @@
       \field{year}{2014}
       \field{pages}{740\bibrangedash 755}
       \range{pages}{16}
+    \endentry
+    \entry{dong2013casia}{inproceedings}{}
+      \name{author}{3}{}{%
+        {{hash=db5ca4c0a459acddb82c55e74668dbd9}{%
+           family={Dong},
+           familyi={D\bibinitperiod},
+           given={Jing},
+           giveni={J\bibinitperiod}}}%
+        {{hash=f27ec46ccd272a021fd78bdac92dd490}{%
+           family={Wang},
+           familyi={W\bibinitperiod},
+           given={Wei},
+           giveni={W\bibinitperiod}}}%
+        {{hash=116ce38201da138f399dde04290058b8}{%
+           family={Tan},
+           familyi={T\bibinitperiod},
+           given={Tieniu},
+           giveni={T\bibinitperiod}}}%
+      }
+      \strng{namehash}{8f01502e3210f5c204890bb2fc01c624}
+      \strng{fullhash}{5d3b059d9c380e36336fff594988caa1}
+      \strng{bibnamehash}{5d3b059d9c380e36336fff594988caa1}
+      \strng{authorbibnamehash}{5d3b059d9c380e36336fff594988caa1}
+      \strng{authornamehash}{8f01502e3210f5c204890bb2fc01c624}
+      \strng{authorfullhash}{5d3b059d9c380e36336fff594988caa1}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{booktitle}{IEEE China Summit and International Conference on Signal and Information Processing}
+      \field{title}{CASIA Image Tampering Detection Evaluation Database}
+      \field{year}{2013}
+      \field{pages}{422\bibrangedash 426}
+      \range{pages}{5}
+    \endentry
+    \entry{tralic2013comofo}{inproceedings}{}
+      \name{author}{4}{}{%
+        {{hash=8730bb727a1625ec14795c71db539824}{%
+           family={Tralic},
+           familyi={T\bibinitperiod},
+           given={Daria},
+           giveni={D\bibinitperiod}}}%
+        {{hash=d79a57cc6f3f85e37d890b3a8b347c9b}{%
+           family={Zupancic},
+           familyi={Z\bibinitperiod},
+           given={Ivan},
+           giveni={I\bibinitperiod}}}%
+        {{hash=d6ebc682ffa248b51fd569160ad893a8}{%
+           family={Grgic},
+           familyi={G\bibinitperiod},
+           given={Srdjan},
+           giveni={S\bibinitperiod}}}%
+        {{hash=16259d898f2ffd3e2b6aed75657c7b84}{%
+           family={Grgic},
+           familyi={G\bibinitperiod},
+           given={Mislav},
+           giveni={M\bibinitperiod}}}%
+      }
+      \strng{namehash}{5a09d86bb8b18b7dc835ab465dc5d4c3}
+      \strng{fullhash}{a29d8d70822b28aedb1e36b3d43495ce}
+      \strng{bibnamehash}{a29d8d70822b28aedb1e36b3d43495ce}
+      \strng{authorbibnamehash}{a29d8d70822b28aedb1e36b3d43495ce}
+      \strng{authornamehash}{5a09d86bb8b18b7dc835ab465dc5d4c3}
+      \strng{authorfullhash}{a29d8d70822b28aedb1e36b3d43495ce}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{booktitle}{Proceedings of the International Symposium ELMAR}
+      \field{title}{CoMoFoD — New Database for Copy-Move Forgery Detection}
+      \field{year}{2013}
+      \field{pages}{49\bibrangedash 54}
+      \range{pages}{6}
+    \endentry
+    \entry{silva2015copy}{article}{}
+      \name{author}{4}{}{%
+        {{hash=a4bb3e61980d9b52d3f12ee8cbb73f3b}{%
+           family={Silva},
+           familyi={S\bibinitperiod},
+           given={Edson},
+           giveni={E\bibinitperiod}}}%
+        {{hash=69272937179b177e2d75e891be491c7c}{%
+           family={Carvalho},
+           familyi={C\bibinitperiod},
+           given={Tiago},
+           giveni={T\bibinitperiod}}}%
+        {{hash=965e40c58e3c200a02c1e2cb96f3a11b}{%
+           family={Ferreira},
+           familyi={F\bibinitperiod},
+           given={Anselmo},
+           giveni={A\bibinitperiod}}}%
+        {{hash=030eee6c49a220d206a635085a9c3ba8}{%
+           family={Rocha},
+           familyi={R\bibinitperiod},
+           given={Anderson},
+           giveni={A\bibinitperiod}}}%
+      }
+      \strng{namehash}{79b306264663a5d2ffb5aa3649adafb3}
+      \strng{fullhash}{1c3e5bcb2aca9aa2ae31790d7164c19d}
+      \strng{bibnamehash}{1c3e5bcb2aca9aa2ae31790d7164c19d}
+      \strng{authorbibnamehash}{1c3e5bcb2aca9aa2ae31790d7164c19d}
+      \strng{authornamehash}{79b306264663a5d2ffb5aa3649adafb3}
+      \strng{authorfullhash}{1c3e5bcb2aca9aa2ae31790d7164c19d}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Journal of Visual Communication and Image Representation}
+      \field{title}{Going Deeper into Copy-Move Forgery Detection: Exploring Image Telltales via Multi-Scale Analysis and Voting Processes}
+      \field{volume}{29}
+      \field{year}{2015}
+      \field{pages}{16\bibrangedash 32}
+      \range{pages}{17}
     \endentry
   \enddatalist
 \endrefsection
