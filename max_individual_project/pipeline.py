@@ -52,7 +52,6 @@ def pipeline(
     dino_model_name="dinov2_vits14",
     dino_proj_dim=64,
     cnn_backbone="simple",
-    cnn_pretrained_model="vgg16_bn",
     cnn_feature_norm=True,
     separate_transforms=True,
     pm_iters=24,
