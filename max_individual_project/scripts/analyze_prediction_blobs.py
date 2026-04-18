@@ -250,6 +250,8 @@ def select_sample(args: argparse.Namespace) -> SampleRecord:
 
 
 def build_feature_extractors(args: argparse.Namespace, device: torch.device):
+    # `feature_backbone` is a historical name here: it only selects which frozen
+    # DINO extractor feeds the refinement branch, not the PatchMatch branch.
     dino_extractor_cls = PyramidDinoFeatureExtractor if args.feature_backbone == "dino" else SingleScaleDinoFeatureExtractor
     dino_extractor = dino_extractor_cls(
         model_name=args.dino_model_name,
@@ -259,6 +261,7 @@ def build_feature_extractors(args: argparse.Namespace, device: torch.device):
         proj_dim=None,
         upsample_to_input=False,
     ).to(device)
+    # PatchMatch descriptors stay fixed to frozen ResNet18 features plus Zernike.
     pm_backbone = SingleScaleFeatureExtractor(
         backbone=PretrainedBackboneExtractor(
             model_name="resnet18",

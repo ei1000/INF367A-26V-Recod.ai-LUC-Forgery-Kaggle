@@ -1,10 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from pathlib import Path
-from dataset import ForgeryDataset
 from torchvision.utils import draw_segmentation_masks
-from torchvision.datasets import ImageFolder
 
 '''
 Display image, optionally with mask
@@ -109,20 +106,3 @@ def display_pixel_offsets(
     fig.suptitle("Image offsets (dx/dy)")
     plt.tight_layout()
     plt.show()
-
-    
-# Test:
-def load_and_display():
-    root = Path('data')
-    supplement_image_folder = ImageFolder(root / "supplemental_images")
-
-    samples = [(Path(p), y) for p, y in supplement_image_folder.samples]
-
-    supplement_dataset = ForgeryDataset(
-        samples=samples,
-        mask_dir=root / "supplemental_masks",
-    )
-
-    img, mask, _ = supplement_dataset[1]
-    display_image(img, mask)
-

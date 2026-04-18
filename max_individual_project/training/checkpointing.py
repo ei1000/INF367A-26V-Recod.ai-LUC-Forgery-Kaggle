@@ -4,6 +4,8 @@ from pathlib import Path
 
 import torch
 
+from training.optim import set_optimizer_learning_rate
+
 
 def ensure_output_dirs(output_dir: str | Path):
     output_dir = Path(output_dir)
@@ -13,6 +15,21 @@ def ensure_output_dirs(output_dir: str | Path):
     checkpoints_dir.mkdir(parents=True, exist_ok=True)
     predictions_dir.mkdir(parents=True, exist_ok=True)
     return output_dir, checkpoints_dir, predictions_dir
+
+
+def load_resume_checkpoint(
+    checkpoint_path: Path,
+    device: torch.device,
+    resume: bool = True,
+) -> tuple[dict | None, int, float | None]:
+    if not resume or not checkpoint_path.exists():
+        return None, 0, None
+
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    resume_epoch = int(checkpoint.get("epoch", 0))
+    best_score = checkpoint.get("best_score", checkpoint.get("best_loss"))
+    print(f"[pipeline] Resuming from checkpoint: {checkpoint_path}")
+    return checkpoint, resume_epoch, best_score
 
 
 def save_checkpoint(
@@ -76,3 +93,72 @@ def load_module_state(module, state_dict: dict[str, torch.Tensor], module_name: 
         )
         return False
     return True
+
+
+def restore_training_state(
+    checkpoint: dict | None,
+    pm_backbone,
+    dino_extractor,
+    dlf_decoder,
+    se_model,
+    optimizer,
+    learning_rate: float,
+) -> dict | None:
+    if checkpoint is None:
+        return None
+
+    fully_restored = True
+    if "pm_backbone" in checkpoint:
+        fully_restored = load_module_state(pm_backbone, checkpoint["pm_backbone"], "pm_backbone") and fully_restored
+    if "dino_extractor" in checkpoint:
+        fully_restored = load_module_state(dino_extractor, checkpoint["dino_extractor"], "dino_extractor") and fully_restored
+    elif "pyramid_bb" in checkpoint:
+        fully_restored = load_module_state(dino_extractor, checkpoint["pyramid_bb"], "dino_extractor") and fully_restored
+    if checkpoint.get("dlf_decoder") is not None:
+        fully_restored = load_module_state(dlf_decoder, checkpoint["dlf_decoder"], "dlf_decoder") and fully_restored
+    if checkpoint.get("se_model") is not None:
+        fully_restored = load_module_state(se_model, checkpoint["se_model"], "se_model") and fully_restored
+    if optimizer is not None and checkpoint.get("optimizer") is not None and fully_restored:
+        optimizer.load_state_dict(checkpoint["optimizer"])
+        set_optimizer_learning_rate(optimizer, learning_rate)
+    elif optimizer is not None and checkpoint.get("optimizer") is not None:
+        print("[pipeline] Skipping optimizer restore because model weights were only partially restored.")
+
+    return None
+
+
+def save_epoch_checkpoints(
+    checkpoint_path: Path,
+    best_checkpoint_path: Path,
+    epoch: int,
+    dlf_decoder,
+    se_model,
+    optimizer,
+    checkpoint_score: float,
+    best_score: float | None,
+    dino_extractor=None,
+    pm_backbone=None,
+) -> float:
+    save_checkpoint(
+        checkpoint_path,
+        epoch=epoch,
+        dlf_decoder=dlf_decoder,
+        se_model=se_model,
+        optimizer=optimizer,
+        best_score=checkpoint_score,
+        dino_extractor=dino_extractor,
+        pm_backbone=pm_backbone,
+    )
+    if best_score is None or checkpoint_score > best_score:
+        best_score = checkpoint_score
+        save_checkpoint(
+            best_checkpoint_path,
+            epoch=epoch,
+            dlf_decoder=dlf_decoder,
+            se_model=se_model,
+            optimizer=optimizer,
+            best_score=best_score,
+            dino_extractor=dino_extractor,
+            pm_backbone=pm_backbone,
+        )
+    return best_score

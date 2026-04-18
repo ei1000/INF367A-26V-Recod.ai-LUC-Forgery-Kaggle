@@ -1,6 +1,5 @@
 from pathlib import Path
 import time
-import json
 
 import numpy as np
 import torch
@@ -8,19 +7,23 @@ from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import ImageFolder
 
 from dataset import (
-    Datasets,
     ForgeryDataset,
     combine_datasets,
     resolve_data_root,
     resolve_image_transform,
     split_indices_by_label_three_way,
 )
-from feature_extractors.cnn_feature_extractor import (
-    PretrainedBackboneExtractor,
-    SingleScaleFeatureExtractor,
+from pipeline_config import PipelineConfig, resolve_pipeline_config
+from pipeline_helpers import (
+    build_localization_optimizer,
+    build_patchmatch_feature_branch,
+    build_patchmatch_head,
+    build_seunet_feature_branch,
+    build_seunet_head,
+    post_process_predictions,
+    set_frozen_feature_branch_modes,
+    set_trainable_head_modes,
 )
-from feature_extractors.zernike_feature_extractor import PyramidZernikeExtractor, default_pq_list
-from prediction.decoder import DLFDecoder
 from prediction.localization import decode_and_refine_masks, extract_localization_inputs
 from prediction.mask_metrics import (
     binary_mask_to_instances,
@@ -29,66 +32,33 @@ from prediction.mask_metrics import (
     summarize_segmentation_counts,
     update_segmentation_counts,
 )
-from prediction.pixelmaputil_mask import MaskUtil, post_process_mask_batch
-from prediction.se_u_net import SEUNet
-from training.checkpointing import ensure_output_dirs, load_module_state, save_checkpoint, save_prediction_batch
+from prediction.pixelmaputil_mask import MaskUtil
+from training.checkpointing import (
+    ensure_output_dirs,
+    load_resume_checkpoint,
+    restore_training_state,
+    save_epoch_checkpoints,
+    save_prediction_batch,
+)
 from training.losses import localization_loss_terms, summarize_branch_activity
-from training.metrics_logging import append_metrics_log, save_metrics_plot
-from training.optim import (
-    set_optimizer_learning_rate,
+from training.metrics_logging import (
+    append_metrics_log,
+    average_metric_accumulator,
+    build_epoch_metrics,
+    format_split_summary,
+    format_train_batch_message,
+    format_train_epoch_message,
+    format_validation_message,
+    initialize_metric_accumulator,
+    save_metrics_plot,
+    summarize_metric_step,
+    update_metric_accumulator,
+    write_split_artifacts,
 )
 from visualizer import display_image, display_pixel_offsets
 
 
-def pipeline(
-    datasets=Datasets.TRAIN,
-    image_size=3000,
-    epochs=1,
-    test_run=False,
-    feature_backbone="dino_single",
-    use_dino_transform=False,
-    batch_size=1,
-    override_batch_size=False,
-    dino_model_name="dinov2_vits14",
-    dino_proj_dim=64,
-    cnn_backbone="simple",
-    cnn_feature_norm=True,
-    separate_transforms=True,
-    pm_iters=24,
-    pm_beta=10.0,
-    pm_hard_selection=True,
-    pm_random_window=50,
-    pm_use_non_local=True,
-    pm_non_local_limit=25.0,
-    pm_flat_threshold=0.15,
-    pm_margin_threshold=0.10,
-    pm_topk=1,
-    pm_reduced_precision=True,
-    dino_match_native_resolution=False,
-    localization_resolution="image",
-    train_feature_backbone=False,
-    feature_backbone_learning_rate=None,
-    dino_finetune_blocks=0,
-    log_every=10,
-    output_dir="artifacts",
-    checkpoint_name="latest.pt",
-    resume=True,
-    save_predictions=False,
-    validation_split=0.0,
-    test_split=0.0,
-    validation_seed=42,
-    learning_rate=1e-3,
-    mprime_loss_weight=0.5,
-    empty_target_penalty_weight=0.0,
-    dlf_error_scaling="log1p",
-    do_post_process=True,
-    post_process_threshold=0.5,
-    post_process_confident_threshold=None,
-    post_process_smooth_probabilities=False,
-    post_process_fill_holes=True,
-    post_process_apply_closing=False,
-    post_process_min_component_area=0,
-):
+def pipeline(config: PipelineConfig | None = None, **overrides):
     """Train or inspect the copy-move localization pipeline.
 
     Current architecture:
@@ -97,31 +67,61 @@ def pipeline(
     - frozen DINO features feeding an SEUNet refinement head
     """
 
+    config = resolve_pipeline_config(config, **overrides)
+    datasets = config.datasets
+    image_size = config.image_size
+    epochs = config.epochs
+    test_run = config.test_run
+    feature_backbone = config.feature_backbone
+    use_dino_transform = config.use_dino_transform
+    batch_size = config.batch_size
+    override_batch_size = config.override_batch_size
+    dino_model_name = config.dino_model_name
+    cnn_backbone = config.cnn_backbone
+    cnn_feature_norm = config.cnn_feature_norm
+    separate_transforms = config.separate_transforms
+    pm_iters = config.pm_iters
+    pm_beta = config.pm_beta
+    pm_hard_selection = config.pm_hard_selection
+    pm_random_window = config.pm_random_window
+    pm_use_non_local = config.pm_use_non_local
+    pm_non_local_limit = config.pm_non_local_limit
+    pm_flat_threshold = config.pm_flat_threshold
+    pm_margin_threshold = config.pm_margin_threshold
+    pm_topk = config.pm_topk
+    pm_reduced_precision = config.pm_reduced_precision
+    localization_resolution = config.localization_resolution
+    log_every = config.log_every
+    output_dir = config.output_dir
+    checkpoint_name = config.checkpoint_name
+    resume = config.resume
+    save_predictions = config.save_predictions
+    validation_split = config.validation_split
+    test_split = config.test_split
+    validation_seed = config.validation_seed
+    learning_rate = config.learning_rate
+    mprime_loss_weight = config.mprime_loss_weight
+    empty_target_penalty_weight = config.empty_target_penalty_weight
+    dlf_error_scaling = config.dlf_error_scaling
+    do_post_process = config.do_post_process
+    post_process_threshold = config.post_process_threshold
+    post_process_confident_threshold = config.post_process_confident_threshold
+    post_process_smooth_probabilities = config.post_process_smooth_probabilities
+    post_process_fill_holes = config.post_process_fill_holes
+    post_process_apply_closing = config.post_process_apply_closing
+    post_process_min_component_area = config.post_process_min_component_area
+
     print('[pipeline] Initializing training loop and datasets...')
     torch.set_float32_matmul_precision("medium")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if train_feature_backbone:
-        print("[pipeline] Keeping DINO and ResNet backbones frozen; train_feature_backbone=True is ignored in this setup.")
-    if dino_proj_dim is not None:
-        print("[pipeline] Ignoring dino_proj_dim so the SEUNet branch consumes raw frozen DINO features.")
-    if dino_match_native_resolution:
-        print("[pipeline] Ignoring dino_match_native_resolution because localization now always runs on the image grid.")
-    if feature_backbone_learning_rate is not None:
-        print("[pipeline] Ignoring feature_backbone_learning_rate because all feature extractors are frozen.")
-    if dino_finetune_blocks:
-        print("[pipeline] Ignoring dino_finetune_blocks because the DINO branch stays frozen in this pipeline.")
     output_dir, checkpoints_dir, predictions_dir = ensure_output_dirs(output_dir)
     checkpoint_path = checkpoints_dir / checkpoint_name
     best_checkpoint_path = checkpoints_dir / "best.pt"
-    checkpoint = None
-    resume_epoch = 0
-    best_score = None
-
-    if resume and checkpoint_path.exists():
-        checkpoint = torch.load(checkpoint_path, map_location=device)
-        resume_epoch = int(checkpoint.get("epoch", 0))
-        best_score = checkpoint.get("best_score", checkpoint.get("best_loss"))
-        print(f"[pipeline] Resuming from checkpoint: {checkpoint_path}")
+    checkpoint, resume_epoch, best_score = load_resume_checkpoint(
+        checkpoint_path=checkpoint_path,
+        device=device,
+        resume=resume,
+    )
 
     root = resolve_data_root()
 
@@ -145,6 +145,7 @@ def pipeline(
     val_dataset_list = []
     mask_dir_by_sample = {}
     supervised = all(dataset["masks"] is not None for dataset in datasets.value)
+    training_enabled = supervised and not test_run
     split_manifest = {
         "config": {
             "validation_split": validation_split,
@@ -225,12 +226,8 @@ def pipeline(
         "val_total": int(sum(entry["val_count"] for entry in split_manifest["datasets"])),
         "test_total": int(sum(entry["test_count"] for entry in split_manifest["datasets"])),
     }
-    split_manifest_path = output_dir / "split_manifest.json"
-    split_manifest_path.write_text(json.dumps(split_manifest, indent=2), encoding="utf-8")
+    split_manifest_path, heldout_test_path = write_split_artifacts(output_dir, split_manifest)
     print(f"[pipeline] Wrote split manifest to {split_manifest_path}")
-    heldout_test_samples = [sample for entry in split_manifest["datasets"] for sample in entry["test_samples"]]
-    heldout_test_path = output_dir / "heldout_test_samples.txt"
-    heldout_test_path.write_text("\n".join(heldout_test_samples), encoding="utf-8")
     print(f"[pipeline] Wrote held-out test sample list to {heldout_test_path}")
 
     train_loader = DataLoader(
@@ -248,41 +245,18 @@ def pipeline(
             pin_memory=device.type == "cuda",
         )
     split_summary = split_manifest["summary"]
-    print(
-        "[pipeline] Split summary: "
-        f"train={split_summary['train_total']} "
-        f"val={split_summary['val_total']} "
-        f"test={split_summary['test_total']} "
-        f"(seed={validation_seed})"
+    print(format_split_summary(split_summary, validation_seed))
+
+    print("[pipeline] Loading PatchMatch feature branch...")
+    pm_backbone, pyramid_zm = build_patchmatch_feature_branch(device)
+    print("[pipeline] Loading SEUNet feature branch...")
+    dino_extractor = build_seunet_feature_branch(
+        device,
+        feature_backbone=feature_backbone,
+        dino_model_name=dino_model_name,
+        separate_transforms=separate_transforms,
+        use_dino_transform=use_dino_transform,
     )
-
-    print('Loading models and creating ZernikeFeatures...')
-    from feature_extractors.dino_feature_extractor import PyramidDinoFeatureExtractor, SingleScaleDinoFeatureExtractor
-
-    # `feature_backbone` now selects the frozen DINO feature extractor used by the refinement branch.
-    dino_extractor_cls = PyramidDinoFeatureExtractor if feature_backbone == "dino" else SingleScaleDinoFeatureExtractor
-    dino_extractor = dino_extractor_cls(
-        model_name=dino_model_name,
-        freeze=True,
-        finetune_blocks=0,
-        normalize_input=True if separate_transforms else not use_dino_transform,
-        proj_dim=None,
-        upsample_to_input=False,
-    ).to(device)
-    pm_backbone = SingleScaleFeatureExtractor(
-        backbone=PretrainedBackboneExtractor(
-            model_name="resnet18",
-            out_dim=32,
-            freeze=True,
-        ),
-        upsample_to_input=True,
-    ).to(device)
-
-    pq_list = default_pq_list(max_order=5)
-    pyramid_zm = PyramidZernikeExtractor(pq_list, kernel_size=13).to(device)
-    pm_backbone.eval()
-    dino_extractor.eval()
-    pyramid_zm.eval()
 
     dlf_decoder = None
     se_model = None
@@ -297,25 +271,12 @@ def pipeline(
 
     for epoch_idx in range(resume_epoch, epochs):
         epoch_start = time.perf_counter()
-        epoch_loss_sum = 0.0
-        epoch_ldfm_sum = 0.0
-        epoch_lmrd_sum = 0.0
-        epoch_mprime_loss_sum = 0.0
-        epoch_empty_target_loss_sum = 0.0
-        epoch_empty_refined_loss_sum = 0.0
-        epoch_empty_target_map_loss_sum = 0.0
-        epoch_empty_mprime_map_loss_sum = 0.0
-        epoch_mprime_positive_rate_sum = 0.0
-        epoch_mprime_wins_rate_sum = 0.0
-        epoch_target_positive_rate_sum = 0.0
+        train_accumulator = initialize_metric_accumulator()
         epoch_loss_steps = 0
 
         if optimizer is not None:
-            pm_backbone.eval()
-            dino_extractor.eval()
-            pyramid_zm.eval()
-            dlf_decoder.train()
-            se_model.train()
+            set_frozen_feature_branch_modes(pm_backbone, pyramid_zm, dino_extractor)
+            set_trainable_head_modes(dlf_decoder, se_model, training=True)
 
         for batch_idx, (images, masks, _labels) in enumerate(train_loader, start=1):
             batch_start = time.perf_counter()
@@ -354,47 +315,28 @@ def pipeline(
                 collect_stats=collect_localization_stats,
             )
 
-            if dlf_decoder is None or se_model is None:
-                dlf_decoder = DLFDecoder(
-                    num_error_maps=cnn_errors.shape[1],
-                ).to(device)
-                se_model = SEUNet(
-                    in_channels=dino_features.shape[1],
-                    out_channels=1,
-                    final_activation="sigmoid",
-                ).to(device)
-                if test_run or not supervised:
-                    dlf_decoder.eval()
-                    se_model.eval()
-                else:
-                    dlf_decoder.train()
-                    se_model.train()
-                    optimizer = torch.optim.Adam(
-                        [
-                            {"params": list(dlf_decoder.parameters()), "lr": learning_rate, "name": "dlf_decoder"},
-                            {"params": list(se_model.parameters()), "lr": learning_rate, "name": "se_model"},
-                        ],
-                        lr=learning_rate,
-                    )
-
-                if checkpoint is not None:
-                    fully_restored = True
-                    if "pm_backbone" in checkpoint:
-                        fully_restored = load_module_state(pm_backbone, checkpoint["pm_backbone"], "pm_backbone") and fully_restored
-                    if "dino_extractor" in checkpoint:
-                        fully_restored = load_module_state(dino_extractor, checkpoint["dino_extractor"], "dino_extractor") and fully_restored
-                    elif "pyramid_bb" in checkpoint:
-                        fully_restored = load_module_state(dino_extractor, checkpoint["pyramid_bb"], "dino_extractor") and fully_restored
-                    if checkpoint.get("dlf_decoder") is not None:
-                        fully_restored = load_module_state(dlf_decoder, checkpoint["dlf_decoder"], "dlf_decoder") and fully_restored
-                    if checkpoint.get("se_model") is not None:
-                        fully_restored = load_module_state(se_model, checkpoint["se_model"], "se_model") and fully_restored
-                    if optimizer is not None and checkpoint.get("optimizer") is not None and fully_restored:
-                        optimizer.load_state_dict(checkpoint["optimizer"])
-                        set_optimizer_learning_rate(optimizer, learning_rate)
-                    elif optimizer is not None and checkpoint.get("optimizer") is not None:
-                        print("[pipeline] Skipping optimizer restore because model weights were only partially restored.")
-                    checkpoint = None
+            # The trainable heads still depend on the first-batch channel counts, so we
+            # initialize the PatchMatch decoder and SEUNet head lazily and restore once.
+            heads_just_initialized = False
+            if dlf_decoder is None:
+                dlf_decoder = build_patchmatch_head(cnn_errors, device)
+                heads_just_initialized = True
+            if se_model is None:
+                se_model = build_seunet_head(dino_features, device)
+                heads_just_initialized = True
+            if heads_just_initialized:
+                set_trainable_head_modes(dlf_decoder, se_model, training=training_enabled)
+                if training_enabled:
+                    optimizer = build_localization_optimizer(dlf_decoder, se_model, learning_rate)
+                checkpoint = restore_training_state(
+                    checkpoint=checkpoint,
+                    pm_backbone=pm_backbone,
+                    dino_extractor=dino_extractor,
+                    dlf_decoder=dlf_decoder,
+                    se_model=se_model,
+                    optimizer=optimizer,
+                    learning_rate=learning_rate,
+                )
 
             refined_mask, target_map, dlf_map = decode_and_refine_masks(
                 images=images,
@@ -411,36 +353,23 @@ def pipeline(
             if test_run:
                 display_image(images[0], masks[0])
                 display_pixel_offsets(cnn_branch_result.offsets[0], zernike_branch_result.offsets[0], images[0])
-                mask_probs = refined_mask.squeeze(1)
-                mask_preds = (
-                    post_process_mask_batch(
-                        mask_probs,
-                        util,
-                        threshold=post_process_threshold,
-                        confident_threshold=post_process_confident_threshold,
-                        min_component_area=post_process_min_component_area,
-                        smooth_probabilities=post_process_smooth_probabilities,
-                        fill_holes=post_process_fill_holes,
-                        apply_closing=post_process_apply_closing,
-                    )
-                    if do_post_process and util is not None
-                    else (mask_probs >= 0.5).long()
+                mask_preds = post_process_predictions(
+                    refined_mask,
+                    util,
+                    do_post_process=do_post_process,
+                    post_process_threshold=post_process_threshold,
+                    post_process_confident_threshold=post_process_confident_threshold,
+                    post_process_min_component_area=post_process_min_component_area,
+                    post_process_smooth_probabilities=post_process_smooth_probabilities,
+                    post_process_fill_holes=post_process_fill_holes,
+                    post_process_apply_closing=post_process_apply_closing,
                 )
                 display_image(images[0], (mask_preds[0]))
                 return
 
             if optimizer is not None:
                 optimizer.zero_grad()
-                (
-                    loss,
-                    ldfm,
-                    lmrd,
-                    mprime_loss,
-                    empty_target_loss,
-                    empty_refined_loss,
-                    empty_target_map_loss,
-                    empty_mprime_map_loss,
-                ) = localization_loss_terms(
+                loss_terms = localization_loss_terms(
                     refined_mask,
                     target_map,
                     dlf_map,
@@ -448,55 +377,27 @@ def pipeline(
                     mprime_loss_weight=mprime_loss_weight,
                     empty_target_penalty_weight=empty_target_penalty_weight,
                 )
+                loss = loss_terms[0]
                 branch_stats = summarize_branch_activity(dlf_map, target_map)
                 loss.backward()
                 optimizer.step()
 
-                loss_value = loss.item()
-                ldfm_value = ldfm.item()
-                lmrd_value = lmrd.item()
-                mprime_loss_value = mprime_loss.item()
-                empty_target_loss_value = empty_target_loss.item()
-                empty_refined_loss_value = empty_refined_loss.item()
-                empty_target_map_loss_value = empty_target_map_loss.item()
-                empty_mprime_map_loss_value = empty_mprime_map_loss.item()
-                epoch_loss_sum += loss_value
-                epoch_ldfm_sum += ldfm_value
-                epoch_lmrd_sum += lmrd_value
-                epoch_mprime_loss_sum += mprime_loss_value
-                epoch_empty_target_loss_sum += empty_target_loss_value
-                epoch_empty_refined_loss_sum += empty_refined_loss_value
-                epoch_empty_target_map_loss_sum += empty_target_map_loss_value
-                epoch_empty_mprime_map_loss_sum += empty_mprime_map_loss_value
-                epoch_mprime_positive_rate_sum += branch_stats["mprime_positive_rate"]
-                epoch_mprime_wins_rate_sum += branch_stats["mprime_wins_rate"]
-                epoch_target_positive_rate_sum += branch_stats["target_positive_rate"]
+                update_metric_accumulator(train_accumulator, loss_terms, branch_stats)
                 epoch_loss_steps += 1
 
                 if log_every > 0 and batch_idx % log_every == 0:
-                    localization_message = ""
-                    if localization_stats is not None:
-                        localization_message = (
-                            f" feat: {localization_stats['feature_time_s']:.2f}s"
-                            f" pm: {localization_stats['patchmatch_time_s']:.2f}s"
-                            f" dlf: {localization_stats['dlf_time_s']:.2f}s"
-                        )
-                        peak_memory_mb = localization_stats.get("localization_peak_memory_mb")
-                        if peak_memory_mb is not None:
-                            localization_message += f" loc_peak: {peak_memory_mb:.0f}MB"
                     print(
-                        f"[epoch {epoch_idx + 1}/{epochs}] "
-                        f"batch {batch_idx}/{len(train_loader)} "
-                        f"loss: {loss_value:.4f} "
-                        f"(ldfm={ldfm_value:.4f}, lmrd={lmrd_value:.4f}, mprime={mprime_loss_value:.4f}, "
-                        f"empty={empty_target_loss_value:.4f}[ref={empty_refined_loss_value:.4f}, "
-                        f"se={empty_target_map_loss_value:.4f}, dlf={empty_mprime_map_loss_value:.4f}], "
-                        f"lambda={mprime_loss_weight:.2f}, empty_lambda={empty_target_penalty_weight:.2f}) "
-                        f"mprime_pos: {branch_stats['mprime_positive_rate']:.4%} "
-                        f"mprime_wins: {branch_stats['mprime_wins_rate']:.4%} "
-                        f"target_pos: {branch_stats['target_positive_rate']:.4%} "
-                        f"time spent: {(time.perf_counter() - batch_start):.2f}"
-                        f"{localization_message}"
+                        format_train_batch_message(
+                            epoch_idx=epoch_idx,
+                            epochs=epochs,
+                            batch_idx=batch_idx,
+                            total_batches=len(train_loader),
+                            batch_summary=summarize_metric_step(loss_terms, branch_stats),
+                            batch_seconds=time.perf_counter() - batch_start,
+                            mprime_loss_weight=mprime_loss_weight,
+                            empty_target_penalty_weight=empty_target_penalty_weight,
+                            localization_stats=localization_stats,
+                        )
                     )
 
                 if epoch_idx == resume_epoch and batch_idx > 5:
@@ -511,20 +412,16 @@ def pipeline(
                         eta_printed = True
 
             if save_predictions:
-                mask_probs = refined_mask.squeeze(1)
-                mask_preds = (
-                    post_process_mask_batch(
-                        mask_probs,
-                        util,
-                        threshold=post_process_threshold,
-                        confident_threshold=post_process_confident_threshold,
-                        min_component_area=post_process_min_component_area,
-                        smooth_probabilities=post_process_smooth_probabilities,
-                        fill_holes=post_process_fill_holes,
-                        apply_closing=post_process_apply_closing,
-                    )
-                    if do_post_process and util is not None
-                    else (mask_probs >= 0.5).long()
+                mask_preds = post_process_predictions(
+                    refined_mask,
+                    util,
+                    do_post_process=do_post_process,
+                    post_process_threshold=post_process_threshold,
+                    post_process_confident_threshold=post_process_confident_threshold,
+                    post_process_min_component_area=post_process_min_component_area,
+                    post_process_smooth_probabilities=post_process_smooth_probabilities,
+                    post_process_fill_holes=post_process_fill_holes,
+                    post_process_apply_closing=post_process_apply_closing,
                 )
                 save_prediction_batch(predictions_dir, epoch_idx, batch_counter + 1, mask_preds)
 
@@ -532,22 +429,9 @@ def pipeline(
 
         val_metrics = None
         if val_loader is not None and dlf_decoder is not None and se_model is not None:
-            pm_backbone.eval()
-            dino_extractor.eval()
-            pyramid_zm.eval()
-            dlf_decoder.eval()
-            se_model.eval()
-            val_loss_sum = 0.0
-            val_ldfm_sum = 0.0
-            val_lmrd_sum = 0.0
-            val_mprime_loss_sum = 0.0
-            val_empty_target_loss_sum = 0.0
-            val_empty_refined_loss_sum = 0.0
-            val_empty_target_map_loss_sum = 0.0
-            val_empty_mprime_map_loss_sum = 0.0
-            val_mprime_positive_rate_sum = 0.0
-            val_mprime_wins_rate_sum = 0.0
-            val_target_positive_rate_sum = 0.0
+            set_frozen_feature_branch_modes(pm_backbone, pyramid_zm, dino_extractor)
+            set_trainable_head_modes(dlf_decoder, se_model, training=False)
+            val_accumulator = initialize_metric_accumulator()
             val_loss_steps = 0
             val_counts = {
                 "tp": 0,
@@ -605,18 +489,7 @@ def pipeline(
                         dino_features=dino_features,
                         output_size=images.shape[-2:],
                     )
-
-
-                    (
-                        val_loss,
-                        val_ldfm,
-                        val_lmrd,
-                        val_mprime_loss,
-                        val_empty_target_loss,
-                        val_empty_refined_loss,
-                        val_empty_target_map_loss,
-                        val_empty_mprime_map_loss,
-                    ) = localization_loss_terms(
+                    val_loss_terms = localization_loss_terms(
                         refined_mask,
                         target_map,
                         dlf_map,
@@ -625,38 +498,26 @@ def pipeline(
                         empty_target_penalty_weight=empty_target_penalty_weight,
                     )
                     branch_stats = summarize_branch_activity(dlf_map, target_map)
-                    val_loss_sum += val_loss.item()
-                    val_ldfm_sum += val_ldfm.item()
-                    val_lmrd_sum += val_lmrd.item()
-                    val_mprime_loss_sum += val_mprime_loss.item()
-                    val_empty_target_loss_sum += val_empty_target_loss.item()
-                    val_empty_refined_loss_sum += val_empty_refined_loss.item()
-                    val_empty_target_map_loss_sum += val_empty_target_map_loss.item()
-                    val_empty_mprime_map_loss_sum += val_empty_mprime_map_loss.item()
-                    val_mprime_positive_rate_sum += branch_stats["mprime_positive_rate"]
-                    val_mprime_wins_rate_sum += branch_stats["mprime_wins_rate"]
-                    val_target_positive_rate_sum += branch_stats["target_positive_rate"]
+                    update_metric_accumulator(val_accumulator, val_loss_terms, branch_stats)
                     val_loss_steps += 1
 
-                    mask_probs = refined_mask.squeeze(1)
-                    mask_preds = (
-                        post_process_mask_batch(
-                            mask_probs,
-                            util,
-                            threshold=post_process_threshold,
-                            confident_threshold=post_process_confident_threshold,
-                            min_component_area=post_process_min_component_area,
-                            smooth_probabilities=post_process_smooth_probabilities,
-                            fill_holes=post_process_fill_holes,
-                            apply_closing=post_process_apply_closing,
-                        )
-                        if do_post_process and util is not None
-                        else (mask_probs >= 0.5).long()
+                    mask_preds = post_process_predictions(
+                        refined_mask,
+                        util,
+                        do_post_process=do_post_process,
+                        post_process_threshold=post_process_threshold,
+                        post_process_confident_threshold=post_process_confident_threshold,
+                        post_process_min_component_area=post_process_min_component_area,
+                        post_process_smooth_probabilities=post_process_smooth_probabilities,
+                        post_process_fill_holes=post_process_fill_holes,
+                        post_process_apply_closing=post_process_apply_closing,
                     )
 
                     update_segmentation_counts(mask_preds, masks.long(), val_counts)
 
                     pred_masks_np = mask_preds.cpu().numpy().astype(np.uint8)
+                    # Pixel metrics are already tracked above; the instance-level oF1 needs
+                    # per-image connected components loaded from the original sample paths.
                     for pred_mask, image_path in zip(pred_masks_np, image_paths):
                         pred_instances = binary_mask_to_instances(pred_mask)
                         gt_instances = load_resized_gt_instances(
@@ -685,146 +546,75 @@ def pipeline(
                             val_forged_gt_components_sum += gt_component_count
 
             val_metrics = summarize_segmentation_counts(val_counts)
-            val_mean_loss = val_loss_sum / max(val_loss_steps, 1)
-            val_mean_ldfm = val_ldfm_sum / max(val_loss_steps, 1)
-            val_mean_lmrd = val_lmrd_sum / max(val_loss_steps, 1)
-            val_mean_mprime_loss = val_mprime_loss_sum / max(val_loss_steps, 1)
-            val_mean_empty_target_loss = val_empty_target_loss_sum / max(val_loss_steps, 1)
-            val_mean_empty_refined_loss = val_empty_refined_loss_sum / max(val_loss_steps, 1)
-            val_mean_empty_target_map_loss = val_empty_target_map_loss_sum / max(val_loss_steps, 1)
-            val_mean_empty_mprime_map_loss = val_empty_mprime_map_loss_sum / max(val_loss_steps, 1)
-            val_mean_mprime_positive_rate = val_mprime_positive_rate_sum / max(val_loss_steps, 1)
-            val_mean_mprime_wins_rate = val_mprime_wins_rate_sum / max(val_loss_steps, 1)
-            val_mean_target_positive_rate = val_target_positive_rate_sum / max(val_loss_steps, 1)
-            val_mean_of1 = val_of1_sum / max(val_images, 1)
-            val_mean_pred_components = val_pred_components_sum / max(val_images, 1)
-            val_mean_authentic_of1 = val_authentic_of1_sum / max(val_authentic_images, 1)
-            val_mean_authentic_pred_components = val_authentic_pred_components_sum / max(val_authentic_images, 1)
-            val_authentic_empty_pred_rate = val_authentic_empty_pred_count / max(val_authentic_images, 1)
-            val_mean_forged_of1 = val_forged_of1_sum / max(val_forged_images, 1)
-            val_mean_forged_pred_components = val_forged_pred_components_sum / max(val_forged_images, 1)
-            val_mean_forged_gt_components = val_forged_gt_components_sum / max(val_forged_images, 1)
+            val_summary = average_metric_accumulator(val_accumulator, val_loss_steps)
+            val_summary.update(
+                {
+                    "of1": val_of1_sum / max(val_images, 1),
+                    "pred_components_per_image": val_pred_components_sum / max(val_images, 1),
+                    "authentic_of1": val_authentic_of1_sum / max(val_authentic_images, 1),
+                    "authentic_empty_pred_rate": val_authentic_empty_pred_count / max(val_authentic_images, 1),
+                    "authentic_pred_components_per_image": val_authentic_pred_components_sum / max(val_authentic_images, 1),
+                    "forged_of1": val_forged_of1_sum / max(val_forged_images, 1),
+                    "forged_pred_components_per_image": val_forged_pred_components_sum / max(val_forged_images, 1),
+                    "forged_gt_components_per_image": val_forged_gt_components_sum / max(val_forged_images, 1),
+                    "iou": val_metrics["iou"],
+                    "dice": val_metrics["dice"],
+                    "pred_positive_rate": val_metrics["pred_positive_rate"],
+                    "mask_positive_rate": val_metrics["mask_positive_rate"],
+                }
+            )
             print(
-                f"[epoch {epoch_idx + 1}/{epochs}] "
-                f"val_loss: {val_mean_loss:.4f} "
-                f"(ldfm={val_mean_ldfm:.4f}, lmrd={val_mean_lmrd:.4f}, mprime={val_mean_mprime_loss:.4f}, "
-                f"empty={val_mean_empty_target_loss:.4f}[ref={val_mean_empty_refined_loss:.4f}, "
-                f"se={val_mean_empty_target_map_loss:.4f}, dlf={val_mean_empty_mprime_map_loss:.4f}], "
-                f"lambda={mprime_loss_weight:.2f}, empty_lambda={empty_target_penalty_weight:.2f}) "
-                f"val_oF1: {val_mean_of1:.4f} "
-                f"val_pred_pos: {val_metrics['pred_positive_rate']:.4%} "
-                f"val_mprime_pos: {val_mean_mprime_positive_rate:.4%} "
-                f"val_mprime_wins: {val_mean_mprime_wins_rate:.4%} "
-                f"val_target_pos: {val_mean_target_positive_rate:.4%} "
-                f"pred_components/img: {val_mean_pred_components:.2f} "
-                f"auth_oF1: {val_mean_authentic_of1:.4f} "
-                f"auth_empty_pred: {val_authentic_empty_pred_rate:.2%} "
-                f"auth_components/img: {val_mean_authentic_pred_components:.2f} "
-                f"forged_oF1: {val_mean_forged_of1:.4f} "
-                f"forged_components/img: {val_mean_forged_pred_components:.2f} "
-                f"forged_gt_components/img: {val_mean_forged_gt_components:.2f}"
+                format_validation_message(
+                    epoch_idx=epoch_idx,
+                    epochs=epochs,
+                    val_summary=val_summary,
+                    mprime_loss_weight=mprime_loss_weight,
+                    empty_target_penalty_weight=empty_target_penalty_weight,
+                )
             )
 
             if optimizer is not None:
-                pm_backbone.eval()
-                dino_extractor.eval()
-                pyramid_zm.eval()
-                dlf_decoder.train()
-                se_model.train()
+                set_frozen_feature_branch_modes(pm_backbone, pyramid_zm, dino_extractor)
+                set_trainable_head_modes(dlf_decoder, se_model, training=True)
 
         if epoch_loss_steps > 0:
-            mean_loss = epoch_loss_sum / epoch_loss_steps
-            mean_ldfm = epoch_ldfm_sum / epoch_loss_steps
-            mean_lmrd = epoch_lmrd_sum / epoch_loss_steps
-            mean_mprime_loss = epoch_mprime_loss_sum / epoch_loss_steps
-            mean_empty_target_loss = epoch_empty_target_loss_sum / epoch_loss_steps
-            mean_empty_refined_loss = epoch_empty_refined_loss_sum / epoch_loss_steps
-            mean_empty_target_map_loss = epoch_empty_target_map_loss_sum / epoch_loss_steps
-            mean_empty_mprime_map_loss = epoch_empty_mprime_map_loss_sum / epoch_loss_steps
-            mean_mprime_positive_rate = epoch_mprime_positive_rate_sum / epoch_loss_steps
-            mean_mprime_wins_rate = epoch_mprime_wins_rate_sum / epoch_loss_steps
-            mean_target_positive_rate = epoch_target_positive_rate_sum / epoch_loss_steps
-            metrics = {
-                "epoch": epoch_idx + 1,
-                "train_loss": mean_loss,
-                "train_ldfm": mean_ldfm,
-                "train_lmrd": mean_lmrd,
-                "train_mprime_loss": mean_mprime_loss,
-                "train_empty_target_loss": mean_empty_target_loss,
-                "train_empty_refined_loss": mean_empty_refined_loss,
-                "train_empty_target_map_loss": mean_empty_target_map_loss,
-                "train_empty_mprime_map_loss": mean_empty_mprime_map_loss,
-                "train_mprime_positive_rate": mean_mprime_positive_rate,
-                "train_mprime_wins_rate": mean_mprime_wins_rate,
-                "train_target_positive_rate": mean_target_positive_rate,
-                "steps": epoch_loss_steps,
-                "epoch_seconds": time.perf_counter() - epoch_start,
-            }
-
-            if val_metrics is not None:
-                metrics["val_loss"] = val_mean_loss
-                metrics["val_ldfm"] = val_mean_ldfm
-                metrics["val_lmrd"] = val_mean_lmrd
-                metrics["val_mprime_loss"] = val_mean_mprime_loss
-                metrics["val_empty_target_loss"] = val_mean_empty_target_loss
-                metrics["val_empty_refined_loss"] = val_mean_empty_refined_loss
-                metrics["val_empty_target_map_loss"] = val_mean_empty_target_map_loss
-                metrics["val_empty_mprime_map_loss"] = val_mean_empty_mprime_map_loss
-                metrics["val_mprime_positive_rate"] = val_mean_mprime_positive_rate
-                metrics["val_mprime_wins_rate"] = val_mean_mprime_wins_rate
-                metrics["val_target_positive_rate"] = val_mean_target_positive_rate
-                metrics["val_of1"] = val_mean_of1
-                metrics["val_pred_components_per_image"] = val_mean_pred_components
-                metrics["val_authentic_of1"] = val_mean_authentic_of1
-                metrics["val_authentic_empty_pred_rate"] = val_authentic_empty_pred_rate
-                metrics["val_authentic_pred_components_per_image"] = val_mean_authentic_pred_components
-                metrics["val_forged_of1"] = val_mean_forged_of1
-                metrics["val_forged_pred_components_per_image"] = val_mean_forged_pred_components
-                metrics["val_forged_gt_components_per_image"] = val_mean_forged_gt_components
-                metrics["val_iou"] = val_metrics["iou"]
-                metrics["val_dice"] = val_metrics["dice"]
-                metrics["val_pred_positive_rate"] = val_metrics["pred_positive_rate"]
-                metrics["val_mask_positive_rate"] = val_metrics["mask_positive_rate"]
+            epoch_seconds = time.perf_counter() - epoch_start
+            train_summary = average_metric_accumulator(train_accumulator, epoch_loss_steps)
+            metrics = build_epoch_metrics(
+                epoch_idx=epoch_idx,
+                epoch_seconds=epoch_seconds,
+                train_summary=train_summary,
+                steps=epoch_loss_steps,
+                val_summary=val_summary if val_metrics is not None else None,
+            )
 
             print(
-                f"[epoch {epoch_idx + 1}/{epochs}] "
-                f"train_loss: {mean_loss:.4f} "
-                f"(ldfm={mean_ldfm:.4f}, lmrd={mean_lmrd:.4f}, mprime={mean_mprime_loss:.4f}, "
-                f"empty={mean_empty_target_loss:.4f}[ref={mean_empty_refined_loss:.4f}, "
-                f"se={mean_empty_target_map_loss:.4f}, dlf={mean_empty_mprime_map_loss:.4f}], "
-                f"lambda={mprime_loss_weight:.2f}, empty_lambda={empty_target_penalty_weight:.2f}) "
-                f"mprime_pos: {mean_mprime_positive_rate:.4%} "
-                f"mprime_wins: {mean_mprime_wins_rate:.4%} "
-                f"target_pos: {mean_target_positive_rate:.4%} "
-                f"completed in: {metrics['epoch_seconds']:.2f}s"
+                format_train_epoch_message(
+                    epoch_idx=epoch_idx,
+                    epochs=epochs,
+                    train_summary=train_summary,
+                    epoch_seconds=epoch_seconds,
+                    mprime_loss_weight=mprime_loss_weight,
+                    empty_target_penalty_weight=empty_target_penalty_weight,
+                )
             )
             append_metrics_log(output_dir, metrics)
             save_metrics_plot(output_dir)
 
             if optimizer is not None:
-                checkpoint_score = val_mean_of1 if val_metrics is not None else -mean_loss
-                save_checkpoint(
-                    checkpoint_path,
+                checkpoint_score = val_summary["of1"] if val_metrics is not None else -train_summary["loss"]
+                best_score = save_epoch_checkpoints(
+                    checkpoint_path=checkpoint_path,
+                    best_checkpoint_path=best_checkpoint_path,
                     epoch=epoch_idx + 1,
                     dlf_decoder=dlf_decoder,
                     se_model=se_model,
                     optimizer=optimizer,
-                    best_score=checkpoint_score,
+                    checkpoint_score=checkpoint_score,
+                    best_score=best_score,
                     dino_extractor=dino_extractor,
                     pm_backbone=pm_backbone,
                 )
-                if best_score is None or checkpoint_score > best_score:
-                    best_score = checkpoint_score
-                    save_checkpoint(
-                        best_checkpoint_path,
-                        epoch=epoch_idx + 1,
-                        dlf_decoder=dlf_decoder,
-                        se_model=se_model,
-                        optimizer=optimizer,
-                        best_score=best_score,
-                        dino_extractor=dino_extractor,
-                        pm_backbone=pm_backbone,
-                    )
 
     save_metrics_plot(output_dir)
     print(f"Training completed. Total time: {time.perf_counter() - run_start:.2f}s")

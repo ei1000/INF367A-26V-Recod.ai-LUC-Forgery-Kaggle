@@ -1,12 +1,13 @@
 from pathlib import Path
 
-from pipeline import pipeline
 from dataset import Datasets
+from pipeline import pipeline
+from pipeline_config import PipelineConfig
 
 
 def main():
     output_dir = Path(__file__).resolve().parents[1] / "artifacts" / "dino_single_stage1_488_bs4_run"
-    pipeline(
+    config = PipelineConfig(
         datasets=Datasets.KAGGLE_TRAIN,
         image_size=488,
         feature_backbone="dino_single",
@@ -24,9 +25,7 @@ def main():
         pm_margin_threshold=0.10,
         pm_topk=1,
         dino_model_name="dinov2_vits14",
-        dino_match_native_resolution=False,
         localization_resolution="image",
-        train_feature_backbone=False,
         pm_reduced_precision=True,
         epochs=40,
         test_run=False,
@@ -43,6 +42,7 @@ def main():
         post_process_apply_closing=True,
         post_process_min_component_area=32,
     )
+    pipeline(config)
 
 if __name__ == '__main__':
     main()
