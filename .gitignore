@@ -214,3 +214,7 @@ __marimo__/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+
+# Max cache
+/artifacts
+/max_individual_project/artifacts
