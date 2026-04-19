@@ -61,28 +61,37 @@ These functions represent the fuller Kaggle-style scoring path, including RLE st
 
 ### Requirements
 
-- Use full `recodai_f1.score` for epoch validation.
-- Use full `kaggle_score` for model selection.
+- Use Kaggle-equivalent instance scoring for epoch validation.
+- A direct array-based scorer may be used during epoch validation to avoid pandas/RLE overhead, but it must be verified against `recodai_f1.score`.
+- Use verified `kaggle_score` for model selection.
 - Keep a fast pixel-level validation metric available only as a fallback/debug metric.
-- Clearly name metrics in logs so nobody confuses fast pixel F1 with full Kaggle score.
+- Clearly name metrics in logs so nobody confuses fast pixel F1 with Kaggle-equivalent instance scoring.
 
 ### Decisions
 
-- Epoch validation should compute and report full `kaggle_score` by default.
-- Model selection should use full `kaggle_score`.
+- Epoch validation should compute and report verified `kaggle_score` by default.
+- Model selection should use verified `kaggle_score`.
 - `pixel_f1` can remain available as a clearly named fallback/debug metric, not as the default selection metric.
 - If `pixel_f1` is reported, logs and docs must state that it is not the official competition score.
 - Model-selection logs should state that the selected checkpoint was chosen by `kaggle_score`.
 - Empty predictions should be represented as the exact string `authentic`.
-- Non-empty predictions should be converted to connected-component instance masks, then encoded as semicolon-separated JSON RLE strings through the Kaggle-compatible RLE path.
-- Forged ground truth should preserve instance masks where possible for full scoring, rather than only using a union mask.
-- Epoch validation should follow the official metric representation: solution/submission rows with `annotation` and `shape`, then `recodai_f1.score`.
+- Non-empty predictions should be converted to connected-component instance masks.
+- Official-format validation/reference paths should encode non-empty predictions as semicolon-separated JSON RLE strings through the Kaggle-compatible RLE path.
+- Forged ground truth should preserve instance masks where possible for Kaggle-equivalent scoring, rather than only using a union mask.
+- `recodai_f1.oF1_score` alone is not sufficient as the full validation metric, because it does not handle the competition's authentic exact-match semantics and is not designed as a complete image-level wrapper for empty authentic cases.
+- A direct fast scorer should wrap instance oF1 with the official image-level rules:
+  - ground truth authentic plus prediction authentic/empty gives `1.0`,
+  - ground truth authentic plus any predicted component gives `0.0`,
+  - ground truth forged plus prediction authentic/empty gives `0.0`,
+  - ground truth forged plus predicted components gives instance oF1.
+- Epoch validation may use the direct fast scorer by default after equivalence tests confirm that it matches `recodai_f1.score` on representative cases.
+- Official-style solution/submission rows with `annotation` and `shape`, followed by `recodai_f1.score`, should remain the reference/equivalence path and the final submission-compatible path.
 - Union-mask pixel F1 can continue using a union ground-truth mask only for fallback/debug use.
 - Fallback/debug `pixel_f1` should be opt-in through a config flag or command-line flag, not computed by default.
 
 ### Probability-To-Mask Thresholding
 
-The repository already thresholds model probabilities into binary masks during validation. The full-score refactor does not introduce a new concept here; it reuses this probability-to-mask step before connected-component extraction, RLE encoding, and `recodai_f1.score`.
+The repository already thresholds model probabilities into binary masks during validation. The scoring refactor does not introduce a new concept here; it reuses this probability-to-mask step before connected-component extraction and Kaggle-equivalent scoring.
 
 Current repo behavior:
 
@@ -102,7 +111,7 @@ Kaggle notebook behavior:
 
 Spec implication:
 
-- Full-score validation needs an explicit probability-to-instance-mask policy.
+- Kaggle-equivalent validation needs an explicit probability-to-instance-mask policy.
 - This policy should use the current repo post-processing defaults first, because that preserves current behavior while changing the metric/evaluation path.
 - Thresholds should be treated as validation/inference hyperparameters and can be tuned on the validation split.
 - The first implementation should use the current repo post-processing defaults for continuity.
@@ -112,8 +121,8 @@ Spec implication:
 
 - It is clear from code and logs which metric is being computed.
 - The training baseline no longer implies that pixel F1 is identical to final leaderboard scoring.
-- Epoch validation runs leaderboard-faithful `kaggle_score`.
-- Checkpoint/model selection uses full `kaggle_score`.
+- Epoch validation runs verified Kaggle-equivalent `kaggle_score`.
+- Checkpoint/model selection uses verified `kaggle_score`.
 
 ## Workstream 2: Authentic Data
 
@@ -131,8 +140,8 @@ This means authentic images are not used in the current train/validation loop.
 - Include both forged and authentic training images in the data split.
 - Support authentic samples during training and validation.
 - Train authentic samples with all-zero masks unless later experiments show a better approach.
-- Represent authentic ground truth rows for full scoring as `annotation = "authentic"` and `shape = "authentic"`.
-- Represent authentic predictions for full scoring as `annotation = "authentic"`.
+- Represent authentic ground truth rows for official-format scoring as `annotation = "authentic"` and `shape = "authentic"`.
+- Represent authentic predictions for official-format scoring as `annotation = "authentic"`.
 - Preserve support for forged images with multiple masks.
 - Keep the split reproducible with a fixed seed.
 - Do not use supplemental/unlabeled/test-only images for training loss or validation scoring.
@@ -141,13 +150,16 @@ This means authentic images are not used in the current train/validation loop.
 
 - Authentic samples should be included in train and validation.
 - Authentic samples should use all-zero masks for segmentation training.
-- Full-score validation should represent authentic samples with the exact `authentic` string expected by the official metric.
-- Train/validation/test splitting should be stratified by forged/authentic label.
-- Use an 80/10/10 stratified split over all labeled competition training data: train, validation, and local holdout test.
+- Kaggle-equivalent validation should apply the exact authentic behavior expected by the official metric.
+- Train/validation/test splitting should be stratified while preserving authentic/forged source-image pairs.
+- Use an 80/10/10 grouped stratified split over all labeled competition training data: train, validation, and local holdout test.
+- Authentic and forged files sharing the same stem should stay in the same split, because they are paired views of the same source image.
+- A Max-style label-stratified split that does not preserve pairs may be implemented later only as an explicit diagnostic comparison, not as the default model-selection split.
 - Use all labeled competition training data across the train/validation split; do not keep `train_subset`/`val_subset` limits enabled for normal baseline runs.
 - Validation is used for model selection, threshold/post-processing tuning, and iterative development.
 - The local holdout test split should remain untouched until final local review/reporting.
-- Supplemental images can be treated as test/inference-only images, not as training or validation labels.
+- Supplemental images can be treated as test/inference-only images by default, not as training or validation labels.
+- Supplemental data may become an explicit later configuration option only after verifying label/mask compatibility and competition-rule safety.
 - Keep loss handling simple: authentic images contribute to the segmentation loss with all-zero masks.
 - Do not introduce class-balanced sampling, loss weighting, or forged/authentic ratio tuning in the first refactor.
 
@@ -156,7 +168,8 @@ This means authentic images are not used in the current train/validation loop.
 - The baseline can train and validate with both forged and authentic samples.
 - Authentic samples do not crash mask loading.
 - Validation includes authentic cases, so false positive behavior is measured.
-- Full-score validation can produce official-style solution/submission rows for both forged and authentic samples.
+- Kaggle-equivalent validation works for both forged and authentic samples.
+- Official-format reference paths can produce solution/submission rows for both forged and authentic samples.
 - Normal baseline runs use all labeled training data assigned to the train/validation/test split.
 
 ## Workstream 3: Deprecated Files
@@ -271,6 +284,7 @@ Metric representation, thresholding/post-processing defaults, and authentic hand
 - Decoder architecture and capacity.
 - Sliding-window size, stride, and weighting.
 - Test-time augmentation, including flips if used in the notebook.
+- Configurable post-processing variants, including confidence seeding and component filtering after metric/data behavior is trustworthy.
 - Submission entrypoint structure.
 
 ### Acceptance Criteria
@@ -337,6 +351,7 @@ Performance work should happen after metric and data behavior are trustworthy.
 - Better loss function, such as BCE plus Dice/Focal variants.
 - Authentic/forged sampling balance.
 - Kaggle-inspired post-processing experiments after Workstream 1 and Workstream 2 are implemented.
+- Configurable post-processing experiments inspired by `max_individual_project`, such as confidence-seeded component keeping, smoothing, opening/closing, hole filling, and minimum component area.
 - Test-time augmentation for validation/inference.
 - Higher-resolution validation or inference settings.
 - Checkpoint saving and reproducible experiment logging.
@@ -359,10 +374,10 @@ Performance work should happen after metric and data behavior are trustworthy.
 2. Plan document for the core refactor.
 3. Implement data inventory, sample metadata, and 80/10/10 stratified train/validation/local-test splitting.
 4. Implement dataset support for authentic samples, all-zero authentic masks, and forged instance-mask metadata.
-5. Implement full `kaggle_score` validation using official-style solution/submission rows.
-6. Wire model selection and checkpointing to full `kaggle_score`.
+5. Implement verified Kaggle-equivalent `kaggle_score` validation, with official-style solution/submission rows retained for equivalence checks.
+6. Wire model selection and checkpointing to verified `kaggle_score`.
 7. Add opt-in fallback/debug `pixel_f1`.
-8. Review metric and data behavior together, because full scoring depends on authentic handling and forged instance masks.
+8. Review metric and data behavior together, because Kaggle-equivalent scoring depends on authentic handling and forged instance masks.
 9. Mark deprecated files clearly.
 10. Add a separate inference/submission entrypoint with configurable notebook-inspired options.
 11. Update pipeline docs and root README after code behavior is stable.
@@ -374,8 +389,8 @@ The plan document must be directly derived from this spec and include:
 
 - File-level implementation details: which files to touch, what to add, and what to modify.
 - Data model details for sample metadata, split representation, authentic samples, and forged instance masks.
-- Validation details for creating official-style `solution` and `submission` rows before calling `recodai_f1.score`.
-- Checkpoint/model-selection behavior using full `kaggle_score`.
+- Validation details for computing a direct Kaggle-equivalent instance score and verifying it against official-style `solution` and `submission` rows with `recodai_f1.score`.
+- Checkpoint/model-selection behavior using verified `kaggle_score`.
 - Configuration details for full validation, optional `pixel_f1`, and inference-time options.
 - Test and verification steps, including small local smoke tests that do not require a full training run.
 - Best-practice notes where choices matter, especially around stratified splitting, held-out local test data, metric-faithful validation, and avoiding validation leakage.
@@ -383,4 +398,4 @@ The plan document must be directly derived from this spec and include:
 
 ## Immediate Next Step
 
-Draft the plan document for the core refactor. The first implementation chunk should start with data/split/sample metadata support, because full `kaggle_score` validation depends on it.
+Draft the plan document for the core refactor. The first implementation chunk should start with data/split/sample metadata support, because verified `kaggle_score` validation depends on it.

@@ -10,14 +10,14 @@ This plan follows the spec order and keeps the first implementation chunk focuse
 
 1. Add sample metadata and split handling.
 2. Add authentic-sample dataset support.
-3. Add full `recodai_f1.score` validation.
-4. Select checkpoints by full `kaggle_score`.
+3. Add Kaggle-equivalent instance validation.
+4. Select checkpoints by `kaggle_score`.
 5. Keep `pixel_f1` as opt-in debug/fallback only.
 6. Mark deprecated files after the core behavior works.
 
 The plan adds one implementation-level refinement discovered from the local data layout: many stems exist in both `train_images/forged` and `train_images/authentic`. Because of that, splitting must be group-aware by stem to avoid placing a forged image in one split and its authentic counterpart in another split. This is consistent with the spec's stratification requirement and is a best-practice leakage guard, not a separate workstream.
 
-Documentation rewrite, README cleanup, Kaggle-notebook-inspired inference improvements, decoder changes, TTA, global/local fusion, and threshold tuning remain out of scope for this core chunk.
+Documentation rewrite, README cleanup, Kaggle-notebook-inspired inference improvements, decoder changes, TTA, global/local fusion, and threshold tuning remain out of scope for this core chunk. Configurable post-processing hooks can be added, but the first implementation should not tune them.
 
 ## Goals
 
@@ -25,11 +25,12 @@ Implement the core baseline refactor from the spec:
 
 1. Use all labeled training data with an 80/10/10 grouped and stratified train/validation/local-test split.
 2. Support authentic samples during training and validation.
-3. Validate with full `recodai_f1.score` every epoch.
-4. Select and checkpoint the best model by full `kaggle_score`.
-5. Keep `pixel_f1` only as an opt-in fallback/debug metric.
-6. Preserve current repo post-processing defaults for the first implementation.
-7. Keep the Kaggle notebook as inference inspiration, not a training rewrite.
+3. Validate with Kaggle-equivalent instance scoring every epoch.
+4. Verify the fast scorer against `recodai_f1.score` on smoke cases.
+5. Select and checkpoint the best model by `kaggle_score`.
+6. Keep `pixel_f1` only as an opt-in fallback/debug metric.
+7. Preserve current repo post-processing defaults for the first implementation while making selected post-processing steps configurable.
+8. Keep the Kaggle notebook as inference inspiration, not a training rewrite.
 
 ## Non-Goals
 
@@ -37,7 +38,7 @@ Implement the core baseline refactor from the spec:
 - Do not switch DINO loading from `torch.hub` to Hugging Face for training.
 - Do not implement Kaggle notebook Sobel/global-local/TTA post-processing in the core metric/data refactor.
 - Do not rewrite `docs/pipeline_suggestion.md` or the root README until code behavior is stable.
-- Do not use supplemental/unlabeled/test-only images for training loss or validation scoring.
+- Do not use supplemental/unlabeled/test-only images by default for training loss or validation scoring.
 - Do not tune thresholds, class weighting, sampling, or decoder structure in this implementation chunk.
 - Do not run local holdout test as part of normal training/model selection.
 
@@ -68,13 +69,15 @@ For the core refactor, epoch validation should keep the current training-loop va
 - sliding-window validation runs on those resized tensors,
 - prediction masks are scored at the resulting prediction shape.
 
-This gives official-style metric representation and authentic/instance behavior without mixing in high-resolution final-inference work. It is full `recodai_f1.score`, but at the resized validation resolution.
+This gives Kaggle-equivalent authentic/instance behavior without mixing in high-resolution final-inference work. It should match `recodai_f1.score` semantics, but at the resized validation resolution.
 
 Implementation implication:
 
 - Ground-truth forged instance masks must be resized individually with nearest-neighbor interpolation to the same `score_shape` as the prediction before RLE encoding.
 - The solution row `shape` should be `json.dumps([height, width])` for the score shape actually used.
 - Authentic solution rows remain `annotation = "authentic"` and `shape = "authentic"`.
+- Epoch validation can use a direct array-based scorer for speed instead of doing a DataFrame/RLE encode/decode roundtrip.
+- The direct scorer must be tested against `recodai_f1.score` on representative smoke cases before it is used for checkpoint selection.
 - Final original-resolution inference/submission behavior belongs to the later inference/submission workstream.
 
 ## Data Model
@@ -93,6 +96,8 @@ Recommended fields:
 
 Rules:
 
+- Implement this as a lightweight structured record, for example `@dataclass(frozen=True, slots=True)`.
+- The record is for correctness and clarity, not training speed. The training cost is dominated by image IO, resizing, and model forward passes.
 - `case_id` is the file stem, for example `10`.
 - `group_id` should be the same stem as `case_id` for grouped splitting.
 - `sample_id` must be unique across labels, for example `forged:10` and `authentic:10`.
@@ -102,8 +107,8 @@ Rules:
 - Authentic samples come from `data/train_images/authentic/*.png`.
 - Forged samples should have one or more mask files in `data/train_masks`.
 - Authentic samples should have no mask files and should use all-zero masks for training.
-- Full-score validation should preserve forged instance masks where possible, not only the union mask.
-- Full-score validation should represent authentic ground truth as `annotation = "authentic"` and `shape = "authentic"`.
+- Kaggle-equivalent validation should preserve forged instance masks where possible, not only the union mask.
+- Official-format validation rows should represent authentic ground truth as `annotation = "authentic"` and `shape = "authentic"`.
 
 ## Split Design
 
@@ -121,11 +126,20 @@ Use a grouped stratified split:
 
 This prevents paired-image leakage while keeping the forged/authentic ratio close to stable in each split.
 
+Rationale:
+
+- The authentic and forged files with the same stem are paired views of the same source image.
+- Splitting paired views apart can let validation/test contain source content already seen during training.
+- Grouping by stem is the best-practice default for model selection because it estimates generalization to unseen source images.
+- A non-grouped split can be useful only as an explicit diagnostic experiment, not as the default validation/local-test split.
+- The rebased `max_individual_project` has useful seeded three-way split mechanics, but its label-independent splitting should not be copied as-is because it can separate paired stems.
+
 Implementation details:
 
 - Validate that `train_ratio + val_ratio + test_ratio` is approximately `1.0`.
 - Use deterministic ordering before shuffling so results are reproducible.
 - Log total counts, per-split counts, and per-split forged/authentic counts.
+- Borrow seeded split count allocation and split-artifact ideas from `max_individual_project` where useful, while preserving grouped splitting.
 - Do not use the local test split in `train_baseline.py` training or model selection.
 - If split persistence is added, save generated JSON under `runs/splits/...` and add `/runs/` to `.gitignore` if it is not already ignored.
 - It is also acceptable for the first implementation to regenerate splits deterministically from the seed and fixed data layout.
@@ -203,7 +217,7 @@ Optional metadata:
 
 ### 4. New `engine/validation_records.py`
 
-Add helpers for full-score validation row construction.
+Add helpers for Kaggle-equivalent scoring and optional official-format validation row construction.
 
 Recommended functions:
 
@@ -211,20 +225,30 @@ Recommended functions:
 - `load_resized_instance_masks(sample: SampleRecord, shape: tuple[int, int]) -> list[np.ndarray]`
 - `connected_components_to_masks(mask: np.ndarray) -> list[np.ndarray]`
 - `prediction_mask_to_annotation(mask: np.ndarray) -> str`
+- `score_instances(pred_instances, gt_instances) -> float`
+- `compute_kaggle_score_from_instances(ordered_samples, pred_instances_by_sample_id, gt_instances_by_sample_id) -> float`
 - `solution_row_for_sample(sample: SampleRecord, shape: tuple[int, int]) -> dict`
 - `build_solution_rows(ordered_samples, shapes_by_sample_id) -> pd.DataFrame`
 - `build_submission_rows(ordered_samples, annotations_by_sample_id) -> pd.DataFrame`
-- `compute_kaggle_score(solution, submission) -> float`
+- `compute_kaggle_score_via_recodai(solution, submission) -> float`
 
 Rules:
 
+- Direct array scoring is allowed for epoch validation to avoid unnecessary pandas/RLE encode-decode overhead.
+- Direct scoring must preserve official authentic/forged semantics:
+  - ground truth authentic plus prediction authentic/empty gives `1.0`,
+  - ground truth authentic plus any predicted component gives `0.0`,
+  - ground truth forged plus prediction authentic/empty gives `0.0`,
+  - ground truth forged plus predicted components gives instance oF1.
+- Instance oF1 should match `recodai_f1.oF1_score`: pairwise binary F1, Hungarian matching, and excess-prediction penalty.
+- The direct scorer should not be logged as official unless the equivalence smoke tests pass.
 - Authentic solution row: `sample_id`, `annotation = "authentic"`, `shape = "authentic"`.
 - Forged solution row: `sample_id`, `annotation = rle_encode(instance_masks)`, `shape = json.dumps([height, width])`.
 - Authentic prediction or empty prediction: `sample_id`, `annotation = "authentic"`.
 - Non-empty prediction: connected components to instance masks, then semicolon-separated JSON RLE via `recodai_f1.rle_encode`.
 - Prediction components should be extracted after current post-processing and component filtering.
 - Solution and submission rows must be generated from the same `ordered_samples` list because `recodai_f1.score` currently aligns by row order.
-- Call `recodai_f1.score(solution.copy(), submission.copy(), row_id_column_name="sample_id")`.
+- Call `recodai_f1.score(solution.copy(), submission.copy(), row_id_column_name="sample_id")` for equivalence tests and final official-format checks.
 
 Important compatibility detail:
 
@@ -233,7 +257,7 @@ Important compatibility detail:
 
 ### 5. `engine/validate_loop.py`
 
-Refactor validation to compute full `kaggle_score`.
+Refactor validation to compute `kaggle_score`.
 
 Signature direction:
 
@@ -252,6 +276,7 @@ def validate_one_epoch(
     min_component_area,
     epoch_idx,
     compute_pixel_f1=False,
+    verify_score_equivalence=False,
 ) -> dict:
     ...
 ```
@@ -267,9 +292,9 @@ Changes:
   - `pred_threshold`,
   - hardening config,
   - `min_component_area`.
-- Convert post-processed binary masks to prediction annotations.
-- Build solution and submission DataFrames in the same sample order.
-- Call full `recodai_f1.score`.
+- Convert post-processed binary masks to connected-component prediction instances.
+- Compute `kaggle_score` with the direct Kaggle-equivalent instance scorer by default.
+- If `verify_score_equivalence` is enabled, also build solution/submission DataFrames in the same sample order and compare against `recodai_f1.score`.
 - Return a structured validation result:
 
 ```python
@@ -300,14 +325,37 @@ Add or modify config fields:
 - `train_subset: int | None = None`
 - `val_subset: int | None = None`
 - `compute_pixel_f1: bool = False`
+- `verify_score_equivalence: bool = False`
 - `checkpoint_dir: str = "runs/checkpoints"`
 - `best_checkpoint_name: str = "best_by_kaggle_score.pt"`
+- `include_supplemental: bool = False`
+- `post_process_threshold: float = 0.5`
+- `post_process_confident_threshold: float | None = None`
+- `post_process_smooth_probabilities: bool = False`
+- `post_process_fill_holes: bool = True`
+- `post_process_apply_opening: bool = True`
+- `post_process_apply_closing: bool = False`
+- `post_process_min_component_area: int = 50`
+- `post_process_keep_confident_seeded_components: bool = False`
 
 Existing subset behavior:
 
 - Normal baseline runs should use all split samples.
 - Keep subset fields only as explicit debug controls.
 - If debug subsets are used, apply them after splitting and make the log say this is a debug run.
+
+Post-processing behavior:
+
+- Current repo defaults should remain the first-run defaults unless deliberately changed.
+- The implementation can add configurable knobs inspired by `max_individual_project`, especially confident component seeding, smoothing, opening/closing, fill holes, and minimum component area.
+- Adding knobs is allowed in this refactor; tuning those knobs is not part of this refactor.
+- Logs/checkpoint metadata should record the post-processing settings used for validation.
+
+Supplemental data:
+
+- Supplemental data should remain disabled by default for the first refactor.
+- If supplemental data is later enabled, it must be explicit through config and only after verifying label/mask compatibility and competition-rule safety.
+- Supplemental samples should not be mixed into the validation/local-test split unless the team deliberately defines a trustworthy split policy for them.
 
 ### 7. `train_baseline.py`
 
@@ -323,6 +371,7 @@ Refactor the orchestration:
 - Instantiate `ForgeryDataset(train_samples, ...)` and `ForgeryDataset(val_samples, ...)`.
 - Keep `val_loader` with `shuffle=False`.
 - Call the refactored `validate_one_epoch(..., val_samples=val_samples, compute_pixel_f1=config.compute_pixel_f1)`.
+- Pass `verify_score_equivalence=config.verify_score_equivalence` when calling validation.
 - Use `validation_result["kaggle_score"]` for scheduler and best checkpoint selection.
 - Rename `best_f1` to `best_kaggle_score`.
 - Save the best checkpoint with `torch.save` instead of only keeping `best_model_state` in memory.
@@ -376,8 +425,8 @@ If added later:
 1. Add `SampleRecord`, labeled sample discovery, and mask/image helpers.
 2. Add grouped stratified split utilities.
 3. Update `ForgeryDataset` to use sample records and authentic all-zero masks.
-4. Add validation row/RLE helpers.
-5. Refactor validation to return full `kaggle_score`.
+4. Add validation instance-scoring and optional row/RLE equivalence helpers.
+5. Refactor validation to return verified Kaggle-equivalent `kaggle_score`.
 6. Refactor training orchestration to use all labeled data and 80/10/10 grouped splits.
 7. Add checkpointing and model selection by `kaggle_score`.
 8. Add optional `pixel_f1` flag and logging.
@@ -441,6 +490,12 @@ Verify:
 - empty prediction becomes `authentic`,
 - non-empty prediction becomes RLE,
 - solution/submission row order matches,
+- direct instance scorer matches `recodai_f1.score` for authentic/authentic,
+- direct instance scorer matches `recodai_f1.score` for authentic/non-empty prediction,
+- direct instance scorer matches `recodai_f1.score` for forged/empty prediction,
+- direct instance scorer matches `recodai_f1.score` for forged/single-instance prediction,
+- direct instance scorer matches `recodai_f1.score` for forged/multi-instance prediction,
+- direct instance scorer matches `recodai_f1.score` when there are excess predicted components,
 - `recodai_f1.score` runs without exception.
 
 ### Training Smoke Check
@@ -461,8 +516,8 @@ Expected:
 
 ## Risks And Mitigations
 
-- **Risk:** full scoring is slower than pixel F1.  
-  **Mitigation:** still run it each epoch per spec; keep optional debug subsets for development speed.
+- **Risk:** official-format scoring through pandas/RLE is slower than needed.  
+  **Mitigation:** use a direct array-based scorer for epoch validation after equivalence tests prove it matches `recodai_f1.score` semantics.
 
 - **Risk:** paired authentic/forged stems leak across splits.  
   **Mitigation:** split by `group_id` first, then expand to samples.
@@ -471,13 +526,13 @@ Expected:
   **Mitigation:** store and use `sample.image_path` everywhere in the refactored dataset.
 
 - **Risk:** `recodai_f1.score` aligns rows by order.  
-  **Mitigation:** build solution/submission rows from the same ordered sample list and pass copies to `score`.
+  **Mitigation:** build solution/submission rows from the same ordered sample list and pass copies to `score` in equivalence/reference paths.
 
 - **Risk:** predicted union masks lose instance information.  
   **Mitigation:** split predictions into connected components before RLE.
 
 - **Risk:** forged ground truth union masks understate official score behavior.  
-  **Mitigation:** preserve individual mask files and resize each instance mask for full-score solution rows.
+  **Mitigation:** preserve individual mask files and resize each instance mask for Kaggle-equivalent validation and official-format solution rows.
 
 - **Risk:** authentic images dominate all-zero mask behavior.  
   **Mitigation:** keep sampling simple in first refactor, log per-class counts, revisit sampling only as a later measured experiment.
@@ -492,9 +547,9 @@ The core refactor is complete when:
 - `train_baseline.py` uses all labeled training data through an 80/10/10 grouped stratified split.
 - Authentic samples train with all-zero masks.
 - Paired forged/authentic stems stay in the same split.
-- Forged samples preserve instance masks for full-score validation.
-- Epoch validation reports full `kaggle_score`.
-- Best checkpoint selection uses full `kaggle_score`.
+- Forged samples preserve instance masks for Kaggle-equivalent validation.
+- Epoch validation reports verified Kaggle-equivalent `kaggle_score`.
+- Best checkpoint selection uses verified Kaggle-equivalent `kaggle_score`.
 - `pixel_f1` is opt-in only.
 - The local holdout test split is not used during training or model selection.
 - Deprecated files are clearly marked.
