@@ -1,31 +1,19 @@
 from pathlib import Path
 from functools import partial
-import random
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from configs.baseline_config import BaselineConfig, seed_worker, set_seed
+from dataset_utils import list_labeled_samples
 from datasets.forgery_dataset import ForgeryDataset
+from datasets.splits import count_samples_by_split_and_label, make_grouped_stratified_splits
 from engine.train_loop import train_one_epoch
 from engine.validate_loop import validate_one_epoch
 from inference.sliding_window_dino import sliding_window_dino
 from models.dino_segmenter import DinoSegmenter
 from util.pixelmapUtil import PixelMapUtil
-
-
-def get_forged_case_ids():
-    forged_dir = Path("data/train_images/forged")
-    return sorted([p.stem for p in forged_dir.glob("*.png")])
-
-
-def split_ids(ids, val_ratio=0.1, seed=42):
-    rng = random.Random(seed)
-    ids = ids.copy()
-    rng.shuffle(ids)
-    n_val = int(len(ids) * val_ratio)
-    return ids[n_val:], ids[:n_val]
 
 
 def main():
@@ -36,11 +24,29 @@ def main():
     print(f"Using seed: {config.seed}")
 
     pixel_util = PixelMapUtil()
-    all_ids = get_forged_case_ids()
-    train_ids, val_ids = split_ids(all_ids, val_ratio=0.1, seed=config.seed)
 
-    train_ids = train_ids[: config.train_subset]
-    val_ids = val_ids[: config.val_subset]
+    all_samples = list_labeled_samples(Path(config.data_root))
+    splits = make_grouped_stratified_splits(
+        all_samples,
+        seed=config.seed,
+        train_ratio=config.train_ratio,
+        val_ratio=config.val_ratio,
+        test_ratio=config.test_ratio,
+    )
+    train_samples = splits["train"]
+    val_samples = splits["val"]
+    test_samples = splits["test"]  # keep reference, do not use for training or validation
+    split_counts = count_samples_by_split_and_label(splits)
+    print(split_counts)
+
+    print(f"Split sizes: train={len(train_samples)}, val={len(val_samples)}, test={len(test_samples)} (held out)")
+
+    if config.train_subset is not None:
+        print(f"Debug train_subset enabled: using {config.train_subset} of {len(train_samples)} train samples")
+        train_samples = train_samples[: config.train_subset]
+    if config.val_subset is not None:
+        print(f"Debug val_subset enabled: using {config.val_subset} of {len(val_samples)} val samples")
+        val_samples = val_samples[: config.val_subset]
 
     train_loader_generator = torch.Generator()
     train_loader_generator.manual_seed(config.seed)
@@ -49,7 +55,7 @@ def main():
 
     train_loader = DataLoader(
         ForgeryDataset(
-            train_ids,
+            train_samples,
             config.target_size,
             use_rgb=config.use_rgb,
             normalize_rgb=config.normalize_rgb,
@@ -65,7 +71,7 @@ def main():
     )
     val_loader = DataLoader(
         ForgeryDataset(
-            val_ids,
+            val_samples,
             config.target_size,
             use_rgb=config.use_rgb,
             normalize_rgb=config.normalize_rgb,
@@ -109,10 +115,7 @@ def main():
         threshold=1e-4,
     )
 
-    best_f1 = 0.0
-    best_model_state = None
-
-    print("Train size:", len(train_ids), "Val size:", len(val_ids))
+    best_kaggle_score = 0.0
 
     for epoch in range(config.num_epochs):
         avg_loss = train_one_epoch(
@@ -126,9 +129,10 @@ def main():
             use_amp=use_amp,
             scaler=scaler,
         )
-        val_f1 = validate_one_epoch(
+        validation_result = validate_one_epoch(
             model=model,
             val_loader=val_loader,
+            val_samples=val_samples,
             device=device,
             sliding_window_fn=sliding_window_fn,
             pixel_util=pixel_util,
@@ -138,14 +142,33 @@ def main():
             hard_clip_high=config.hard_clip_high,
             min_component_area=config.min_component_area,
             epoch_idx=epoch,
+            compute_pixel_f1=config.compute_pixel_f1,
+            verify_score_equivalence=config.verify_score_equivalence,
         )
-        print(f"Epoch {epoch+1}: avg_loss={avg_loss:.4f}  val_f1={val_f1:.4f}")
+        kaggle_score = validation_result["kaggle_score"]
+        print(f"Epoch {epoch+1}: avg_loss={avg_loss:.4f}  kaggle_score={kaggle_score:.4f}")
 
-        if val_f1 > best_f1:
-            best_f1 = val_f1
-            best_model_state = model.state_dict().copy()
+        if kaggle_score > best_kaggle_score:
+            best_kaggle_score = kaggle_score
+            checkpoint_dir = Path(config.checkpoint_dir)
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            checkpoint_path = checkpoint_dir / config.best_checkpoint_name
+            torch.save(
+                {
+                    "epoch": epoch + 1,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "kaggle_score": kaggle_score,
+                    "validation_result": validation_result,
+                    "config": config.__dict__,
+                    "split_counts": split_counts,
+                    "model_name": config.dino_model_name,
+                },
+                checkpoint_path,
+            )
+            print(f"  -> New best model saved by kaggle_score={kaggle_score:.4f}")
 
-        scheduler.step(val_f1)
+        scheduler.step(kaggle_score)
 
 
 if __name__ == "__main__":

@@ -74,10 +74,12 @@ def find_mask_paths(case_id: str, data_root: Path = DATA) -> list[Path]:
     return masks
 
 
-def _load_binary_mask(path: Path) -> np.ndarray:
-    mask = np.load(path)
-    mask = np.squeeze(mask)
-    return (mask > 0).astype(np.uint8)
+def _load_instances_from_file(path: Path) -> list[np.ndarray]:
+    # Mask files are stored as (N, H, W) where N >= 1 instances are stacked on axis 0.
+    raw = np.load(path)
+    if raw.ndim == 3:
+        return [(raw[i] > 0).astype(np.uint8) for i in range(raw.shape[0])]
+    return [(np.squeeze(raw) > 0).astype(np.uint8)]
 
 
 def _coerce_mask_paths(mask_paths_or_case_id: str | Path | Iterable[Path]) -> tuple[Path, ...]:
@@ -91,7 +93,10 @@ def _coerce_mask_paths(mask_paths_or_case_id: str | Path | Iterable[Path]) -> tu
 def load_instance_masks(mask_paths_or_case_id: str | Path | Iterable[Path]) -> list[np.ndarray]:
     """Load individual binary instance masks from mask paths or a legacy case ID."""
     mask_paths = _coerce_mask_paths(mask_paths_or_case_id)
-    return [_load_binary_mask(path) for path in mask_paths]
+    instances: list[np.ndarray] = []
+    for path in mask_paths:
+        instances.extend(_load_instances_from_file(path))
+    return instances
 
 
 def load_union_mask_from_paths(mask_paths: Iterable[Path]) -> np.ndarray:
