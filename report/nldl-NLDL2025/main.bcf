@@ -2388,7 +2388,9 @@
     <bcf:citekey order="20" intorder="1">dong2013casia</bcf:citekey>
     <bcf:citekey order="20" intorder="2">tralic2013comofo</bcf:citekey>
     <bcf:citekey order="20" intorder="3">silva2015copy</bcf:citekey>
-    <bcf:citekey order="21" intorder="1">kaggle</bcf:citekey>
+    <bcf:citekey order="21" intorder="1">li2024deeppatchmatch</bcf:citekey>
+    <bcf:citekey order="22" intorder="1">li2024deeppatchmatch</bcf:citekey>
+    <bcf:citekey order="23" intorder="1">kaggle</bcf:citekey>
   </bcf:section>
   <!-- SORTING TEMPLATES -->
   <bcf:sortingtemplate name="noneyear">
