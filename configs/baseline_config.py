@@ -9,7 +9,7 @@ import torch
 @dataclass(frozen=True)
 class BaselineConfig:
     num_epochs: int = 10
-    batch_size: int = 100
+    batch_size: int = 32
     seed: int = 42
     target_size: int = 448 # Try to keep this divisible by 14. 256 works too, but is small.
     pred_threshold: float = 0.5
@@ -40,6 +40,9 @@ class BaselineConfig:
     test_ratio: float = 0.1
     compute_pixel_f1: bool = False
     verify_score_equivalence: bool = False
+    validation_inference_mode: str = "direct"
+    validation_probability_dtype: str = "float16"
+    validation_log_timing: bool = True
     checkpoint_dir: str = "runs/checkpoints"
     best_checkpoint_name: str = "best_by_kaggle_score.pt"
     include_supplemental: bool = False

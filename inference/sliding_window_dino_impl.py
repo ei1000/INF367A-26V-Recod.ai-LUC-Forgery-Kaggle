@@ -1,3 +1,5 @@
+from functools import lru_cache
+
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -8,16 +10,46 @@ EPS = 1e-5
 STRIDE = PATCH_SIZE // 2
 
 
-def gaussian_weight(patch_size, sigma=0.125):
+def compute_window_starts(length: int, patch_size: int, stride: int) -> list[int]:
+    if length <= 0:
+        raise ValueError(f"length must be positive, got {length}")
+    if patch_size <= 0:
+        raise ValueError(f"patch_size must be positive, got {patch_size}")
+    if stride <= 0:
+        raise ValueError(f"stride must be positive, got {stride}")
+    if length <= patch_size:
+        return [0]
+
+    starts = list(range(0, max(1, length - patch_size + 1), stride))
+    final_start = length - patch_size
+    if starts[-1] != final_start:
+        starts.append(final_start)
+    return sorted(set(starts))
+
+
+@lru_cache(maxsize=16)
+def gaussian_weight_numpy(patch_size: int, sigma: float = 0.125) -> np.ndarray:
     ax = np.linspace(-1, 1, patch_size)
     xx, yy = np.meshgrid(ax, ax)
     dist = np.sqrt(xx**2 + yy**2)
-    return np.exp(-(dist**2) / (2 * sigma**2))
+    return np.exp(-(dist**2) / (2 * sigma**2)).astype(np.float32)
 
 
-def predict_batched_crops(crops, model, device):
-    batch = torch.stack(crops, dim=0).to(device)
+def gaussian_weight(patch_size: int, device: torch.device, dtype: torch.dtype = torch.float32) -> torch.Tensor:
+    return torch.from_numpy(gaussian_weight_numpy(patch_size)).to(device=device, dtype=dtype)
+
+
+def predict_batched_crops(crops: list[torch.Tensor], model, device: torch.device) -> torch.Tensor:
+    batch = torch.stack(crops, dim=0).to(device, non_blocking=True)
     return model(batch)
+
+
+def _pad_crop_to_patch(crop: torch.Tensor, patch_size: int) -> torch.Tensor:
+    pad_h = max(0, patch_size - crop.shape[1])
+    pad_w = max(0, patch_size - crop.shape[2])
+    if pad_h == 0 and pad_w == 0:
+        return crop
+    return F.pad(crop, (0, pad_w, 0, pad_h), mode="constant")
 
 
 def sliding_window_dino(
@@ -34,28 +66,30 @@ def sliding_window_dino(
     if stride is None:
         stride = patch_size // 2
 
-    h_img, w_img = img.shape[-2], img.shape[-1]
-
-    if h_img < patch_size or w_img < patch_size:
-        patch = F.pad(img, (0, patch_size - w_img, 0, patch_size - h_img))
-        return model(patch[None].to(device))[0]
-
-    weight = torch.from_numpy(gaussian_weight(patch_size)).to(device=device, dtype=torch.float32)
-    prob_map = torch.zeros((h_img, w_img), device=device)
-    weight_map = torch.zeros((h_img, w_img), device=device) + EPS
-
-    crops, coords = [], []
-    for y in range(0, h_img, stride):
-        for x in range(0, w_img, stride):
-            crop = img[:, y:y + patch_size, x:x + patch_size]
-            pad_h = max(0, patch_size - crop.shape[1])
-            pad_w = max(0, patch_size - crop.shape[2])
-            crop = F.pad(crop, (0, pad_w, 0, pad_h), mode="constant")
-            crops.append(crop)
-            coords.append((y, x))
-
+    h_img, w_img = int(img.shape[-2]), int(img.shape[-1])
     model.eval()
-    with torch.no_grad():
+
+    with torch.inference_mode():
+        if h_img <= patch_size and w_img <= patch_size:
+            patch = _pad_crop_to_patch(img, patch_size)
+            pred = model(patch[None].to(device, non_blocking=True))[0].squeeze(0)
+            return pred[:h_img, :w_img]
+
+        y_starts = compute_window_starts(h_img, patch_size, stride)
+        x_starts = compute_window_starts(w_img, patch_size, stride)
+
+        weight = gaussian_weight(patch_size, device=device, dtype=torch.float32)
+        prob_map = torch.zeros((h_img, w_img), device=device, dtype=torch.float32)
+        weight_map = torch.zeros((h_img, w_img), device=device, dtype=torch.float32) + EPS
+
+        crops: list[torch.Tensor] = []
+        coords: list[tuple[int, int]] = []
+        for y in y_starts:
+            for x in x_starts:
+                crop = img[:, y : y + patch_size, x : x + patch_size]
+                crops.append(_pad_crop_to_patch(crop, patch_size))
+                coords.append((y, x))
+
         for i in range(0, len(crops), batch_size):
             batch_crops = crops[i:i + batch_size]
             batch_coords = coords[i:i + batch_size]

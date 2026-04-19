@@ -144,6 +144,9 @@ def main():
             epoch_idx=epoch,
             compute_pixel_f1=config.compute_pixel_f1,
             verify_score_equivalence=config.verify_score_equivalence,
+            inference_mode=config.validation_inference_mode,
+            probability_dtype=config.validation_probability_dtype,
+            log_timing=config.validation_log_timing,
         )
         kaggle_score = validation_result["kaggle_score"]
         print(f"Epoch {epoch+1}: avg_loss={avg_loss:.4f}  kaggle_score={kaggle_score:.4f}")
