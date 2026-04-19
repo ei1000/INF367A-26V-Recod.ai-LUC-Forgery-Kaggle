@@ -1,10 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from pathlib import Path
-from dataset import ForgeryDataset
 from torchvision.utils import draw_segmentation_masks
-from torchvision.datasets import ImageFolder
 
 '''
 Display image, optionally with mask
@@ -27,6 +24,25 @@ def display_image(img, mask=None):
     plt.axis('off')
     plt.show()
 
+def split_offsets(offsets):
+    offsets = offsets.detach().cpu()
+    if offsets.ndim == 3 and offsets.shape[0] == 2:
+        dx = offsets[0].numpy()
+        dy = offsets[1].numpy()
+    elif offsets.ndim == 3 and offsets.shape[-1] == 2:
+        dx = offsets[..., 0].numpy()
+        dy = offsets[..., 1].numpy()
+    else:
+        raise ValueError(f"Offsets must be (2,H,W) or (H,W,2); got {offsets.shape}")
+    return dx, dy
+
+def sym_vmax(dx, dy, p):
+    vals = np.concatenate([np.abs(dx).reshape(-1), np.abs(dy).reshape(-1)])
+    vals = vals[~np.isnan(vals)]
+    if vals.size == 0:
+        return 1.0
+    vmax = float(np.percentile(vals, p))
+    return max(vmax, 1e-6)
 
 '''
 Display generated cnn and zernike offsets as heatmaps
@@ -42,25 +58,7 @@ def display_pixel_offsets(
     cmap='magma',
     show_colorbar=False,
 ):
-    def split_offsets(offsets):
-        offsets = offsets.detach().cpu()
-        if offsets.ndim == 3 and offsets.shape[0] == 2:
-            dx = offsets[0].numpy()
-            dy = offsets[1].numpy()
-        elif offsets.ndim == 3 and offsets.shape[-1] == 2:
-            dx = offsets[..., 0].numpy()
-            dy = offsets[..., 1].numpy()
-        else:
-            raise ValueError(f"Offsets must be (2,H,W) or (H,W,2); got {offsets.shape}")
-        return dx, dy
 
-    def sym_vmax(dx, dy, p):
-        vals = np.concatenate([np.abs(dx).reshape(-1), np.abs(dy).reshape(-1)])
-        vals = vals[~np.isnan(vals)]
-        if vals.size == 0:
-            return 1.0
-        vmax = float(np.percentile(vals, p))
-        return max(vmax, 1e-6)
 
     cnn_dx, cnn_dy = split_offsets(cnn_offsets)
     zernike_dx, zernike_dy = split_offsets(zernike_offsets)
@@ -109,20 +107,3 @@ def display_pixel_offsets(
     fig.suptitle("Image offsets (dx/dy)")
     plt.tight_layout()
     plt.show()
-
-    
-# Test:
-def load_and_display():
-    root = Path('data')
-    supplement_image_folder = ImageFolder(root / "supplemental_images")
-
-    samples = [(Path(p), y) for p, y in supplement_image_folder.samples]
-
-    supplement_dataset = ForgeryDataset(
-        samples=samples,
-        mask_dir=root / "supplemental_masks",
-    )
-
-    img, mask, _ = supplement_dataset[1]
-    display_image(img, mask)
-

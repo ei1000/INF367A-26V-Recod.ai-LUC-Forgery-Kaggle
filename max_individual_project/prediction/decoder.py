@@ -60,39 +60,6 @@ class DLFDecoder(nn.Module):
         cnn_offsets = self.normalize_offsets(self._as_batched_offsets(input.cnn_offsets)).to(device)
         zernike_offsets = self.normalize_offsets(self._as_batched_offsets(input.zernike_offsets)).to(device)
 
-        if cnn_error_maps.shape[0] != zernike_error_maps.shape[0]:
-            raise ValueError(
-                f"Batch size mismatch between CNN and Zernike error maps: "
-                f"{tuple(cnn_error_maps.shape)} vs {tuple(zernike_error_maps.shape)}"
-            )
-        if cnn_error_maps.shape[1] != self.num_error_maps or zernike_error_maps.shape[1] != self.num_error_maps:
-            raise ValueError(
-                f"Expected {self.num_error_maps} error maps per branch, got "
-                f"{tuple(cnn_error_maps.shape)} and {tuple(zernike_error_maps.shape)}"
-            )
-        if cnn_error_maps.shape[0] != cnn_offsets.shape[0]:
-            raise ValueError(
-                f"Batch size mismatch between error maps {tuple(cnn_error_maps.shape)} and offsets {tuple(cnn_offsets.shape)}"
-            )
-        if cnn_offsets.shape != zernike_offsets.shape:
-            raise ValueError(
-                f"Offset tensors must have the same shape, got {tuple(cnn_offsets.shape)} and {tuple(zernike_offsets.shape)}"
-            )
-        if cnn_error_maps.shape[-2:] != cnn_offsets.shape[-2:]:
-            raise ValueError(
-                f"Spatial size mismatch between CNN errors {tuple(cnn_error_maps.shape)} and offsets {tuple(cnn_offsets.shape)}"
-            )
-        if zernike_error_maps.shape[-2:] != zernike_offsets.shape[-2:]:
-            raise ValueError(
-                f"Spatial size mismatch between Zernike errors {tuple(zernike_error_maps.shape)} "
-                f"and offsets {tuple(zernike_offsets.shape)}"
-            )
-        if cnn_error_maps.shape[-2:] != zernike_error_maps.shape[-2:]:
-            raise ValueError(
-                f"Spatial size mismatch between CNN and Zernike error maps: "
-                f"{tuple(cnn_error_maps.shape)} vs {tuple(zernike_error_maps.shape)}"
-            )
-
         inputs = [cnn_error_maps, zernike_error_maps, cnn_offsets, zernike_offsets]
 
         x = torch.cat(inputs, dim=1)

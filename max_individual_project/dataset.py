@@ -16,7 +16,8 @@ def resolve_data_root() -> Path:
         return alt
     raise FileNotFoundError("Could not find data directory. Checked ./data and ../data.")
 
-def dino_transform(size):
+
+def imagenet_rgb_transform(size):
     to_tensor = v2.ToImage()
     resize = v2.Resize((size, size), antialias=True)
     to_float = v2.ToDtype(torch.float32, scale=True)
@@ -26,15 +27,13 @@ def dino_transform(size):
     )
     return v2.Compose([to_tensor, resize, to_float, normalize])
 
+
+def dino_transform(size):
+    return imagenet_rgb_transform(size)
+
+
 def imagenet_transform(size):
-    to_tensor = v2.ToImage()
-    resize = v2.Resize((size, size), antialias=True)
-    to_float = v2.ToDtype(torch.float32, scale=True)
-    normalize = v2.Normalize(
-        mean=(0.485, 0.456, 0.406),
-        std=(0.229, 0.224, 0.225)
-    )
-    return v2.Compose([to_tensor, resize, to_float, normalize])
+    return imagenet_rgb_transform(size)
 
 
 def imagenet_normalize_tensor(x: torch.Tensor) -> torch.Tensor:
