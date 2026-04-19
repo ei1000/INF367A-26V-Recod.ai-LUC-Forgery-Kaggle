@@ -20,6 +20,15 @@ def _sample(label: str, case_id: str) -> SampleRecord:
 
 
 class SplitTests(unittest.TestCase):
+    def test_invalid_ratios_raise_value_error(self) -> None:
+        samples = [_sample("forged", "1")]
+
+        with self.assertRaises(ValueError):
+            make_grouped_stratified_splits(samples, train_ratio=-0.1, val_ratio=0.6, test_ratio=0.5)
+
+        with self.assertRaises(ValueError):
+            make_grouped_stratified_splits(samples, train_ratio=1.1, val_ratio=0.0, test_ratio=-0.1)
+
     def test_grouped_split_keeps_paired_stems_together(self) -> None:
         samples = []
         for idx in range(10):
@@ -77,6 +86,37 @@ class SplitTests(unittest.TestCase):
         self.assertEqual(counts["by_split"]["train"]["total"], 16)
         self.assertEqual(counts["by_split"]["val"]["total"], 2)
         self.assertEqual(counts["by_split"]["test"]["total"], 2)
+
+    def test_count_by_label_includes_missing_labels(self) -> None:
+        splits = {"train": [_sample("forged", "1")], "val": [], "test": []}
+
+        counts = count_samples_by_split_and_label(splits)
+
+        self.assertEqual(counts["by_label"], {"forged": 1, "authentic": 0})
+
+    def test_single_label_groups_are_supported(self) -> None:
+        samples = [
+            _sample("forged", "f1"),
+            _sample("forged", "f1"),
+            _sample("authentic", "a1"),
+            _sample("authentic", "a1"),
+            _sample("forged", "f2"),
+            _sample("forged", "f2"),
+            _sample("authentic", "a2"),
+            _sample("authentic", "a2"),
+        ]
+
+        splits = make_grouped_stratified_splits(samples, seed=7, train_ratio=0.5, val_ratio=0.25, test_ratio=0.25)
+
+        group_to_split: dict[str, str] = {}
+        for split_name, split_samples in splits.items():
+            for sample in split_samples:
+                previous = group_to_split.setdefault(sample.group_id, split_name)
+                self.assertEqual(previous, split_name)
+                self.assertEqual(sample.split, split_name)
+
+        self.assertEqual(sum(len(value) for value in splits.values()), len(samples))
+        self.assertEqual({sample.group_id for sample in splits["train"]} | {sample.group_id for sample in splits["val"]} | {sample.group_id for sample in splits["test"]}, {"f1", "f2", "a1", "a2"})
 
 
 if __name__ == "__main__":
