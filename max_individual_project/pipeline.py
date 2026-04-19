@@ -27,6 +27,7 @@ from pipeline_helpers import (
 from prediction.localization import decode_and_refine_masks, extract_localization_inputs
 from prediction.mask_metrics import (
     binary_mask_to_instances,
+    initialize_segmentation_counts,
     load_resized_gt_instances,
     optimal_f1_score,
     summarize_segmentation_counts,
@@ -44,14 +45,17 @@ from training.losses import localization_loss_terms, summarize_branch_activity
 from training.metrics_logging import (
     append_metrics_log,
     average_metric_accumulator,
+    build_validation_summary,
     build_epoch_metrics,
     format_split_summary,
     format_train_batch_message,
     format_train_epoch_message,
     format_validation_message,
+    initialize_instance_metric_tracker,
     initialize_metric_accumulator,
     save_metrics_plot,
     summarize_metric_step,
+    update_instance_metric_tracker,
     update_metric_accumulator,
     write_split_artifacts,
 )
@@ -433,25 +437,8 @@ def pipeline(config: PipelineConfig | None = None, **overrides):
             set_trainable_head_modes(dlf_decoder, se_model, training=False)
             val_accumulator = initialize_metric_accumulator()
             val_loss_steps = 0
-            val_counts = {
-                "tp": 0,
-                "fp": 0,
-                "fn": 0,
-                "pred_pos": 0,
-                "mask_pos": 0,
-                "pixels": 0,
-            }
-            val_of1_sum = 0.0
-            val_images = 0
-            val_pred_components_sum = 0
-            val_authentic_of1_sum = 0.0
-            val_authentic_images = 0
-            val_authentic_empty_pred_count = 0
-            val_authentic_pred_components_sum = 0
-            val_forged_of1_sum = 0.0
-            val_forged_images = 0
-            val_forged_pred_components_sum = 0
-            val_forged_gt_components_sum = 0
+            val_counts = initialize_segmentation_counts()
+            val_instance_tracker = initialize_instance_metric_tracker()
 
             with torch.no_grad():
                 for images, masks, _labels, image_paths in val_loader:
@@ -529,39 +516,21 @@ def pipeline(config: PipelineConfig | None = None, **overrides):
                         pred_component_count = len(pred_instances)
                         gt_component_count = len(gt_instances)
 
-                        val_of1_sum += image_of1
-                        val_images += 1
-                        val_pred_components_sum += pred_component_count
-
-                        if gt_component_count == 0:
-                            val_authentic_of1_sum += image_of1
-                            val_authentic_images += 1
-                            val_authentic_pred_components_sum += pred_component_count
-                            if pred_component_count == 0:
-                                val_authentic_empty_pred_count += 1
-                        else:
-                            val_forged_of1_sum += image_of1
-                            val_forged_images += 1
-                            val_forged_pred_components_sum += pred_component_count
-                            val_forged_gt_components_sum += gt_component_count
+                        update_instance_metric_tracker(
+                            val_instance_tracker,
+                            image_of1=image_of1,
+                            pred_component_count=pred_component_count,
+                            gt_component_count=gt_component_count,
+                        )
 
             val_metrics = summarize_segmentation_counts(val_counts)
-            val_summary = average_metric_accumulator(val_accumulator, val_loss_steps)
-            val_summary.update(
-                {
-                    "of1": val_of1_sum / max(val_images, 1),
-                    "pred_components_per_image": val_pred_components_sum / max(val_images, 1),
-                    "authentic_of1": val_authentic_of1_sum / max(val_authentic_images, 1),
-                    "authentic_empty_pred_rate": val_authentic_empty_pred_count / max(val_authentic_images, 1),
-                    "authentic_pred_components_per_image": val_authentic_pred_components_sum / max(val_authentic_images, 1),
-                    "forged_of1": val_forged_of1_sum / max(val_forged_images, 1),
-                    "forged_pred_components_per_image": val_forged_pred_components_sum / max(val_forged_images, 1),
-                    "forged_gt_components_per_image": val_forged_gt_components_sum / max(val_forged_images, 1),
-                    "iou": val_metrics["iou"],
-                    "dice": val_metrics["dice"],
-                    "pred_positive_rate": val_metrics["pred_positive_rate"],
-                    "mask_positive_rate": val_metrics["mask_positive_rate"],
-                }
+            # Validation combines batch-level losses with per-image instance metrics,
+            # so we collapse both trackers here instead of hand-assembling the dict inline.
+            val_summary = build_validation_summary(
+                val_accumulator,
+                val_loss_steps,
+                val_metrics,
+                val_instance_tracker,
             )
             print(
                 format_validation_message(

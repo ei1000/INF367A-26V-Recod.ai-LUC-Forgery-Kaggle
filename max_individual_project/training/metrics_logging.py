@@ -62,6 +62,77 @@ def average_metric_accumulator(accumulator: dict[str, float], steps: int) -> dic
     }
 
 
+def initialize_instance_metric_tracker() -> dict[str, float | int]:
+    return {
+        "of1_sum": 0.0,
+        "images": 0,
+        "pred_components_sum": 0,
+        "authentic_of1_sum": 0.0,
+        "authentic_images": 0,
+        "authentic_empty_pred_count": 0,
+        "authentic_pred_components_sum": 0,
+        "forged_of1_sum": 0.0,
+        "forged_images": 0,
+        "forged_pred_components_sum": 0,
+        "forged_gt_components_sum": 0,
+    }
+
+
+def update_instance_metric_tracker(
+    tracker: dict[str, float | int],
+    *,
+    image_of1: float,
+    pred_component_count: int,
+    gt_component_count: int,
+) -> dict[str, float | int]:
+    tracker["of1_sum"] += image_of1
+    tracker["images"] += 1
+    tracker["pred_components_sum"] += pred_component_count
+
+    if gt_component_count == 0:
+        tracker["authentic_of1_sum"] += image_of1
+        tracker["authentic_images"] += 1
+        tracker["authentic_pred_components_sum"] += pred_component_count
+        if pred_component_count == 0:
+            tracker["authentic_empty_pred_count"] += 1
+        return tracker
+
+    tracker["forged_of1_sum"] += image_of1
+    tracker["forged_images"] += 1
+    tracker["forged_pred_components_sum"] += pred_component_count
+    tracker["forged_gt_components_sum"] += gt_component_count
+    return tracker
+
+
+def build_validation_summary(
+    accumulator: dict[str, float],
+    loss_steps: int,
+    segmentation_metrics: dict[str, float],
+    instance_tracker: dict[str, float | int],
+) -> dict[str, float]:
+    summary = average_metric_accumulator(accumulator, loss_steps)
+    images = max(int(instance_tracker["images"]), 1)
+    authentic_images = max(int(instance_tracker["authentic_images"]), 1)
+    forged_images = max(int(instance_tracker["forged_images"]), 1)
+    summary.update(
+        {
+            "of1": instance_tracker["of1_sum"] / images,
+            "pred_components_per_image": instance_tracker["pred_components_sum"] / images,
+            "authentic_of1": instance_tracker["authentic_of1_sum"] / authentic_images,
+            "authentic_empty_pred_rate": instance_tracker["authentic_empty_pred_count"] / authentic_images,
+            "authentic_pred_components_per_image": instance_tracker["authentic_pred_components_sum"] / authentic_images,
+            "forged_of1": instance_tracker["forged_of1_sum"] / forged_images,
+            "forged_pred_components_per_image": instance_tracker["forged_pred_components_sum"] / forged_images,
+            "forged_gt_components_per_image": instance_tracker["forged_gt_components_sum"] / forged_images,
+            "iou": segmentation_metrics["iou"],
+            "dice": segmentation_metrics["dice"],
+            "pred_positive_rate": segmentation_metrics["pred_positive_rate"],
+            "mask_positive_rate": segmentation_metrics["mask_positive_rate"],
+        }
+    )
+    return summary
+
+
 def write_split_artifacts(output_dir: Path, split_manifest: dict) -> tuple[Path, Path]:
     split_manifest_path = output_dir / "split_manifest.json"
     split_manifest_path.write_text(json.dumps(split_manifest, indent=2), encoding="utf-8")

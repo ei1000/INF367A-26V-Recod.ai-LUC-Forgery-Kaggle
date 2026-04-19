@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from dataset import Datasets, normalize_mask_array, resolve_data_root
+from inference_helpers import load_display_image, safe_prediction_stem
 
 
 @dataclass(frozen=True)
@@ -88,16 +89,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--no-show", action="store_true", help="Skip showing the figure interactively.")
     return parser.parse_args()
-
-
-def safe_prediction_stem(sample_path: str | Path) -> str:
-    path = Path(sample_path)
-    data_root = resolve_data_root().resolve()
-    try:
-        relative = path.resolve().relative_to(data_root)
-        return "__".join(relative.with_suffix("").parts)
-    except ValueError:
-        return path.stem
 
 
 def resolve_optional_path(path: Path | None, fallback: Path) -> Path:
@@ -200,13 +191,6 @@ def filter_records(records: list[PredictionRecord], args: argparse.Namespace) ->
         target_path = resolve_image_path(args.image)
         filtered = [record for record in filtered if record.image_path == target_path]
     return sort_records(filtered, args.sort_by)
-
-
-def load_display_image(path: Path, size: tuple[int, int]) -> np.ndarray:
-    image = Image.open(path).convert("RGB").resize(size[::-1], Image.Resampling.BILINEAR)
-    return np.asarray(image, dtype=np.float32) / 255.0
-
-
 def load_prediction_mask(path: Path) -> np.ndarray:
     mask = np.asarray(Image.open(path).convert("L"), dtype=np.uint8)
     return (mask > 0).astype(np.uint8)

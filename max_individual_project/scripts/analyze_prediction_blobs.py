@@ -14,18 +14,21 @@ import scipy.ndimage
 import scipy.optimize
 import torch
 from matplotlib.patches import Rectangle
-from PIL import Image
 from torchvision.datasets import ImageFolder
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from dataset import Datasets, ForgeryDataset, resolve_data_root, resolve_image_transform, split_indices_by_label
-from feature_extractors.cnn_feature_extractor import PretrainedBackboneExtractor, SingleScaleFeatureExtractor
-from feature_extractors.dino_feature_extractor import PyramidDinoFeatureExtractor, SingleScaleDinoFeatureExtractor
-from feature_extractors.zernike_feature_extractor import PyramidZernikeExtractor, default_pq_list
-from prediction.decoder import DLFDecoder
+from dataset import Datasets, ForgeryDataset, resolve_data_root, split_indices_by_label
+from inference_helpers import (
+    load_display_image,
+    predict_binary_mask,
+    resolve_inference_transform,
+    resolve_runtime_device,
+    restore_feature_branches_from_checkpoint,
+    restore_localization_heads_from_checkpoint,
+)
 from prediction.localization import decode_and_refine_masks, extract_localization_inputs
 from prediction.mask_metrics import (
     binary_mask_to_instances,
@@ -34,9 +37,6 @@ from prediction.mask_metrics import (
     optimal_f1_score,
 )
 from prediction.pixelmaputil_mask import MaskUtil
-from prediction.pixelmaputil_mask import post_process_mask_batch
-from prediction.se_u_net import SEUNet
-from training.checkpointing import load_module_state
 
 
 @dataclass
@@ -99,13 +99,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--image-size", type=int, default=448)
     parser.add_argument("--validation-split", type=float, default=0.1)
     parser.add_argument("--validation-seed", type=int, default=42)
-    parser.add_argument("--feature-backbone", choices=("cnn", "dino", "dino_single"), default="cnn")
+    parser.add_argument("--feature-backbone", choices=("dino", "dino_single"), default="dino_single")
     parser.add_argument("--use-dino-transform", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--dino-model-name", default="dinov2_vits14")
-    parser.add_argument("--dino-proj-dim", type=int, default=64)
-    parser.add_argument("--dino-finetune-blocks", type=int, default=0)
-    parser.add_argument("--cnn-backbone", choices=("simple", "pretrained"), default="pretrained")
-    parser.add_argument("--cnn-pretrained-model", default="vgg16_bn")
     parser.add_argument("--cnn-feature-norm", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--separate-transforms", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--pm-iters", type=int, default=24)
@@ -118,8 +114,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pm-margin-threshold", type=float, default=0.10)
     parser.add_argument("--pm-topk", type=int, default=1)
     parser.add_argument("--pm-reduced-precision", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--dino-match-native-resolution", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--localization-resolution", choices=("image", "feature_grid"), default="image")
+    parser.add_argument("--localization-resolution", choices=("image",), default="image")
     parser.add_argument("--dlf-error-scaling", choices=("none", "log1p", "zscore"), default="log1p")
     parser.add_argument("--post-process-threshold", type=float, default=0.6)
     parser.add_argument("--post-process-confident-threshold", type=float, default=0.9)
@@ -132,15 +127,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto")
     parser.add_argument("--show", action="store_true", help="Display the saved figure after writing it.")
     return parser.parse_args()
-
-
-def choose_transform(args: argparse.Namespace):
-    return resolve_image_transform(
-        feature_backbone=args.feature_backbone,
-        use_dino_transform=args.use_dino_transform,
-        cnn_backbone=args.cnn_backbone,
-        separate_transforms=args.separate_transforms,
-    )
 
 
 def resolve_checkpoint_path(run_dir: Path) -> tuple[Path, Path]:
@@ -157,14 +143,6 @@ def resolve_checkpoint_path(run_dir: Path) -> tuple[Path, Path]:
         return candidate, run_dir
 
     raise FileNotFoundError(f"Could not find best checkpoint under {run_dir}")
-
-
-def resolve_device(args: argparse.Namespace) -> torch.device:
-    if args.device == "cpu":
-        return torch.device("cpu")
-    if args.device == "cuda":
-        return torch.device("cuda")
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def build_sample_records(args: argparse.Namespace, validation_only: bool) -> list[SampleRecord]:
@@ -249,51 +227,20 @@ def select_sample(args: argparse.Namespace) -> SampleRecord:
     return filtered[args.sample_index]
 
 
-def build_feature_extractors(args: argparse.Namespace, device: torch.device):
-    # `feature_backbone` is a historical name here: it only selects which frozen
-    # DINO extractor feeds the refinement branch, not the PatchMatch branch.
-    dino_extractor_cls = PyramidDinoFeatureExtractor if args.feature_backbone == "dino" else SingleScaleDinoFeatureExtractor
-    dino_extractor = dino_extractor_cls(
-        model_name=args.dino_model_name,
-        freeze=True,
-        finetune_blocks=0,
-        normalize_input=True if args.separate_transforms else not args.use_dino_transform,
-        proj_dim=None,
-        upsample_to_input=False,
-    ).to(device)
-    # PatchMatch descriptors stay fixed to frozen ResNet18 features plus Zernike.
-    pm_backbone = SingleScaleFeatureExtractor(
-        backbone=PretrainedBackboneExtractor(
-            model_name="resnet18",
-            out_dim=32,
-            freeze=True,
-        ),
-        upsample_to_input=True,
-    ).to(device)
-
-    pq_list = default_pq_list(max_order=5)
-    pyramid_zm = PyramidZernikeExtractor(pq_list, kernel_size=13).to(device)
-    pm_backbone.eval()
-    dino_extractor.eval()
-    pyramid_zm.eval()
-    return pm_backbone, dino_extractor, pyramid_zm
-
-
 def load_single_sample(record: SampleRecord, args: argparse.Namespace):
     dataset = ForgeryDataset(
         samples=[(record.path, record.label)],
         mask_dir=record.mask_dir,
         size=args.image_size,
-        transform=choose_transform(args),
+        transform=resolve_inference_transform(
+            feature_backbone=args.feature_backbone,
+            use_dino_transform=args.use_dino_transform,
+            separate_transforms=args.separate_transforms,
+        ),
         return_path=True,
     )
     image, mask, label, image_path = dataset[0]
     return image.unsqueeze(0), mask.unsqueeze(0), torch.tensor([label]), image_path
-
-
-def load_display_image(path: Path, image_size: int) -> np.ndarray:
-    image = Image.open(path).convert("RGB").resize((image_size, image_size), Image.Resampling.BILINEAR)
-    return np.asarray(image, dtype=np.float32) / 255.0
 
 
 def component_bbox(mask: np.ndarray) -> list[int]:
@@ -526,24 +473,24 @@ def main() -> None:
     args = parse_args()
     checkpoint_path, run_dir = resolve_checkpoint_path(args.run_dir)
     output_dir = args.output_dir.resolve() if args.output_dir is not None else (run_dir / "blob_analysis")
-    device = resolve_device(args)
+    device = resolve_runtime_device(args.device)
 
     sample = select_sample(args)
-    images, masks, labels, image_path = load_single_sample(sample, args)
+    images, masks, _labels, image_path = load_single_sample(sample, args)
     display_image = load_display_image(sample.path, args.image_size)
     images = images.to(device)
     masks = masks.to(device=device, dtype=torch.float32)
-    labels = labels.to(device)
 
     checkpoint = torch.load(checkpoint_path, map_location=device)
 
-    pm_backbone, dino_extractor, pyramid_zm = build_feature_extractors(args, device)
-    if "pm_backbone" in checkpoint:
-        load_module_state(pm_backbone, checkpoint["pm_backbone"], "pm_backbone")
-    if "dino_extractor" in checkpoint:
-        load_module_state(dino_extractor, checkpoint["dino_extractor"], "dino_extractor")
-    elif "pyramid_bb" in checkpoint:
-        load_module_state(dino_extractor, checkpoint["pyramid_bb"], "dino_extractor")
+    pm_backbone, dino_extractor, pyramid_zm = restore_feature_branches_from_checkpoint(
+        checkpoint,
+        device=device,
+        feature_backbone=args.feature_backbone,
+        dino_model_name=args.dino_model_name,
+        separate_transforms=args.separate_transforms,
+        use_dino_transform=args.use_dino_transform,
+    )
 
     with torch.no_grad():
         cnn_errors, zernike_errors, cnn_branch_result, zernike_branch_result, dino_features, _ = extract_localization_inputs(
@@ -568,19 +515,12 @@ def main() -> None:
             collect_stats=False,
         )
 
-        dlf_decoder = DLFDecoder(
-            num_error_maps=cnn_errors.shape[1],
-        ).to(device)
-        load_module_state(dlf_decoder, checkpoint["dlf_decoder"], "dlf_decoder")
-        dlf_decoder.eval()
-
-        se_model = SEUNet(
-            in_channels=dino_features.shape[1],
-            out_channels=1,
-            final_activation="sigmoid",
-        ).to(device)
-        load_module_state(se_model, checkpoint["se_model"], "se_model")
-        se_model.eval()
+        dlf_decoder, se_model = restore_localization_heads_from_checkpoint(
+            checkpoint,
+            cnn_errors=cnn_errors,
+            dino_features=dino_features,
+            device=device,
+        )
 
         refined_mask, target_map, dlf_map = decode_and_refine_masks(
             images=images,
@@ -598,20 +538,18 @@ def main() -> None:
         se_probs = target_map.squeeze(0).squeeze(0).detach().cpu().numpy().astype(np.float32)
         dlf_probs = dlf_map.squeeze(0).squeeze(0).detach().cpu().numpy().astype(np.float32)
 
-        if args.disable_post_process:
-            pred_mask = (refined_probs >= args.raw_threshold).astype(np.uint8)
-        else:
-            util = MaskUtil()
-            pred_mask = post_process_mask_batch(
-                refined_mask.squeeze(1),
-                util,
-                threshold=args.post_process_threshold,
-                confident_threshold=args.post_process_confident_threshold,
-                min_component_area=args.post_process_min_component_area,
-                smooth_probabilities=args.post_process_smooth_probabilities,
-                fill_holes=args.post_process_fill_holes,
-                apply_closing=args.post_process_apply_closing,
-            )[0].cpu().numpy().astype(np.uint8)
+        pred_mask = predict_binary_mask(
+            refined_mask,
+            disable_post_process=args.disable_post_process,
+            raw_threshold=args.raw_threshold,
+            post_process_threshold=args.post_process_threshold,
+            post_process_confident_threshold=args.post_process_confident_threshold,
+            post_process_min_component_area=args.post_process_min_component_area,
+            post_process_smooth_probabilities=args.post_process_smooth_probabilities,
+            post_process_fill_holes=args.post_process_fill_holes,
+            post_process_apply_closing=args.post_process_apply_closing,
+            util=MaskUtil(),
+        )[0].cpu().numpy().astype(np.uint8)
 
     mask_dir_by_sample = {image_path: sample.mask_dir}
     gt_instances = load_resized_gt_instances(

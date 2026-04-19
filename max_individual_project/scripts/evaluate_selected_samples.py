@@ -21,33 +21,33 @@ from dataset import (
     Datasets,
     normalize_mask_array,
     resolve_data_root,
-    resolve_image_transform,
 )
-from feature_extractors.cnn_feature_extractor import (
-    PretrainedBackboneExtractor,
-    SingleScaleFeatureExtractor,
+from inference_helpers import (
+    predict_binary_mask,
+    resolve_inference_transform,
+    resolve_runtime_device,
+    restore_feature_branches_from_checkpoint,
+    restore_localization_heads_from_checkpoint,
+    safe_prediction_stem,
 )
-from feature_extractors.dino_feature_extractor import (
-    PyramidDinoFeatureExtractor,
-    SingleScaleDinoFeatureExtractor,
-)
-from feature_extractors.zernike_feature_extractor import (
-    PyramidZernikeExtractor,
-    default_pq_list,
-)
-from prediction.decoder import DLFDecoder
 from prediction.localization import decode_and_refine_masks, extract_localization_inputs
 from prediction.mask_metrics import (
     binary_mask_to_instances,
+    initialize_segmentation_counts,
     load_resized_gt_instances,
     optimal_f1_score,
     summarize_segmentation_counts,
     update_segmentation_counts,
 )
-from prediction.pixelmaputil_mask import MaskUtil, post_process_mask_batch
-from prediction.se_u_net import SEUNet
-from training.checkpointing import load_module_state
+from prediction.pixelmaputil_mask import MaskUtil
 from training.losses import localization_loss_terms, summarize_branch_activity
+from training.metrics_logging import (
+    build_validation_summary,
+    initialize_instance_metric_tracker,
+    initialize_metric_accumulator,
+    update_instance_metric_tracker,
+    update_metric_accumulator,
+)
 
 
 @dataclass(frozen=True)
@@ -180,23 +180,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def choose_transform(args: argparse.Namespace):
-    return resolve_image_transform(
-        feature_backbone=args.feature_backbone,
-        use_dino_transform=args.use_dino_transform,
-        cnn_backbone="pretrained",
-        separate_transforms=args.separate_transforms,
-    )
-
-
-def resolve_device(args: argparse.Namespace) -> torch.device:
-    if args.device == "cpu":
-        return torch.device("cpu")
-    if args.device == "cuda":
-        return torch.device("cuda")
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
 def resolve_checkpoint_path(run_dir: Path, checkpoint_override: Path | None) -> Path:
     if checkpoint_override is not None:
         return checkpoint_override.resolve()
@@ -273,69 +256,6 @@ def load_selected_samples(
     return records
 
 
-def build_feature_extractors(args: argparse.Namespace, device: torch.device):
-    # `feature_backbone` is a historical name here: it only selects which frozen
-    # DINO extractor feeds the refinement branch, not the PatchMatch branch.
-    dino_extractor_cls = (
-        PyramidDinoFeatureExtractor if args.feature_backbone == "dino" else SingleScaleDinoFeatureExtractor
-    )
-    dino_extractor = dino_extractor_cls(
-        model_name=args.dino_model_name,
-        freeze=True,
-        finetune_blocks=0,
-        normalize_input=True if args.separate_transforms else not args.use_dino_transform,
-        proj_dim=None,
-        upsample_to_input=False,
-    ).to(device)
-    # PatchMatch descriptors stay fixed to frozen ResNet18 features plus Zernike.
-    pm_backbone = SingleScaleFeatureExtractor(
-        backbone=PretrainedBackboneExtractor(
-            model_name="resnet18",
-            out_dim=32,
-            freeze=True,
-        ),
-        upsample_to_input=True,
-    ).to(device)
-    pq_list = default_pq_list(max_order=5)
-    pyramid_zm = PyramidZernikeExtractor(pq_list, kernel_size=13).to(device)
-    pm_backbone.eval()
-    dino_extractor.eval()
-    pyramid_zm.eval()
-    return pm_backbone, dino_extractor, pyramid_zm
-
-
-def ensure_module_loaded(module, state_dict: dict[str, torch.Tensor], module_name: str) -> None:
-    if not load_module_state(module, state_dict, module_name):
-        raise RuntimeError(f"Failed to fully restore {module_name} from checkpoint.")
-
-
-def build_models_from_checkpoint(
-    checkpoint: dict[str, object],
-    args: argparse.Namespace,
-    device: torch.device,
-):
-    pm_backbone, dino_extractor, pyramid_zm = build_feature_extractors(args, device)
-    ensure_module_loaded(pm_backbone, checkpoint["pm_backbone"], "pm_backbone")
-    if "dino_extractor" in checkpoint:
-        ensure_module_loaded(dino_extractor, checkpoint["dino_extractor"], "dino_extractor")
-    elif "pyramid_bb" in checkpoint:
-        ensure_module_loaded(dino_extractor, checkpoint["pyramid_bb"], "dino_extractor")
-    else:
-        raise KeyError("Checkpoint is missing dino_extractor/pyramid_bb weights.")
-
-    return pm_backbone, dino_extractor, pyramid_zm
-
-
-def safe_prediction_stem(sample_path: str) -> str:
-    path = Path(sample_path)
-    data_root = resolve_data_root().resolve()
-    try:
-        relative = path.resolve().relative_to(data_root)
-        return "__".join(relative.with_suffix("").parts)
-    except ValueError:
-        return path.stem
-
-
 def save_prediction_png(predictions_dir: Path, sample_path: str, pred_mask: np.ndarray) -> None:
     output_path = predictions_dir / f"{safe_prediction_stem(sample_path)}.png"
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -360,7 +280,7 @@ def main() -> None:
     if not records:
         raise RuntimeError(f"No samples found in {samples_file}")
 
-    device = resolve_device(args)
+    device = resolve_runtime_device(args.device)
     print(f"[heldout-eval] Using device: {device}")
     print(f"[heldout-eval] Checkpoint: {checkpoint_path}")
     print(f"[heldout-eval] Samples file: {samples_file}")
@@ -369,7 +289,11 @@ def main() -> None:
     dataset = SelectedSamplesDataset(
         records=records,
         image_size=args.image_size,
-        transform=choose_transform(args),
+        transform=resolve_inference_transform(
+            feature_backbone=args.feature_backbone,
+            use_dino_transform=args.use_dino_transform,
+            separate_transforms=args.separate_transforms,
+        ),
     )
     loader = DataLoader(
         dataset,
@@ -380,10 +304,13 @@ def main() -> None:
     )
 
     checkpoint = torch.load(checkpoint_path, map_location=device)
-    pm_backbone, dino_extractor, pyramid_zm = build_models_from_checkpoint(
+    pm_backbone, dino_extractor, pyramid_zm = restore_feature_branches_from_checkpoint(
         checkpoint=checkpoint,
-        args=args,
         device=device,
+        feature_backbone=args.feature_backbone,
+        dino_model_name=args.dino_model_name,
+        separate_transforms=args.separate_transforms,
+        use_dino_transform=args.use_dino_transform,
     )
 
     dlf_decoder = None
@@ -392,37 +319,10 @@ def main() -> None:
     mask_dir_by_sample = {str(record.path): record.mask_dir for record in records}
     dataset_name_by_sample = {str(record.path): record.dataset_name for record in records}
 
-    val_loss_sum = 0.0
-    val_ldfm_sum = 0.0
-    val_lmrd_sum = 0.0
-    val_mprime_loss_sum = 0.0
-    val_empty_target_loss_sum = 0.0
-    val_empty_refined_loss_sum = 0.0
-    val_empty_target_map_loss_sum = 0.0
-    val_empty_mprime_map_loss_sum = 0.0
-    val_mprime_positive_rate_sum = 0.0
-    val_mprime_wins_rate_sum = 0.0
-    val_target_positive_rate_sum = 0.0
+    val_accumulator = initialize_metric_accumulator()
     val_loss_steps = 0
-    val_counts = {
-        "tp": 0,
-        "fp": 0,
-        "fn": 0,
-        "pred_pos": 0,
-        "mask_pos": 0,
-        "pixels": 0,
-    }
-    val_of1_sum = 0.0
-    val_images = 0
-    val_pred_components_sum = 0
-    val_authentic_of1_sum = 0.0
-    val_authentic_images = 0
-    val_authentic_empty_pred_count = 0
-    val_authentic_pred_components_sum = 0
-    val_forged_of1_sum = 0.0
-    val_forged_images = 0
-    val_forged_pred_components_sum = 0
-    val_forged_gt_components_sum = 0
+    val_counts = initialize_segmentation_counts()
+    val_instance_tracker = initialize_instance_metric_tracker()
     per_sample_records: list[dict[str, object]] = []
 
     start_time = time.perf_counter()
@@ -457,19 +357,12 @@ def main() -> None:
             )
 
             if dlf_decoder is None or se_model is None:
-                dlf_decoder = DLFDecoder(
-                    num_error_maps=cnn_errors.shape[1],
-                ).to(device)
-                ensure_module_loaded(dlf_decoder, checkpoint["dlf_decoder"], "dlf_decoder")
-                dlf_decoder.eval()
-
-                se_model = SEUNet(
-                    in_channels=dino_features.shape[1],
-                    out_channels=1,
-                    final_activation="sigmoid",
-                ).to(device)
-                ensure_module_loaded(se_model, checkpoint["se_model"], "se_model")
-                se_model.eval()
+                dlf_decoder, se_model = restore_localization_heads_from_checkpoint(
+                    checkpoint,
+                    cnn_errors=cnn_errors,
+                    dino_features=dino_features,
+                    device=device,
+                )
 
             refined_mask, target_map, dlf_map = decode_and_refine_masks(
                 images=images,
@@ -501,37 +394,38 @@ def main() -> None:
                 empty_target_penalty_weight=args.empty_target_penalty_weight,
             )
             branch_stats = summarize_branch_activity(dlf_map, target_map)
-            val_loss_sum += val_loss.item()
-            val_ldfm_sum += val_ldfm.item()
-            val_lmrd_sum += val_lmrd.item()
-            val_mprime_loss_sum += val_mprime_loss.item()
-            val_empty_target_loss_sum += val_empty_target_loss.item()
-            val_empty_refined_loss_sum += val_empty_refined_loss.item()
-            val_empty_target_map_loss_sum += val_empty_target_map_loss.item()
-            val_empty_mprime_map_loss_sum += val_empty_mprime_map_loss.item()
-            val_mprime_positive_rate_sum += branch_stats["mprime_positive_rate"]
-            val_mprime_wins_rate_sum += branch_stats["mprime_wins_rate"]
-            val_target_positive_rate_sum += branch_stats["target_positive_rate"]
+            update_metric_accumulator(
+                val_accumulator,
+                (
+                    val_loss,
+                    val_ldfm,
+                    val_lmrd,
+                    val_mprime_loss,
+                    val_empty_target_loss,
+                    val_empty_refined_loss,
+                    val_empty_target_map_loss,
+                    val_empty_mprime_map_loss,
+                ),
+                branch_stats,
+            )
             val_loss_steps += 1
 
-            mask_probs = refined_mask.squeeze(1)
-            if args.disable_post_process:
-                mask_preds = (mask_probs >= args.raw_threshold).long()
-            else:
-                mask_preds = post_process_mask_batch(
-                    mask_probs,
-                    util,
-                    threshold=args.post_process_threshold,
-                    confident_threshold=args.post_process_confident_threshold,
-                    min_component_area=args.post_process_min_component_area,
-                    smooth_probabilities=args.post_process_smooth_probabilities,
-                    fill_holes=args.post_process_fill_holes,
-                    apply_closing=args.post_process_apply_closing,
-                )
+            mask_preds = predict_binary_mask(
+                refined_mask,
+                disable_post_process=args.disable_post_process,
+                raw_threshold=args.raw_threshold,
+                post_process_threshold=args.post_process_threshold,
+                post_process_confident_threshold=args.post_process_confident_threshold,
+                post_process_min_component_area=args.post_process_min_component_area,
+                post_process_smooth_probabilities=args.post_process_smooth_probabilities,
+                post_process_fill_holes=args.post_process_fill_holes,
+                post_process_apply_closing=args.post_process_apply_closing,
+                util=util,
+            )
 
             update_segmentation_counts(mask_preds, masks.long(), val_counts)
 
-            refined_probs_np = mask_probs.cpu().numpy().astype(np.float32)
+            refined_probs_np = refined_mask.squeeze(1).cpu().numpy().astype(np.float32)
             target_probs_np = target_map.squeeze(1).cpu().numpy().astype(np.float32)
             dlf_probs_np = dlf_map.squeeze(1).cpu().numpy().astype(np.float32)
             pred_masks_np = mask_preds.cpu().numpy().astype(np.uint8)
@@ -549,21 +443,12 @@ def main() -> None:
                 gt_component_count = len(gt_instances)
                 is_forged = gt_component_count > 0
 
-                val_of1_sum += image_of1
-                val_images += 1
-                val_pred_components_sum += pred_component_count
-
-                if is_forged:
-                    val_forged_of1_sum += image_of1
-                    val_forged_images += 1
-                    val_forged_pred_components_sum += pred_component_count
-                    val_forged_gt_components_sum += gt_component_count
-                else:
-                    val_authentic_of1_sum += image_of1
-                    val_authentic_images += 1
-                    val_authentic_pred_components_sum += pred_component_count
-                    if pred_component_count == 0:
-                        val_authentic_empty_pred_count += 1
+                update_instance_metric_tracker(
+                    val_instance_tracker,
+                    image_of1=image_of1,
+                    pred_component_count=pred_component_count,
+                    gt_component_count=gt_component_count,
+                )
 
                 per_sample_records.append(
                     {
@@ -586,7 +471,7 @@ def main() -> None:
 
             if args.log_every > 0 and (batch_idx % args.log_every == 0 or batch_idx == len(loader)):
                 processed = min(batch_idx * args.batch_size, len(records))
-                avg_of1 = val_of1_sum / max(val_images, 1)
+                avg_of1 = val_instance_tracker["of1_sum"] / max(int(val_instance_tracker["images"]), 1)
                 print(
                     f"[heldout-eval] batch {batch_idx}/{len(loader)} "
                     f"processed={processed}/{len(records)} "
@@ -597,25 +482,12 @@ def main() -> None:
     total_seconds = time.perf_counter() - start_time
 
     val_metrics = summarize_segmentation_counts(val_counts)
-    val_mean_loss = val_loss_sum / max(val_loss_steps, 1)
-    val_mean_ldfm = val_ldfm_sum / max(val_loss_steps, 1)
-    val_mean_lmrd = val_lmrd_sum / max(val_loss_steps, 1)
-    val_mean_mprime_loss = val_mprime_loss_sum / max(val_loss_steps, 1)
-    val_mean_empty_target_loss = val_empty_target_loss_sum / max(val_loss_steps, 1)
-    val_mean_empty_refined_loss = val_empty_refined_loss_sum / max(val_loss_steps, 1)
-    val_mean_empty_target_map_loss = val_empty_target_map_loss_sum / max(val_loss_steps, 1)
-    val_mean_empty_mprime_map_loss = val_empty_mprime_map_loss_sum / max(val_loss_steps, 1)
-    val_mean_mprime_positive_rate = val_mprime_positive_rate_sum / max(val_loss_steps, 1)
-    val_mean_mprime_wins_rate = val_mprime_wins_rate_sum / max(val_loss_steps, 1)
-    val_mean_target_positive_rate = val_target_positive_rate_sum / max(val_loss_steps, 1)
-    val_mean_of1 = val_of1_sum / max(val_images, 1)
-    val_mean_pred_components = val_pred_components_sum / max(val_images, 1)
-    val_mean_authentic_of1 = val_authentic_of1_sum / max(val_authentic_images, 1)
-    val_mean_authentic_pred_components = val_authentic_pred_components_sum / max(val_authentic_images, 1)
-    val_authentic_empty_pred_rate = val_authentic_empty_pred_count / max(val_authentic_images, 1)
-    val_mean_forged_of1 = val_forged_of1_sum / max(val_forged_images, 1)
-    val_mean_forged_pred_components = val_forged_pred_components_sum / max(val_forged_images, 1)
-    val_mean_forged_gt_components = val_forged_gt_components_sum / max(val_forged_images, 1)
+    val_summary = build_validation_summary(
+        val_accumulator,
+        val_loss_steps,
+        val_metrics,
+        val_instance_tracker,
+    )
 
     summary = {
         "checkpoint_path": str(checkpoint_path),
@@ -624,8 +496,8 @@ def main() -> None:
         "split_manifest": str(split_manifest_path) if split_manifest_path.exists() else None,
         "sample_counts": {
             "total": len(records),
-            "authentic": val_authentic_images,
-            "forged": val_forged_images,
+            "authentic": int(val_instance_tracker["authentic_images"]),
+            "forged": int(val_instance_tracker["forged_images"]),
         },
         "config": {
             "image_size": args.image_size,
@@ -656,29 +528,29 @@ def main() -> None:
             "save_predictions": args.save_predictions,
         },
         "metrics": {
-            "val_loss": val_mean_loss,
-            "val_ldfm": val_mean_ldfm,
-            "val_lmrd": val_mean_lmrd,
-            "val_mprime_loss": val_mean_mprime_loss,
-            "val_empty_target_loss": val_mean_empty_target_loss,
-            "val_empty_refined_loss": val_mean_empty_refined_loss,
-            "val_empty_target_map_loss": val_mean_empty_target_map_loss,
-            "val_empty_mprime_map_loss": val_mean_empty_mprime_map_loss,
-            "val_mprime_positive_rate": val_mean_mprime_positive_rate,
-            "val_mprime_wins_rate": val_mean_mprime_wins_rate,
-            "val_target_positive_rate": val_mean_target_positive_rate,
-            "val_of1": val_mean_of1,
-            "val_pred_components_per_image": val_mean_pred_components,
-            "val_authentic_of1": val_mean_authentic_of1,
-            "val_authentic_empty_pred_rate": val_authentic_empty_pred_rate,
-            "val_authentic_pred_components_per_image": val_mean_authentic_pred_components,
-            "val_forged_of1": val_mean_forged_of1,
-            "val_forged_pred_components_per_image": val_mean_forged_pred_components,
-            "val_forged_gt_components_per_image": val_mean_forged_gt_components,
-            "val_iou": val_metrics["iou"],
-            "val_dice": val_metrics["dice"],
-            "val_pred_positive_rate": val_metrics["pred_positive_rate"],
-            "val_mask_positive_rate": val_metrics["mask_positive_rate"],
+            "val_loss": val_summary["loss"],
+            "val_ldfm": val_summary["ldfm"],
+            "val_lmrd": val_summary["lmrd"],
+            "val_mprime_loss": val_summary["mprime_loss"],
+            "val_empty_target_loss": val_summary["empty_target_loss"],
+            "val_empty_refined_loss": val_summary["empty_refined_loss"],
+            "val_empty_target_map_loss": val_summary["empty_target_map_loss"],
+            "val_empty_mprime_map_loss": val_summary["empty_mprime_map_loss"],
+            "val_mprime_positive_rate": val_summary["mprime_positive_rate"],
+            "val_mprime_wins_rate": val_summary["mprime_wins_rate"],
+            "val_target_positive_rate": val_summary["target_positive_rate"],
+            "val_of1": val_summary["of1"],
+            "val_pred_components_per_image": val_summary["pred_components_per_image"],
+            "val_authentic_of1": val_summary["authentic_of1"],
+            "val_authentic_empty_pred_rate": val_summary["authentic_empty_pred_rate"],
+            "val_authentic_pred_components_per_image": val_summary["authentic_pred_components_per_image"],
+            "val_forged_of1": val_summary["forged_of1"],
+            "val_forged_pred_components_per_image": val_summary["forged_pred_components_per_image"],
+            "val_forged_gt_components_per_image": val_summary["forged_gt_components_per_image"],
+            "val_iou": val_summary["iou"],
+            "val_dice": val_summary["dice"],
+            "val_pred_positive_rate": val_summary["pred_positive_rate"],
+            "val_mask_positive_rate": val_summary["mask_positive_rate"],
         },
         "runtime": {
             "total_seconds": total_seconds,
@@ -695,11 +567,11 @@ def main() -> None:
 
     print(
         "[heldout-eval] "
-        f"val_loss={val_mean_loss:.4f} "
-        f"val_oF1={val_mean_of1:.4f} "
-        f"auth_oF1={val_mean_authentic_of1:.4f} "
-        f"forged_oF1={val_mean_forged_of1:.4f} "
-        f"pred_pos={val_metrics['pred_positive_rate']:.4%}"
+        f"val_loss={val_summary['loss']:.4f} "
+        f"val_oF1={val_summary['of1']:.4f} "
+        f"auth_oF1={val_summary['authentic_of1']:.4f} "
+        f"forged_oF1={val_summary['forged_of1']:.4f} "
+        f"pred_pos={val_summary['pred_positive_rate']:.4%}"
     )
     print(f"[heldout-eval] summary={summary_path}")
     print(f"[heldout-eval] per_sample={per_sample_path}")

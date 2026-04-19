@@ -9,6 +9,17 @@ import torch
 import torch.nn.functional as F
 
 
+def initialize_segmentation_counts() -> dict[str, int]:
+    return {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "pred_pos": 0,
+        "mask_pos": 0,
+        "pixels": 0,
+    }
+
+
 def update_segmentation_counts(preds: torch.Tensor, masks: torch.Tensor, counts: dict[str, int]):
     preds_fg = preds == 1
     masks_fg = masks == 1
