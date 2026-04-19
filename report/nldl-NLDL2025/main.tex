@@ -116,7 +116,7 @@ To perform feature extraction on the images, we employ Meta AI's powerful DINOv2
 \subsection{Decoder}
 In order to create the predicted pixel mask, we employ a small decoder model on the generated DINOv2 feature map. The decoder we utilize contains three blocks and an output layer, before outputting the generated mask interpolated to output size using bilinear interpolation. 
 \\\\
-The first two blocks of the decoder apply convolutions to bring the dimensionality from $768 \to 384 \to 192$ while also applying \emph{ReLU} and \emph{Dropout} with $p=0.1$ operations in each block. Then in the third block a convolution from $192 \to 96$ is applied before a final \emph{ReLU} and the output layer $96 \to 1$ which gives the predicted mask. 
+The first two blocks of the decoder apply convolutions to bring the dimensionality from $768 \to 384 \to 192$ while also applying \emph{ReLU} and \emph{Dropout} with $p=0.1$ operations in each block. In the third block, a convolution from $192 \to 96$ is applied before a final \emph{ReLU} and the output layer $96 \to 1$, giving the predicted mask. 
 \subsection{Mask post-processing}
 
 To post-process masks, we applied the following operations to an input map of forged pixel probabilities:
@@ -149,6 +149,16 @@ One issue with this task is loss function misalignment. Although cross-entropy l
 Although beyond the scope of this project, an interesting avenue for future research could be to create a differentiable loss more directly linked to the OF1 objective. As surrogates, we did employ additionally loss penalties for any forged pixels predicted on authentic images, but a more nuanced alternative would be interesting to experiment with.
 \\\\
 Because of this mismatch, model performance is very sensitive to the operations performed in mask post-processing. We see experimenting with other post-processing techniques as a promising direction for future work.
+\\\\
+We attribute some of the difficulty of the task to qualities of the dataset. Often, authentic images containing very similar objects, increasing the probability of a model predicting false positives.
+
+\begin{figure}[tb]
+	\centering
+	\includegraphics[width=\linewidth]{patchmatch_bad_dataset_example.png}
+	\caption{An authentic image containing very similar objects.}
+	\label{fig:sample}
+\end{figure}
+
 \subsection{Deep Cross-Scale PatchMatch}
 The Deep Cross-Scale PatchMatch architecture was proposed by Li \etal in 2024. \cites{li2024deeppatchmatch} It is an end-to-end differentiable deep-learning based architecture where one branch employs the patch match algorithm presented by Barnes \etal in 2009 \cites{barnes2009patchmatch} on different scales of each image in order to attain pixel similarities and offsets from each pixel to it's most similar pixel. The second branch runs a direct feature extraction $\to$ prediction process. Finally, the predictions of the two branches are combined through an argmax operation. The architecture supports three-channel CMFD, but is adapted to the single-channel CMFD by only using the top branch. Our implementation has some differences from the version by Li \etal. This is partly due to practical concerns, and partly due to ambiguity or lack of detail in the paper regarding specific implementation details.
 \\\\
@@ -158,10 +168,15 @@ In the original paper, dice losses for the final combined mask $M$ and for the S
 \\\\
 The main weaknesses of this architecture are in runtime and memory consumption. The runtime is particularly dependent on the number of PatchMatch iterations which are performed. This module recurrently executes the propagation and evaluation layers "several times" \cite[p.~7]{li2024deeppatchmatch}. It is not clear how many iterations the authors employed, but in order to attain decent offsets, we found that a suitable amount was $24$ iterations. Using this amount of iterations, PatchMatch on a single image takes $~4$s on an NVIDIA RTX 4070 TI Super GPU, while other components of the network take less than $0.1s$ to run.
 \\\\
-The final performance we were able to achieve on the hold-out test-set using this method was TODO. We assess that several factors contributed to the worse performance of this architecture. Firstly, the forged images in the dataset often contain the same object copied multiple times (TODO: EXAMPLE). As each pixel only keeps it's most similar offset in the PatchMatch branch, this means that any object which is copied more than once risks unstable performance within this branch, as pixels within the same object may be matched to pixels within different copied instances, causing high DLF errors and a poor signal to the decoder. An improved implementation for future work could for instance experiment keeping the top-k matches per pixel instead of only one. In contrast, this is not an issue for purely feature-extraction based approaches such as our main pipeline.
+The final performance we were able to achieve on the hold-out test-set using this method was an OF1 score of $0.21$. We assess that several factors contributed to the worse performance of this architecture. Firstly, the forged images in the dataset often contain the same object copied multiple times (TODO: EXAMPLE). As each pixel only keeps it's most similar offset in the PatchMatch branch, this means that any object which is copied more than once risks unstable performance within this branch, as pixels within the same object may be matched to pixels within different copied instances, causing high DLF errors and a poor signal to the decoder. An improved implementation for future work could for instance experiment keeping the top-k matches per pixel instead of only one. In contrast, this is not an issue for purely feature-extraction based approaches such as our main pipeline.
 \\\\
-PatchMatch's reliance on finding groups of pixels with high feature similarity may have some other fundamental issues in regards to this particular dataset. In the paper, the architecture trains on a training set generated from MS COCO \cites{lin2014coco} by applying a random copy-move, rotation and scaling operation to a random area. It is then evaluated on a synthetic dataset generated in the same way as well as CASIA CMFD, CoMoFoD and CMH \cites{dong2013casia, tralic2013comofo, silva2015copy}. The common denominator for these datasets is that they feature photo-realistic images with varied objects and backgrounds. This means that there is natural variation in the qualities of pixels (for instance, they do not feature a consistent single-colour background) in contrast to many of the scientific images, which are dark, or figures containing a consistent background in which many false positives are generated from pixel-wise similarities. 
-\\\\
+PatchMatch's reliance on finding groups of pixels with high feature similarity may have some other fundamental issues in regards to this particular dataset. In the paper, the architecture trains on a training set generated from MS COCO \cites{lin2014coco} by applying a random copy-move, rotation and scaling operation to a random area. It is then evaluated on a synthetic dataset generated in the same way as well as CASIA CMFD, CoMoFoD and CMH \cites{dong2013casia, tralic2013comofo, silva2015copy}. The common denominator for these datasets is that they feature photo-realistic images with varied objects and backgrounds. This means that there is natural variation in the qualities of pixels (for instance, they do not feature a consistent single-colour background) in contrast to many of the scientific images, which are dark, or figures containing a consistent background in which many false positives are generated from pixel-wise similarities.  We also observed some issues with 
+\begin{figure}[tb]
+	\centering
+	\includegraphics[width=\linewidth]{patchmatch_bad_dataset_example.png}
+	\caption{A forged image containing multiple false positive predictions. Some seem to be due to text replication, while the connected area near the middle of the image is negatively affected by mask post-processing.}
+	\label{fig:sample}
+\end{figure}
 \subsection{BusterNet}
 TODO: BusterNet Comments
 
