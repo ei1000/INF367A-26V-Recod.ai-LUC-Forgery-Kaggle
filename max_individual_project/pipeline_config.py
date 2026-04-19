@@ -51,7 +51,7 @@ class PipelineConfig:
     post_process_smooth_probabilities: bool = False
     post_process_fill_holes: bool = True
     post_process_apply_closing: bool = False
-    post_process_min_component_area: int = 0
+    post_process_min_component_area: int = 512
 
     def with_overrides(self, **overrides) -> "PipelineConfig":
         if not overrides:

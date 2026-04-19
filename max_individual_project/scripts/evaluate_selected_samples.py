@@ -169,7 +169,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--empty-target-penalty-weight", type=float, default=0.25)
     parser.add_argument("--post-process-threshold", type=float, default=0.6)
     parser.add_argument("--post-process-confident-threshold", type=float, default=0.9)
-    parser.add_argument("--post-process-min-component-area", type=int, default=32)
+    parser.add_argument("--post-process-min-component-area", type=int, default=128)
     parser.add_argument("--post-process-fill-holes", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--post-process-apply-closing", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--post-process-smooth-probabilities", action=argparse.BooleanOptionalAction, default=False)
