@@ -218,3 +218,5 @@ __pycache__/
 # Max cache
 /artifacts
 /max_individual_project/artifacts
+docs/DINO_IMPLEMENTATION_PLAN.md
+docs/REFACTOR_PLAN.md
