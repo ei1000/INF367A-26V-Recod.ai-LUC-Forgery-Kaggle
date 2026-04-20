@@ -9,6 +9,10 @@ import torch.nn.functional as F
 from max_individual_project.datatypes import DLFDecoderInput
 from max_individual_project.pipeline_helpers import build_patchmatch_feature_branch, build_patchmatch_head
 from max_individual_project.prediction.localization import extract_localization_inputs
+from max_individual_project.prediction.pixelmaputil_mask import (
+    MaskUtil as PatchMatchMaskUtil,
+    post_process_mask_batch,
+)
 from max_individual_project.training.checkpointing import load_module_state
 from models.dino_segmenter import DinoSegmenter
 
@@ -46,6 +50,13 @@ class CombinedBaselineModel(nn.Module):
         pm_topk: int,
         pm_reduced_precision: bool,
         dlf_error_scaling: str = "log1p",
+        patchmatch_pre_fusion_postprocess: bool = True,
+        patchmatch_pre_fusion_threshold: float = 0.6,
+        patchmatch_pre_fusion_confident_threshold: float | None = 0.9,
+        patchmatch_pre_fusion_min_component_area: int = 512,
+        patchmatch_pre_fusion_smooth_probabilities: bool = False,
+        patchmatch_pre_fusion_fill_holes: bool = True,
+        patchmatch_pre_fusion_apply_closing: bool = True,
     ):
         super().__init__()
         self.runtime_device = device
@@ -62,6 +73,13 @@ class CombinedBaselineModel(nn.Module):
         self.pm_topk = pm_topk
         self.pm_reduced_precision = pm_reduced_precision
         self.dlf_error_scaling = dlf_error_scaling
+        self.patchmatch_pre_fusion_postprocess = patchmatch_pre_fusion_postprocess
+        self.patchmatch_pre_fusion_threshold = patchmatch_pre_fusion_threshold
+        self.patchmatch_pre_fusion_confident_threshold = patchmatch_pre_fusion_confident_threshold
+        self.patchmatch_pre_fusion_min_component_area = patchmatch_pre_fusion_min_component_area
+        self.patchmatch_pre_fusion_smooth_probabilities = patchmatch_pre_fusion_smooth_probabilities
+        self.patchmatch_pre_fusion_fill_holes = patchmatch_pre_fusion_fill_holes
+        self.patchmatch_pre_fusion_apply_closing = patchmatch_pre_fusion_apply_closing
 
         self.baseline_model = DinoSegmenter.from_official(
             model_name=dino_model_name,
@@ -72,6 +90,7 @@ class CombinedBaselineModel(nn.Module):
         self.patchmatch_decoder: nn.Module | None = None
         self._pending_patchmatch_decoder_state: dict[str, torch.Tensor] | None = None
         self.patchmatch_decoder_restored_fully = True
+        self.patchmatch_mask_util = PatchMatchMaskUtil()
 
         self.register_buffer("dino_mean", torch.tensor(dino_mean, dtype=torch.float32).view(1, 3, 1, 1))
         self.register_buffer("dino_std", torch.tensor(dino_std, dtype=torch.float32).view(1, 3, 1, 1))
@@ -113,6 +132,19 @@ class CombinedBaselineModel(nn.Module):
         if self.patchmatch_decoder is None:
             return None
         return self.patchmatch_decoder.state_dict()
+
+    def _post_process_patchmatch_prob(self, patchmatch_prob: torch.Tensor) -> torch.Tensor:
+        processed = post_process_mask_batch(
+            patchmatch_prob.squeeze(1),
+            self.patchmatch_mask_util,
+            threshold=self.patchmatch_pre_fusion_threshold,
+            confident_threshold=self.patchmatch_pre_fusion_confident_threshold,
+            min_component_area=self.patchmatch_pre_fusion_min_component_area,
+            smooth_probabilities=self.patchmatch_pre_fusion_smooth_probabilities,
+            fill_holes=self.patchmatch_pre_fusion_fill_holes,
+            apply_closing=self.patchmatch_pre_fusion_apply_closing,
+        )
+        return processed.unsqueeze(1).to(dtype=patchmatch_prob.dtype)
 
     def compute_outputs(
         self,
@@ -165,7 +197,11 @@ class CombinedBaselineModel(nn.Module):
                 align_corners=False,
             )
 
-        combined_prob = torch.maximum(baseline_prob, patchmatch_prob)
+        patchmatch_prob_for_fusion = patchmatch_prob
+        if self.patchmatch_pre_fusion_postprocess and not self.training:
+            patchmatch_prob_for_fusion = self._post_process_patchmatch_prob(patchmatch_prob)
+
+        combined_prob = torch.maximum(baseline_prob, patchmatch_prob_for_fusion)
         combined_logits = torch.logit(combined_prob.clamp(min=1e-6, max=1.0 - 1e-6))
         return CombinedForwardOutputs(
             combined_logits=combined_logits,

@@ -182,6 +182,13 @@ def main(config: CombinedBaselineConfig | None = None) -> None:
         pm_topk=config.pm_topk,
         pm_reduced_precision=config.pm_reduced_precision,
         dlf_error_scaling=config.dlf_error_scaling,
+        patchmatch_pre_fusion_postprocess=config.patchmatch_pre_fusion_postprocess,
+        patchmatch_pre_fusion_threshold=config.patchmatch_pre_fusion_threshold,
+        patchmatch_pre_fusion_confident_threshold=config.patchmatch_pre_fusion_confident_threshold,
+        patchmatch_pre_fusion_min_component_area=config.patchmatch_pre_fusion_min_component_area,
+        patchmatch_pre_fusion_smooth_probabilities=config.patchmatch_pre_fusion_smooth_probabilities,
+        patchmatch_pre_fusion_fill_holes=config.patchmatch_pre_fusion_fill_holes,
+        patchmatch_pre_fusion_apply_closing=config.patchmatch_pre_fusion_apply_closing,
     )
     if checkpoint is not None:
         model.baseline_model.load_state_dict(checkpoint["baseline_model_state_dict"])

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class CombinedBaselineConfig:
-    num_epochs: int = 10
+    num_epochs: int = 30
     batch_size: int = 4
     seed: int = 42
     target_size: int = 448
@@ -58,3 +58,10 @@ class CombinedBaselineConfig:
     pm_topk: int = 1
     pm_reduced_precision: bool = True
     dlf_error_scaling: str = "log1p"
+    patchmatch_pre_fusion_postprocess: bool = True
+    patchmatch_pre_fusion_threshold: float = 0.6
+    patchmatch_pre_fusion_confident_threshold: float | None = 0.9
+    patchmatch_pre_fusion_min_component_area: int = 512
+    patchmatch_pre_fusion_smooth_probabilities: bool = False
+    patchmatch_pre_fusion_fill_holes: bool = True
+    patchmatch_pre_fusion_apply_closing: bool = True
