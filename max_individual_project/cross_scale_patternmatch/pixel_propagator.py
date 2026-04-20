@@ -3,7 +3,10 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 
-from datatypes import PatchMatchBranchResult
+try:
+    from ..datatypes import PatchMatchBranchResult
+except ImportError:
+    from datatypes import PatchMatchBranchResult
 
 
 class PixelPropagator:

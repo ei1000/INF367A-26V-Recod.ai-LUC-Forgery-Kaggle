@@ -1,6 +1,10 @@
 import torch
 import torch.nn as nn
-from model_components.se_blocks import DecoderStage, EncoderStage, SEConvBlock, SqueezeExcitation
+
+try:
+    from ..model_components.se_blocks import DecoderStage, EncoderStage, SEConvBlock, SqueezeExcitation
+except ImportError:
+    from model_components.se_blocks import DecoderStage, EncoderStage, SEConvBlock, SqueezeExcitation
 
 __all__ = [
     "SqueezeExcitation",

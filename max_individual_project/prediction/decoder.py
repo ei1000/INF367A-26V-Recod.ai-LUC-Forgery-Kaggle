@@ -3,8 +3,12 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from datatypes import DLFDecoderInput
-from model_components.blocks import ConvBNReLU
+try:
+    from ..datatypes import DLFDecoderInput
+    from ..model_components.blocks import ConvBNReLU
+except ImportError:
+    from datatypes import DLFDecoderInput
+    from model_components.blocks import ConvBNReLU
 
 ConvBlock = ConvBNReLU
 

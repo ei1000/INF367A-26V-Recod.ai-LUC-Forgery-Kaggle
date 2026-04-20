@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import torch
 
-from feature_extractors.cnn_feature_extractor import PretrainedBackboneExtractor, SingleScaleFeatureExtractor
-from feature_extractors.zernike_feature_extractor import PyramidZernikeExtractor, default_pq_list
-from prediction.decoder import DLFDecoder
-from prediction.pixelmaputil_mask import post_process_mask_batch
-from prediction.se_u_net import SEUNet
+try:
+    from .feature_extractors.cnn_feature_extractor import PretrainedBackboneExtractor, SingleScaleFeatureExtractor
+    from .feature_extractors.zernike_feature_extractor import PyramidZernikeExtractor, default_pq_list
+    from .prediction.decoder import DLFDecoder
+    from .prediction.pixelmaputil_mask import post_process_mask_batch
+    from .prediction.se_u_net import SEUNet
+except ImportError:
+    from feature_extractors.cnn_feature_extractor import PretrainedBackboneExtractor, SingleScaleFeatureExtractor
+    from feature_extractors.zernike_feature_extractor import PyramidZernikeExtractor, default_pq_list
+    from prediction.decoder import DLFDecoder
+    from prediction.pixelmaputil_mask import post_process_mask_batch
+    from prediction.se_u_net import SEUNet
 
 
 def post_process_predictions(
@@ -59,7 +66,10 @@ def build_seunet_feature_branch(
     separate_transforms: bool,
     use_dino_transform: bool,
 ):
-    from feature_extractors.dino_feature_extractor import PyramidDinoFeatureExtractor, SingleScaleDinoFeatureExtractor
+    try:
+        from .feature_extractors.dino_feature_extractor import PyramidDinoFeatureExtractor, SingleScaleDinoFeatureExtractor
+    except ImportError:
+        from feature_extractors.dino_feature_extractor import PyramidDinoFeatureExtractor, SingleScaleDinoFeatureExtractor
 
     dino_extractor_cls = PyramidDinoFeatureExtractor if feature_backbone == "dino" else SingleScaleDinoFeatureExtractor
     dino_extractor = dino_extractor_cls(

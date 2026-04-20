@@ -4,7 +4,10 @@ from pathlib import Path
 
 import torch
 
-from training.optim import set_optimizer_learning_rate
+try:
+    from .optim import set_optimizer_learning_rate
+except ImportError:
+    from training.optim import set_optimizer_learning_rate
 
 
 def ensure_output_dirs(output_dir: str | Path):

@@ -5,10 +5,16 @@ import time
 import torch
 import torch.nn.functional as F
 
-from cross_scale_patternmatch.pixel_propagator import PixelPropagator
-from dataset import imagenet_normalize_tensor
-from datatypes import DLFDecoderInput, PatchMatchBranchResult
-from prediction.multi_scale_dlf import MultiScaleDLF
+try:
+    from ..cross_scale_patternmatch.pixel_propagator import PixelPropagator
+    from ..dataset import imagenet_normalize_tensor
+    from ..datatypes import DLFDecoderInput, PatchMatchBranchResult
+    from .multi_scale_dlf import MultiScaleDLF
+except ImportError:
+    from cross_scale_patternmatch.pixel_propagator import PixelPropagator
+    from dataset import imagenet_normalize_tensor
+    from datatypes import DLFDecoderInput, PatchMatchBranchResult
+    from prediction.multi_scale_dlf import MultiScaleDLF
 
 
 def synchronize_if_cuda(device: torch.device):
@@ -52,7 +58,6 @@ def extract_localization_inputs(
     images: torch.Tensor,
     pm_backbone,
     pyramid_zm,
-    dino_extractor,
     separate_transforms: bool,
     cnn_feature_norm: bool,
     pm_random_window: int,
@@ -68,13 +73,14 @@ def extract_localization_inputs(
     pm_flat_threshold: float = 0.15,
     pm_margin_threshold: float = 0.10,
     pm_topk: int = 1,
+    dino_extractor=None,
 ):
-    """Build the three-branch localization inputs.
+    """Build localization inputs for PatchMatch and the optional DINO branch.
 
     Branch layout:
     - frozen ResNet18 descriptors for PatchMatch
     - multi-scale Zernike descriptors for PatchMatch
-    - frozen DINO features for the SEUNet refinement branch
+    - optional frozen DINO features for the SEUNet refinement branch
     """
 
     if localization_resolution != "image":
@@ -105,9 +111,11 @@ def extract_localization_inputs(
             cnn_feats = tuple(F.normalize(feature, p=2, dim=1) for feature in cnn_feats)
     with torch.no_grad():
         zernike_feats = tuple(feature.detach() for feature in pyramid_zm(images))
-    with torch.no_grad():
-        dino_feature_maps = dino_extractor(images)
-        dino_features = select_primary_feature_map(dino_feature_maps).detach()
+    dino_features = None
+    if dino_extractor is not None:
+        with torch.no_grad():
+            dino_feature_maps = dino_extractor(images)
+            dino_features = select_primary_feature_map(dino_feature_maps).detach()
 
     if collect_stats:
         synchronize_if_cuda(device)

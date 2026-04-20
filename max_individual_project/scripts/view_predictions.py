@@ -82,6 +82,22 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _resolve_source_path(source_arg: str) -> Path:
+    path = Path(source_arg)
+    if path.is_absolute():
+        return path.resolve()
+
+    candidates = [
+        (Path.cwd() / path).resolve(),
+        (ROOT.parent / path).resolve(),
+        (ROOT / path).resolve(),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
 def _resolve_prediction_file(source: Path, file_index: int, latest: bool, list_only: bool) -> Path | None:
     if source.is_file():
         return source
@@ -181,7 +197,7 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
-    source = (ROOT / args.source).resolve() if not Path(args.source).is_absolute() else Path(args.source)
+    source = _resolve_source_path(args.source)
     prediction_file = _resolve_prediction_file(source, args.file_index, args.latest, args.list)
     if prediction_file is None:
         return

@@ -1,7 +1,11 @@
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
-from model_components.blocks import ConvBNReLU
+
+try:
+    from ..model_components.blocks import ConvBNReLU
+except ImportError:
+    from model_components.blocks import ConvBNReLU
 
 ConvBlock = ConvBNReLU
 

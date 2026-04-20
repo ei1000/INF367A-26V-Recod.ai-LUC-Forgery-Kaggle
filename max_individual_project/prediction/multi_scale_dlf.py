@@ -72,7 +72,7 @@ class MultiScaleDLF:
         self.validate_topk_offsets(self.zernike_topk_offsets, self.zernike_offsets, "zernike_topk_offsets")
 
         if kernel_sizes is None:
-            kernel_sizes = np.array([7, 9, 11])
+            kernel_sizes = np.array([11, 13, 15])
 
         self.kernel_sizes = kernel_sizes
         self.device = self.cnn_offsets.device
