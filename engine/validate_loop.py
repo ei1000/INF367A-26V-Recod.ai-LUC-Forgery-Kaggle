@@ -30,6 +30,8 @@ def validate_one_epoch(
     inference_mode: str = "direct",
     probability_dtype: str = "float16",
     log_timing: bool = True,
+    save_prediction_tensors: bool = False,
+    prediction_output_dir=None,
 ) -> dict:
     if isinstance(getattr(val_loader, "sampler", None), RandomSampler):
         raise ValueError(
@@ -60,6 +62,9 @@ def validate_one_epoch(
         min_component_area=min_component_area,
         compute_pixel_f1=compute_pixel_f1,
         verify_score_equivalence=verify_score_equivalence,
+        prediction_output_dir=prediction_output_dir if save_prediction_tensors else None,
+        prediction_filename_prefix=f"epoch_{epoch_idx + 1:03d}",
+        prediction_batch_size=getattr(val_loader, "batch_size", None),
     )
     result["inference_seconds"] = float(inference_seconds)
     result["validation_inference_mode"] = inference_mode

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Sequence
 
 import numpy as np
@@ -148,6 +150,43 @@ def _post_process_probability(
     return (processed >= pred_threshold).astype(np.uint8)
 
 
+def _save_prediction_batches(
+    predictions: Sequence[ValidationPrediction],
+    prediction_masks: Sequence[np.ndarray],
+    output_dir: Path,
+    filename_prefix: str,
+    batch_size: int,
+) -> tuple[int, str]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    index_path = output_dir / f"{filename_prefix}_index.jsonl"
+    index_lines: list[str] = []
+
+    for batch_start in range(0, len(predictions), batch_size):
+        batch_predictions = predictions[batch_start : batch_start + batch_size]
+        batch_masks = prediction_masks[batch_start : batch_start + batch_size]
+        batch_idx = (batch_start // batch_size) + 1
+        batch_tensor = torch.from_numpy(np.stack(batch_masks, axis=0).astype(np.uint8, copy=False))
+        batch_path = output_dir / f"{filename_prefix}_batch_{batch_idx:05d}.pt"
+        torch.save(batch_tensor, batch_path)
+
+        for mask_idx, prediction in enumerate(batch_predictions):
+            index_lines.append(
+                json.dumps(
+                    {
+                        "prediction_file": str(batch_path),
+                        "mask_index": mask_idx,
+                        "sample_id": prediction.sample.sample_id,
+                        "image_path": str(prediction.sample.image_path),
+                        "label": prediction.sample.label,
+                    }
+                )
+            )
+
+    index_path.write_text("\n".join(index_lines), encoding="utf-8")
+    saved_batches = (len(predictions) + max(batch_size, 1) - 1) // max(batch_size, 1)
+    return saved_batches, str(index_path)
+
+
 def score_validation_predictions(
     predictions: Sequence[ValidationPrediction],
     pixel_util,
@@ -158,6 +197,9 @@ def score_validation_predictions(
     min_component_area: int,
     compute_pixel_f1: bool = False,
     verify_score_equivalence: bool = False,
+    prediction_output_dir: str | Path | None = None,
+    prediction_filename_prefix: str | None = None,
+    prediction_batch_size: int | None = None,
 ) -> dict:
     postprocess_start = time.perf_counter()
 
@@ -166,6 +208,7 @@ def score_validation_predictions(
     gt_instances_by_sample_id: dict[str, list[np.ndarray]] = {}
     shapes_by_sample_id: dict[str, tuple[int, int]] = {}
     pixel_f1s: list[float] = []
+    saved_prediction_masks: list[np.ndarray] | None = [] if prediction_output_dir is not None else None
 
     for prediction in predictions:
         pred_bin = _post_process_probability(
@@ -181,6 +224,8 @@ def score_validation_predictions(
         pred_instances_by_sample_id[sample.sample_id] = connected_components_to_masks(pred_bin)
         gt_instances_by_sample_id[sample.sample_id] = load_resized_instance_masks(sample, pred_bin.shape)
         shapes_by_sample_id[sample.sample_id] = pred_bin.shape
+        if saved_prediction_masks is not None:
+            saved_prediction_masks.append(pred_bin)
 
         if compute_pixel_f1:
             if prediction.gt_union_mask is None:
@@ -208,6 +253,16 @@ def score_validation_predictions(
 
     scoring_seconds = time.perf_counter() - scoring_start
     pixel_f1 = float(np.mean(pixel_f1s)) if compute_pixel_f1 else None
+    saved_prediction_batches = 0
+    prediction_index_path = None
+    if saved_prediction_masks is not None:
+        saved_prediction_batches, prediction_index_path = _save_prediction_batches(
+            predictions=predictions,
+            prediction_masks=saved_prediction_masks,
+            output_dir=Path(prediction_output_dir),
+            filename_prefix=prediction_filename_prefix or "predictions",
+            batch_size=max(int(prediction_batch_size or 1), 1),
+        )
 
     return {
         "kaggle_score": float(kaggle_score),
@@ -217,4 +272,6 @@ def score_validation_predictions(
         "num_authentic": sum(1 for sample in ordered_samples if sample.label == "authentic"),
         "postprocess_seconds": float(postprocess_seconds),
         "scoring_seconds": float(scoring_seconds),
+        "saved_prediction_batches": int(saved_prediction_batches),
+        "prediction_index_path": prediction_index_path,
     }
