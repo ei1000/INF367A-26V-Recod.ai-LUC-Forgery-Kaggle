@@ -31,9 +31,11 @@ Current repository behavior:
 Inspiration notebook behavior:
 
 - It uses a small-image fast path: if the image fits inside the window, it pads once and runs one prediction.
-- It batches crops for inference.
+- It processes original test images one at a time in the outer loop, because the notebook handles variable-size high-resolution images with per-image resize, global/local fusion, and TTA.
+- Inside one original image, it batches local crops for GPU inference with `predict_batch(batch_crops, model)`.
 - It builds a full probability map before CPU post-processing.
 - It is an inference notebook, not a training pipeline, so only the batching and fast-path structure should be reused.
+- Its crop coordinate logic can duplicate final-window starts for some image sizes; this repo should use deterministic unique starts instead.
 
 ## File Structure
 
@@ -48,12 +50,18 @@ Inspiration notebook behavior:
 ## Behavioral Contract
 
 - Default epoch validation uses direct batched inference with `model(imgs)`.
-- Optional sliding-window validation remains available for high-resolution validation experiments.
+- Optional sliding-window validation remains available for high-resolution validation experiments. It may process one original image at a time, but it must batch crops within each image and avoid duplicate crop coordinates.
 - Validation still runs every epoch.
 - Best checkpoint selection still uses `validation_result["kaggle_score"]`.
 - `compute_pixel_f1` remains optional and clearly non-official.
 - `verify_score_equivalence` remains optional and compares direct score against `recodai_f1.score`.
 - No training command is part of this plan. Human approval is required before running `python train_baseline.py`.
+
+## Memory And Chunking Contract
+
+The default implementation stores one CPU probability map per validation sample before CPU post-processing. At `target_size=448`, `float16` probabilities use about 0.38 MiB per sample before Python and NumPy overhead, which is acceptable for the current validation split and removes GPU/CPU ping-pong.
+
+If validation grows enough that this becomes memory-heavy, CPU post-processing may be chunked after each GPU inference block or after a configurable number of collected predictions. Chunking is allowed as long as the implementation still keeps GPU inference grouped into batches and does not interleave each tiny GPU call with immediate CPU scoring work.
 
 ---
 
@@ -227,29 +235,29 @@ def sliding_window_dino(
         stride = patch_size // 2
 
     h_img, w_img = int(img.shape[-2]), int(img.shape[-1])
-
-    if h_img <= patch_size and w_img <= patch_size:
-        patch = _pad_crop_to_patch(img, patch_size)
-        pred = model(patch[None].to(device, non_blocking=True))[0].squeeze(0)
-        return pred[:h_img, :w_img]
-
-    y_starts = compute_window_starts(h_img, patch_size, stride)
-    x_starts = compute_window_starts(w_img, patch_size, stride)
-
-    weight = gaussian_weight(patch_size, device=device, dtype=torch.float32)
-    prob_map = torch.zeros((h_img, w_img), device=device, dtype=torch.float32)
-    weight_map = torch.zeros((h_img, w_img), device=device, dtype=torch.float32) + EPS
-
-    crops: list[torch.Tensor] = []
-    coords: list[tuple[int, int]] = []
-    for y in y_starts:
-        for x in x_starts:
-            crop = img[:, y : y + patch_size, x : x + patch_size]
-            crops.append(_pad_crop_to_patch(crop, patch_size))
-            coords.append((y, x))
-
     model.eval()
-    with torch.no_grad():
+
+    with torch.inference_mode():
+        if h_img <= patch_size and w_img <= patch_size:
+            patch = _pad_crop_to_patch(img, patch_size)
+            pred = model(patch[None].to(device, non_blocking=True))[0].squeeze(0)
+            return pred[:h_img, :w_img]
+
+        y_starts = compute_window_starts(h_img, patch_size, stride)
+        x_starts = compute_window_starts(w_img, patch_size, stride)
+
+        weight = gaussian_weight(patch_size, device=device, dtype=torch.float32)
+        prob_map = torch.zeros((h_img, w_img), device=device, dtype=torch.float32)
+        weight_map = torch.zeros((h_img, w_img), device=device, dtype=torch.float32) + EPS
+
+        crops: list[torch.Tensor] = []
+        coords: list[tuple[int, int]] = []
+        for y in y_starts:
+            for x in x_starts:
+                crop = img[:, y : y + patch_size, x : x + patch_size]
+                crops.append(_pad_crop_to_patch(crop, patch_size))
+                coords.append((y, x))
+
         for i in range(0, len(crops), batch_size):
             batch_crops = crops[i : i + batch_size]
             batch_coords = coords[i : i + batch_size]
@@ -262,7 +270,7 @@ def sliding_window_dino(
                 prob_map[y : y + h, x : x + w] += pred[:h, :w] * weight[:h, :w]
                 weight_map[y : y + h, x : x + w] += weight[:h, :w]
 
-    return prob_map / weight_map
+        return prob_map / weight_map
 ```
 
 - [ ] **Step 2: Run the focused sliding-window tests**
@@ -619,7 +627,10 @@ Append these tests inside `ValidationInferenceTests`:
         ]
         fake_gt = np.ones((8, 8), dtype=np.uint8)
 
-        with patch("engine.validation_inference.load_resized_instance_masks", return_value=[fake_gt]):
+        def fake_load_gt(sample: SampleRecord, shape: tuple[int, int]) -> list[np.ndarray]:
+            return [] if sample.label == "authentic" else [fake_gt]
+
+        with patch("engine.validation_inference.load_resized_instance_masks", side_effect=fake_load_gt):
             result = score_validation_predictions(
                 predictions=predictions,
                 pixel_util=None,
@@ -637,6 +648,36 @@ Append these tests inside `ValidationInferenceTests`:
         self.assertEqual(result["num_forged"], 1)
         self.assertEqual(result["pixel_f1"], None)
         self.assertAlmostEqual(result["kaggle_score"], 1.0)
+
+    def test_score_validation_predictions_uses_configured_postprocess_path(self) -> None:
+        prediction = ValidationPrediction(
+            sample=_sample("1", label="authentic"),
+            probability=np.zeros((8, 8), dtype=np.float32),
+        )
+
+        with patch(
+            "engine.validation_inference.post_process_prediction",
+            return_value=np.zeros((8, 8), dtype=np.float32),
+        ) as postprocess:
+            result = score_validation_predictions(
+                predictions=[prediction],
+                pixel_util=object(),
+                pred_threshold=0.42,
+                harden_temperature=0.7,
+                hard_clip_low=0.1,
+                hard_clip_high=0.9,
+                min_component_area=50,
+                compute_pixel_f1=False,
+                verify_score_equivalence=False,
+            )
+
+        self.assertAlmostEqual(result["kaggle_score"], 1.0)
+        postprocess.assert_called_once()
+        self.assertEqual(postprocess.call_args.kwargs["threshold"], 0.42)
+        self.assertEqual(postprocess.call_args.kwargs["harden_temperature"], 0.7)
+        self.assertEqual(postprocess.call_args.kwargs["hard_clip_low"], 0.1)
+        self.assertEqual(postprocess.call_args.kwargs["hard_clip_high"], 0.9)
+        self.assertEqual(postprocess.call_args.kwargs["min_component_area"], 50)
 
     def test_score_validation_predictions_requires_masks_when_pixel_f1_enabled(self) -> None:
         prediction = ValidationPrediction(sample=_sample("1"), probability=np.zeros((8, 8), dtype=np.float32))
@@ -815,7 +856,7 @@ env UV_CACHE_DIR=/tmp/uv-cache uv run python -m unittest tests.test_validation_i
 Expected:
 
 ```text
-Ran 5 tests
+Ran 6 tests
 OK
 ```
 
@@ -842,9 +883,89 @@ git commit -m "feat: score validation predictions after GPU inference"
 
 **Files:**
 - Modify: `engine/validate_loop.py`
+- Modify: `tests/test_validation_inference.py`
 - Test: `tests/test_validation_inference.py`, `tests/test_validation_records.py`
 
-- [ ] **Step 1: Replace validation loop orchestration**
+- [ ] **Step 1: Add a validation-loop orchestration test**
+
+Append this import to `tests/test_validation_inference.py`:
+
+```python
+from engine.validate_loop import validate_one_epoch
+```
+
+Append this helper class after `BatchCountingModel`:
+
+```python
+class SequentialBatchLoader:
+    def __init__(self, batches) -> None:
+        self.batches = list(batches)
+        self.sampler = object()
+
+    def __iter__(self):
+        return iter(self.batches)
+```
+
+Append this test inside `ValidationInferenceTests`:
+
+```python
+    def test_validate_one_epoch_direct_mode_orchestrates_without_sliding_or_masks(self) -> None:
+        model = BatchCountingModel()
+        samples = [_sample("1", label="authentic")]
+        imgs = torch.zeros((1, 3, 8, 8), dtype=torch.float32)
+        loader = SequentialBatchLoader([(imgs, object())])
+
+        def forbidden_sliding_window(*args, **kwargs):
+            raise AssertionError("direct validation must not call sliding_window_fn")
+
+        result = validate_one_epoch(
+            model=model,
+            val_loader=loader,
+            val_samples=samples,
+            device=torch.device("cpu"),
+            sliding_window_fn=forbidden_sliding_window,
+            pixel_util=None,
+            pred_threshold=0.99,
+            harden_temperature=1.0,
+            hard_clip_low=0.0,
+            hard_clip_high=1.0,
+            min_component_area=0,
+            epoch_idx=0,
+            compute_pixel_f1=False,
+            verify_score_equivalence=False,
+            inference_mode="direct",
+            probability_dtype="float32",
+            log_timing=False,
+        )
+
+        self.assertEqual(model.batch_sizes, [1])
+        self.assertEqual(result["kaggle_score"], 1.0)
+        self.assertEqual(result["pixel_f1"], None)
+        self.assertEqual(result["num_samples"], 1)
+        self.assertEqual(result["num_authentic"], 1)
+        self.assertEqual(result["num_forged"], 0)
+        self.assertIn("inference_seconds", result)
+        self.assertIn("postprocess_seconds", result)
+        self.assertIn("scoring_seconds", result)
+        self.assertEqual(result["validation_inference_mode"], "direct")
+        self.assertEqual(result["probability_dtype"], "float32")
+```
+
+- [ ] **Step 2: Run the focused test and verify it fails**
+
+Run:
+
+```bash
+env UV_CACHE_DIR=/tmp/uv-cache uv run python -m unittest tests.test_validation_inference.ValidationInferenceTests.test_validate_one_epoch_direct_mode_orchestrates_without_sliding_or_masks -v
+```
+
+Expected:
+
+```text
+TypeError: validate_one_epoch() got an unexpected keyword argument 'inference_mode'
+```
+
+- [ ] **Step 3: Replace validation loop orchestration**
 
 Replace the contents of `engine/validate_loop.py` with:
 
@@ -931,7 +1052,7 @@ def validate_one_epoch(
     return result
 ```
 
-- [ ] **Step 2: Run focused tests**
+- [ ] **Step 4: Run focused tests**
 
 Run:
 
@@ -945,7 +1066,7 @@ Expected:
 OK
 ```
 
-- [ ] **Step 3: Run compile check**
+- [ ] **Step 5: Run compile check**
 
 Run:
 
@@ -955,10 +1076,10 @@ env UV_CACHE_DIR=/tmp/uv-cache PYTHONPYCACHEPREFIX=/tmp/pycache uv run python -m
 
 Expected: command exits with status 0.
 
-- [ ] **Step 4: Commit checkpoint if commits are approved**
+- [ ] **Step 6: Commit checkpoint if commits are approved**
 
 ```bash
-git add engine/validate_loop.py engine/validation_inference.py
+git add engine/validate_loop.py engine/validation_inference.py tests/test_validation_inference.py
 git commit -m "refactor: split validation into inference and scoring phases"
 ```
 
@@ -1046,7 +1167,11 @@ git commit -m "feat: default epoch validation to direct batched inference"
 
 ---
 
-### Task 9: Human-Approved Timing Smoke Check
+### Task 9: Deferred Human-Approved Timing Smoke Check
+
+This task is intentionally deferred and must not be executed as part of the validation refactor implementation pass. It is retained only as a future manual validation option after the code refactor is reviewed.
+
+Agents must not run `train_baseline.py` for this task unless the human explicitly asks to run this deferred smoke check in a later step.
 
 **Files:**
 - Modify: none unless the human asks for config changes
@@ -1074,13 +1199,9 @@ In `configs/baseline_config.py`, temporarily set:
     validation_log_timing: bool = True
 ```
 
-- [ ] **Step 3: Run tiny training smoke only after approval**
+- [ ] **Step 3: Run tiny training smoke only after explicit approval**
 
-Run:
-
-```bash
-env UV_CACHE_DIR=/tmp/uv-cache uv run python train_baseline.py
-```
+If the human explicitly approves this deferred check in a later step, run the maintained baseline entrypoint with the approved runtime/cache settings.
 
 Expected:
 
@@ -1095,7 +1216,7 @@ In `configs/baseline_config.py`, restore:
 
 ```python
     num_epochs: int = 10
-    batch_size: int = 100
+    batch_size: int = 32
     train_subset: int | None = None
     val_subset: int | None = None
     validation_inference_mode: str = "direct"

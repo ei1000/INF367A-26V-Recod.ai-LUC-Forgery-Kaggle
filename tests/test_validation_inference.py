@@ -75,6 +75,7 @@ class ValidationInferenceTests(unittest.TestCase):
         self.assertEqual([p.sample.sample_id for p in predictions], ["authentic:1", "authentic:2", "authentic:3"])
         self.assertTrue(all(isinstance(p, ValidationPrediction) for p in predictions))
         self.assertTrue(all(p.probability.shape == (8, 8) for p in predictions))
+        self.assertTrue(all(p.probability.dtype == np.float32 for p in predictions))
         self.assertTrue(all(p.gt_union_mask is None for p in predictions))
 
     def test_validate_one_epoch_direct_mode_orchestrates_without_sliding_or_masks(self) -> None:
@@ -103,6 +104,7 @@ class ValidationInferenceTests(unittest.TestCase):
             verify_score_equivalence=False,
             inference_mode="direct",
             probability_dtype="float32",
+            validation_transfer_mode="per_batch",
             log_timing=False,
         )
 
@@ -117,6 +119,7 @@ class ValidationInferenceTests(unittest.TestCase):
         self.assertIn("scoring_seconds", result)
         self.assertEqual(result["validation_inference_mode"], "direct")
         self.assertEqual(result["probability_dtype"], "float32")
+        self.assertEqual(result["validation_transfer_mode"], "per_batch")
 
     def test_collect_direct_predictions_can_keep_cpu_masks_for_pixel_f1(self) -> None:
         model = BatchCountingModel()
@@ -141,6 +144,63 @@ class ValidationInferenceTests(unittest.TestCase):
         self.assertIsNotNone(predictions[0].gt_union_mask)
         self.assertEqual(int(predictions[1].gt_union_mask.sum()), 4)
 
+    def test_collect_direct_predictions_can_accumulate_probabilities_on_gpu(self) -> None:
+        model = BatchCountingModel()
+        samples = [_sample("1"), _sample("2"), _sample("3")]
+        imgs_1 = torch.zeros((2, 3, 8, 8), dtype=torch.float32)
+        masks_1 = torch.zeros((2, 1, 8, 8), dtype=torch.float32)
+        imgs_2 = torch.zeros((1, 3, 8, 8), dtype=torch.float32)
+        masks_2 = torch.zeros((1, 1, 8, 8), dtype=torch.float32)
+        loader = [(imgs_1, masks_1), (imgs_2, masks_2)]
+
+        original_cpu = torch.Tensor.cpu
+        cpu_calls = {"count": 0}
+
+        def cpu_proxy(self: torch.Tensor, *args, **kwargs):
+            cpu_calls["count"] += 1
+            return original_cpu(self, *args, **kwargs)
+
+        with patch.object(torch.Tensor, "cpu", new=cpu_proxy):
+            predictions = collect_validation_predictions(
+                model=model,
+                val_loader=loader,
+                val_samples=samples,
+                device=torch.device("cpu"),
+                inference_mode="direct",
+                sliding_window_fn=None,
+                probability_dtype="float16",
+                transfer_mode="accumulate_gpu",
+                collect_masks=False,
+            )
+
+        self.assertEqual(model.batch_sizes, [2, 1])
+        self.assertEqual([p.sample.sample_id for p in predictions], ["authentic:1", "authentic:2", "authentic:3"])
+        self.assertTrue(all(p.probability.dtype == np.float16 for p in predictions))
+        self.assertTrue(all(p.gt_union_mask is None for p in predictions))
+        self.assertEqual(cpu_calls["count"], 1)
+
+    def test_collect_direct_predictions_accumulate_mode_rejects_shape_changes(self) -> None:
+        model = BatchCountingModel()
+        samples = [_sample("1"), _sample("2"), _sample("3")]
+        imgs_1 = torch.zeros((2, 3, 8, 8), dtype=torch.float32)
+        masks_1 = torch.zeros((2, 1, 8, 8), dtype=torch.float32)
+        imgs_2 = torch.zeros((1, 3, 6, 6), dtype=torch.float32)
+        masks_2 = torch.zeros((1, 1, 6, 6), dtype=torch.float32)
+        loader = [(imgs_1, masks_1), (imgs_2, masks_2)]
+
+        with self.assertRaisesRegex(ValueError, "Validation probability shape changed"):
+            collect_validation_predictions(
+                model=model,
+                val_loader=loader,
+                val_samples=samples,
+                device=torch.device("cpu"),
+                inference_mode="direct",
+                sliding_window_fn=None,
+                probability_dtype="float32",
+                collect_masks=False,
+                transfer_mode="accumulate_gpu",
+            )
+
     def test_collect_predictions_rejects_missing_sliding_window_function_in_sliding_mode(self) -> None:
         model = BatchCountingModel()
         samples = [_sample("1")]
@@ -156,6 +216,25 @@ class ValidationInferenceTests(unittest.TestCase):
                 inference_mode="sliding",
                 sliding_window_fn=None,
                 probability_dtype="float32",
+                collect_masks=False,
+            )
+
+    def test_collect_predictions_rejects_unknown_transfer_mode(self) -> None:
+        model = BatchCountingModel()
+        samples = [_sample("1")]
+        imgs = torch.zeros((1, 3, 8, 8), dtype=torch.float32)
+        masks = torch.zeros((1, 1, 8, 8), dtype=torch.float32)
+
+        with self.assertRaisesRegex(ValueError, "Unknown transfer_mode"):
+            collect_validation_predictions(
+                model=model,
+                val_loader=[(imgs, masks)],
+                val_samples=samples,
+                device=torch.device("cpu"),
+                inference_mode="direct",
+                sliding_window_fn=None,
+                probability_dtype="float32",
+                transfer_mode="mystery",
                 collect_masks=False,
             )
 
@@ -266,6 +345,12 @@ class ValidationInferenceTests(unittest.TestCase):
                 min_component_area=50,
                 compute_pixel_f1=False,
                 verify_score_equivalence=False,
+                confident_threshold=0.77,
+                smooth_probabilities=False,
+                fill_holes=False,
+                apply_opening=False,
+                apply_closing=False,
+                keep_confident_seeded_components=True,
             )
 
         self.assertAlmostEqual(result["kaggle_score"], 1.0)
@@ -275,6 +360,12 @@ class ValidationInferenceTests(unittest.TestCase):
         self.assertEqual(postprocess.call_args.kwargs["hard_clip_low"], 0.1)
         self.assertEqual(postprocess.call_args.kwargs["hard_clip_high"], 0.9)
         self.assertEqual(postprocess.call_args.kwargs["min_component_area"], 50)
+        self.assertEqual(postprocess.call_args.kwargs["confident_threshold"], 0.77)
+        self.assertFalse(postprocess.call_args.kwargs["smooth_probabilities"])
+        self.assertFalse(postprocess.call_args.kwargs["fill_holes"])
+        self.assertFalse(postprocess.call_args.kwargs["apply_opening"])
+        self.assertFalse(postprocess.call_args.kwargs["apply_closing"])
+        self.assertTrue(postprocess.call_args.kwargs["keep_confident_seeded_components"])
 
     def test_score_validation_predictions_requires_masks_when_pixel_f1_enabled(self) -> None:
         prediction = ValidationPrediction(sample=_sample("1"), probability=np.zeros((8, 8), dtype=np.float32))

@@ -9,6 +9,13 @@ from configs.baseline_config import BaselineConfig, seed_worker, set_seed
 from dataset_utils import list_labeled_samples
 from datasets.forgery_dataset import ForgeryDataset
 from datasets.splits import count_samples_by_split_and_label, make_grouped_stratified_splits
+from engine.checkpointing import (
+    build_checkpoint_payload,
+    load_checkpoint,
+    restore_training_state,
+    save_checkpoint,
+    validate_checkpoint_cadence,
+)
 from engine.train_loop import train_one_epoch
 from engine.validate_loop import validate_one_epoch
 from inference.sliding_window_dino import sliding_window_dino
@@ -18,6 +25,7 @@ from util.pixelmapUtil import PixelMapUtil
 
 def main():
     config = BaselineConfig()
+    validate_checkpoint_cadence(config.save_last_every_epochs)
     set_seed(config.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
@@ -78,7 +86,7 @@ def main():
             rgb_mean=config.dino_mean,
             rgb_std=config.dino_std,
         ),
-        batch_size=config.batch_size,
+        batch_size=config.val_batch_size or config.batch_size,
         shuffle=False,
         num_workers=config.val_num_workers,
         pin_memory=(device.type == "cuda"),
@@ -115,9 +123,29 @@ def main():
         threshold=1e-4,
     )
 
+    start_epoch = 0
     best_kaggle_score = 0.0
+    if config.resume_checkpoint_path:
+        # Resume checkpoints are trusted local files configured by the user.
+        checkpoint = load_checkpoint(config.resume_checkpoint_path, map_location=device, trusted=True)
+        start_epoch, best_kaggle_score = restore_training_state(
+            checkpoint=checkpoint,
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            scaler=scaler,
+            restore_rng=True,
+            torch_generators={
+                "train_loader": train_loader_generator,
+                "val_loader": val_loader_generator,
+            },
+        )
+        print(
+            f"Resumed from {config.resume_checkpoint_path} "
+            f"at epoch={start_epoch} best_kaggle_score={best_kaggle_score:.4f}"
+        )
 
-    for epoch in range(config.num_epochs):
+    for epoch in range(start_epoch, config.num_epochs):
         avg_loss = train_one_epoch(
             model=model,
             train_loader=train_loader,
@@ -146,32 +174,66 @@ def main():
             verify_score_equivalence=config.verify_score_equivalence,
             inference_mode=config.validation_inference_mode,
             probability_dtype=config.validation_probability_dtype,
+            validation_transfer_mode=config.validation_transfer_mode,
             log_timing=config.validation_log_timing,
+            post_process_confident_threshold=config.post_process_confident_threshold,
+            post_process_smooth_probabilities=config.post_process_smooth_probabilities,
+            post_process_fill_holes=config.post_process_fill_holes,
+            post_process_apply_opening=config.post_process_apply_opening,
+            post_process_apply_closing=config.post_process_apply_closing,
+            post_process_keep_confident_seeded_components=(
+                config.post_process_keep_confident_seeded_components
+            ),
         )
         kaggle_score = validation_result["kaggle_score"]
         print(f"Epoch {epoch+1}: avg_loss={avg_loss:.4f}  kaggle_score={kaggle_score:.4f}")
 
-        if kaggle_score > best_kaggle_score:
+        is_new_best = kaggle_score > best_kaggle_score
+        if is_new_best:
             best_kaggle_score = kaggle_score
-            checkpoint_dir = Path(config.checkpoint_dir)
-            checkpoint_dir.mkdir(parents=True, exist_ok=True)
-            checkpoint_path = checkpoint_dir / config.best_checkpoint_name
-            torch.save(
-                {
-                    "epoch": epoch + 1,
-                    "model_state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "kaggle_score": kaggle_score,
-                    "validation_result": validation_result,
-                    "config": config.__dict__,
-                    "split_counts": split_counts,
-                    "model_name": config.dino_model_name,
-                },
-                checkpoint_path,
-            )
-            print(f"  -> New best model saved by kaggle_score={kaggle_score:.4f}")
 
         scheduler.step(kaggle_score)
+
+        if is_new_best:
+            best_payload = build_checkpoint_payload(
+                epoch=epoch + 1,
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                scaler=scaler,
+                kaggle_score=kaggle_score,
+                best_kaggle_score=best_kaggle_score,
+                validation_result=validation_result,
+                config=config,
+                split_counts=split_counts,
+                model_name=config.dino_model_name,
+                torch_generators={
+                    "train_loader": train_loader_generator,
+                    "val_loader": val_loader_generator,
+                },
+            )
+            save_checkpoint(best_payload, config.checkpoint_dir, config.best_checkpoint_name)
+            print(f"  -> New best model saved by kaggle_score={kaggle_score:.4f}")
+
+        if config.save_last_checkpoint and ((epoch + 1) % config.save_last_every_epochs == 0):
+            last_payload = build_checkpoint_payload(
+                epoch=epoch + 1,
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                scaler=scaler,
+                kaggle_score=kaggle_score,
+                best_kaggle_score=best_kaggle_score,
+                validation_result=validation_result,
+                config=config,
+                split_counts=split_counts,
+                model_name=config.dino_model_name,
+                torch_generators={
+                    "train_loader": train_loader_generator,
+                    "val_loader": val_loader_generator,
+                },
+            )
+            save_checkpoint(last_payload, config.checkpoint_dir, config.last_checkpoint_name)
 
 
 if __name__ == "__main__":

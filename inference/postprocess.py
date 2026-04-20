@@ -27,6 +27,12 @@ def post_process_prediction(
     hard_clip_low: float,
     hard_clip_high: float,
     min_component_area: int = 0,
+    confident_threshold: float | None = 0.9,
+    smooth_probabilities: bool = True,
+    fill_holes: bool = True,
+    apply_opening: bool = True,
+    apply_closing: bool = True,
+    keep_confident_seeded_components: bool = False,
 ) -> np.ndarray:
     probs = harden_probabilities(
         probs,
@@ -34,7 +40,16 @@ def post_process_prediction(
         clip_low=hard_clip_low,
         clip_high=hard_clip_high,
     )
-    mask = pixel_util.post_process_mask_probs(probs, threshold=threshold)
+    mask = pixel_util.post_process_mask_probs(
+        probs,
+        threshold=threshold,
+        confident_threshold=confident_threshold,
+        smooth_probabilities=smooth_probabilities,
+        fill_holes=fill_holes,
+        apply_opening=apply_opening,
+        apply_closing=apply_closing,
+        keep_confident_seeded_components=keep_confident_seeded_components,
+    )
     return filter_small_components(mask, min_component_area=min_component_area)
 
 
