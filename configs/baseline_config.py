@@ -9,16 +9,16 @@ import torch
 @dataclass(frozen=True)
 class BaselineConfig:
     num_epochs: int = 10
-    batch_size: int = 4
+    batch_size: int = 32
     seed: int = 42
-    target_size: int = 448 # Try to keep this divisible by 14. 256 works too, but is small. 
+    target_size: int = 448 # Try to keep this divisible by 14. 256 works too, but is small.
     pred_threshold: float = 0.5
     harden_temperature: float = 0.7
     hard_clip_low: float = 0.1
     hard_clip_high: float = 0.9
     min_component_area: int = 50
-    train_subset: int = 200
-    val_subset: int = 50
+    train_subset: int | None = None
+    val_subset: int | None = None
     lr: float = 1e-4
     grad_clip_max_norm: float = 1.0
     train_num_workers: int = 2
@@ -34,6 +34,30 @@ class BaselineConfig:
     sliding_window_size: int | None = 448
     sliding_stride: int | None = 224
     sliding_batch_size: int = 8
+    data_root: str = "data"
+    train_ratio: float = 0.8
+    val_ratio: float = 0.1
+    test_ratio: float = 0.1
+    compute_pixel_f1: bool = False
+    verify_score_equivalence: bool = False
+    validation_inference_mode: str = "direct"
+    validation_probability_dtype: str = "float16"
+    validation_log_timing: bool = True
+    checkpoint_dir: str = "runs/checkpoints"
+    best_checkpoint_name: str = "best_by_kaggle_score.pt"
+    include_supplemental: bool = False
+    post_process_confident_threshold: float | None = 0.9
+    post_process_smooth_probabilities: bool = True
+    post_process_fill_holes: bool = True
+    post_process_apply_opening: bool = True
+    post_process_apply_closing: bool = True
+    post_process_keep_confident_seeded_components: bool = False
+    val_batch_size: int | None = None
+    validation_transfer_mode: str = "per_batch"
+    resume_checkpoint_path: str | None = None
+    save_last_checkpoint: bool = True
+    last_checkpoint_name: str = "last.pt"
+    save_last_every_epochs: int = 1
 
 
 def set_seed(seed: int) -> None:

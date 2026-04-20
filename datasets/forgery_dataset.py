@@ -3,20 +3,26 @@ import torch
 from PIL import Image
 from torch.utils.data import Dataset
 
-from dataset_utils import load_image, load_union_mask
+from dataset_utils import (
+    SampleRecord,
+    load_image,
+    load_image_from_path,
+    load_union_mask,
+    load_union_mask_from_paths,
+)
 
 
 class ForgeryDataset(Dataset):
     def __init__(
         self,
-        case_ids,
+        samples,
         target_size: int = 256,
         use_rgb: bool = False,
         normalize_rgb: bool = False,
         rgb_mean: tuple[float, float, float] = (0.485, 0.456, 0.406),
         rgb_std: tuple[float, float, float] = (0.229, 0.224, 0.225),
     ):
-        self.case_ids = case_ids
+        self.samples = list(samples)
         self.target_size = target_size
         self.use_rgb = use_rgb
         self.normalize_rgb = normalize_rgb
@@ -24,7 +30,7 @@ class ForgeryDataset(Dataset):
         self.rgb_std = np.asarray(rgb_std, dtype=np.float32).reshape(1, 1, 3)
 
     def __len__(self) -> int:
-        return len(self.case_ids)
+        return len(self.samples)
 
     def _resize(self, arr: np.ndarray, size: int, is_mask: bool = False) -> np.ndarray:
         arr = np.squeeze(arr)
@@ -51,15 +57,22 @@ class ForgeryDataset(Dataset):
         return arr
 
     def __getitem__(self, idx: int):
-        cid = self.case_ids[idx]
-        img = load_image(cid)
-        mask = load_union_mask(cid)
-        mask = np.asarray(mask)
-
-        if mask.ndim == 3:
-            mask = (mask.max(axis=0) > 0).astype(np.uint8)
+        sample = self.samples[idx]
+        if isinstance(sample, SampleRecord):
+            img = load_image_from_path(sample.image_path)
+            if sample.label == "forged":
+                mask = load_union_mask_from_paths(sample.mask_paths)
+            else:
+                mask = np.zeros(img.shape[:2], dtype=np.uint8)
         else:
-            mask = mask.astype(np.uint8)
+            case_id = str(sample)
+            img = load_image(case_id)
+            mask = load_union_mask(case_id)
+            mask = np.asarray(mask)
+            if mask.ndim == 3:
+                mask = (mask.max(axis=0) > 0).astype(np.uint8)
+            else:
+                mask = mask.astype(np.uint8)
 
         img = self._resize(img, self.target_size, is_mask=False)
         mask = self._resize(mask * 255, self.target_size, is_mask=True)

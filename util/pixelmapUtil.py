@@ -66,17 +66,39 @@ class PixelMapUtil:
         self,
         probs: np.typing.NDArray,
         threshold: float = 0.5,
-        confident_threshold: float = 0.9,
+        confident_threshold: float | None = 0.9,
+        smooth_probabilities: bool = True,
+        fill_holes: bool = True,
+        apply_opening: bool = True,
+        apply_closing: bool = True,
+        keep_confident_seeded_components: bool = False,
     ) -> np.typing.NDArray:
         probs = np.asarray(probs, dtype=np.float32).copy()
         probs = np.clip(probs, 0.0, 1.0)
+        if confident_threshold is None:
+            confident_threshold = 0.9
 
-        smooth = self._gaussian_blur(probs)
-        mask = smooth >= threshold
+        threshold_map = self._gaussian_blur(probs) if smooth_probabilities else probs
+        mask = threshold_map >= threshold
         confident = probs >= confident_threshold
         mask = np.logical_or(mask, confident)
 
-        mask = self.closing(mask)
-        mask = self.opening(mask)
-        mask = self.fill_components(mask)
+        if apply_closing:
+            mask = self.closing(mask)
+        if apply_opening:
+            mask = self.opening(mask)
+        if fill_holes:
+            mask = self.fill_components(mask)
+
+        if keep_confident_seeded_components:
+            confident_mask = confident.astype(bool)
+            labeled, num = ndimage.label(mask)
+            if num > 0:
+                keep = np.zeros_like(mask, dtype=bool)
+                for component_id in range(1, num + 1):
+                    component = labeled == component_id
+                    if np.any(np.logical_and(component, confident_mask)):
+                        keep |= component
+                mask = keep
+
         return mask.astype(np.float32)
