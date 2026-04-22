@@ -69,6 +69,7 @@
 
 \begin{abstract}
 TODO - "Short summary of the paper, including results. Often written last".
+We additionally implemented a SegNeXt-inspired segmentation baseline and compared it with the project's DINO-based baseline. While the DINO-based model achieved the best validation F1 score of 0.1850, the best pretrained SegNeXt-family variant reached a comparable score of 0.1827, showing that learned segmentation approaches can be competitive on this task.
 \end{abstract}
 
 \section{Introduction}
@@ -178,7 +179,27 @@ The strongest DINO-based run achieved a best validation F1 score of $0.1850$ usi
 In contrast, the custom SegNeXt-inspired models trained without pretrained encoder weights performed substantially worse, with best validation F1 values remaining below $0.09$ across all tested settings. This indicates that pretrained visual representations were important for making the SegNeXt-style approach competitive in this task.
 
 Overall, the DINO-based baseline remained the strongest model in our experiments, but the pretrained SegNeXt-family variant achieved a very similar result. This suggests that a learned segmentation approach can be competitive, although in our experiments it did not surpass the project baseline.
-
+\begin{table}[tb]
+\centering
+\caption{Best validation F1 scores for the compared model families.}
+\label{tab:baseline_comparison}
+\begin{tabular}{lcccccc}
+\toprule
+Model & Encoder source & Pretrained & Effective train size & LR & Epochs & Best val F1 \\
+\midrule
+DINO baseline & custom & No & 900 & $3\times10^{-5}$ & 8  & 0.1850 \\
+SegNeXt-inspired (custom) & custom & No & 500 & $3\times10^{-5}$ & 5 & 0.0838 \\
+SegNeXt-family (best) & timm (\texttt{convnext\_tiny}) & Yes & 900 & $3\times10^{-5}$ & 12 & 0.1827 \\
+\bottomrule
+\end{tabular}
+\end{table}
+A clear trend in the experiments was that increasing dataset size improved performance for both model families. The DINO baseline improved from $0.0886$ at the smallest setting to $0.1850$ at the largest setting. The SegNeXt-inspired approach, however, only became competitive when stronger pretrained encoder features were introduced. Without pretraining, performance remained low and often peaked already at the first epoch, suggesting unstable optimization or weak feature extraction for this dataset.
+\begin{figure}[tb]
+    \centering
+    \includegraphics[width=\linewidth]{baseline_vs_segnext_results.png}
+    \caption{Validation F1 comparison between the DINO baseline and the SegNeXt-inspired model variants. The pretrained SegNeXt-family model substantially outperformed the custom non-pretrained variants and approached the best DINO baseline result.}
+    \label{fig:baseline_compare}
+\end{figure}
 TODO: Show results of experiments. NB: Without interpretation at this stage!
 \\\\
 Align with method section.
@@ -241,6 +262,14 @@ PatchMatch's reliance on finding groups of pixels with high feature similarity m
 \end{figure}
 \subsection{BusterNet}
 TODO: BusterNet Comments
+
+\subsection{What We Learned from the SegNeXt-inspired Baseline}
+
+The SegNeXt-inspired experiments provide two main findings. First, a purely learned segmentation approach can perform competitively on this task when supported by strong pretrained visual features. The best pretrained SegNeXt-family model reached a validation F1 of $0.1827$, which was close to the best DINO baseline result of $0.1850$. This suggests that the task is learnable through end-to-end segmentation and not limited to handcrafted matching pipelines.
+
+Second, the large gap between the custom non-pretrained SegNeXt-inspired models and the pretrained variant indicates that feature quality is a major bottleneck in scientific image forgery detection. In our setting, simply adopting a segmentation architecture was not sufficient; strong initialization from pretrained encoders was crucial.
+
+At the same time, the DINO baseline remained slightly better overall and reached its best result with fewer epochs. This suggests that the DINO-based pipeline was more stable under the available data and compute constraints. Therefore, while the SegNeXt-inspired baseline was useful as a comparison model and produced competitive performance when pretrained, it did not outperform the project baseline in our experiments.
 
 \subsection{Comments on Kaggle submissions}
 
