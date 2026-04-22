@@ -141,7 +141,7 @@ where $\sigma$ denotes the sigmoid activation function.
 
 The model is trained as a pixel-wise binary classification problem, where each pixel is classified as either forged or authentic.
 
-We use binary cross-entropy with logits for pixel-wise supervision:
+We use binary cross-entropy loss for pixel-wise supervision:
 
 \[
 \mathcal{L}_{BCE} = - \frac{1}{N} \sum_{i=1}^{N} \left[ y_i \log(\hat{y}_i) + (1 - y_i)\log(1 - \hat{y}_i) \right]
@@ -149,7 +149,7 @@ We use binary cross-entropy with logits for pixel-wise supervision:
 
 where $\hat{y}_i$ is the predicted probability and $y_i$ is the ground truth label.
 
-All models were optimized using the Adam optimizer with a fixed learning rate, and training was performed with a batch size of 2 due to memory constraints. Model selection was based on the highest validation F1 score.
+All models were optimized using the Adam optimizer with a fixed learning rate, using binary cross-entropy loss for pixel-wise supervision.
 
 \subsection{Mask post-processing}
 
