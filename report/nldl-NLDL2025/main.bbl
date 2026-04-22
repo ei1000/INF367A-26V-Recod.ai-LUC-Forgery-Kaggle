@@ -552,6 +552,53 @@
       \verb https://arxiv.org/abs/2304.07193
       \endverb
     \endentry
+    \entry{segnext}{article}{}
+      \name{author}{6}{}{%
+        {{hash=c3ca904dab0113caf62cde3654551f85}{%
+           family={Guo},
+           familyi={G\bibinitperiod},
+           given={Meng-Hao},
+           giveni={M\bibinithyphendelim H\bibinitperiod}}}%
+        {{hash=bacd3c42aefdb747282bec54ea7d0d4c}{%
+           family={Lu},
+           familyi={L\bibinitperiod},
+           given={Cheng-Ze},
+           giveni={C\bibinithyphendelim Z\bibinitperiod}}}%
+        {{hash=f2d105116f208ed641dc9126d8209ee4}{%
+           family={Hou},
+           familyi={H\bibinitperiod},
+           given={Qibin},
+           giveni={Q\bibinitperiod}}}%
+        {{hash=556295f47ce81e5a80a17b3b699dec7a}{%
+           family={Liu},
+           familyi={L\bibinitperiod},
+           given={Zheng-Ning},
+           giveni={Z\bibinithyphendelim N\bibinitperiod}}}%
+        {{hash=bfbe355b6a8257baeffd5b8814bc5c57}{%
+           family={Cheng},
+           familyi={C\bibinitperiod},
+           given={Ming-Ming},
+           giveni={M\bibinithyphendelim M\bibinitperiod}}}%
+        {{hash=afab500d2408e1897d292c1678561465}{%
+           family={Hu},
+           familyi={H\bibinitperiod},
+           given={Shi-Min},
+           giveni={S\bibinithyphendelim M\bibinitperiod}}}%
+      }
+      \strng{namehash}{fb54b869bb1acb37aff1e2c22d532774}
+      \strng{fullhash}{d69b0a8de6052a6207bae973aaf7496f}
+      \strng{bibnamehash}{d69b0a8de6052a6207bae973aaf7496f}
+      \strng{authorbibnamehash}{d69b0a8de6052a6207bae973aaf7496f}
+      \strng{authornamehash}{fb54b869bb1acb37aff1e2c22d532774}
+      \strng{authorfullhash}{d69b0a8de6052a6207bae973aaf7496f}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{arXiv preprint arXiv:2209.08575}
+      \field{title}{SegNeXt: Rethinking Convolutional Attention Design for Semantic Segmentation}
+      \field{year}{2022}
+    \endentry
     \entry{barnes2009patchmatch}{article}{}
       \name{author}{4}{}{%
         {{hash=4e74e92ac258a7344d22dd0661d08dd2}{%
@@ -613,8 +660,8 @@
       \strng{authorbibnamehash}{25d2f3c4577a6632d37f0126cc781232}
       \strng{authornamehash}{25d2f3c4577a6632d37f0126cc781232}
       \strng{authorfullhash}{25d2f3c4577a6632d37f0126cc781232}
-      \field{sortinit}{1}
-      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{journaltitle}{arXiv preprint arXiv:1409.1556}
@@ -656,8 +703,8 @@
       \strng{authorbibnamehash}{42c4b52dc3a62cebabbc11c73e1afb53}
       \strng{authornamehash}{6edb98fe38401d2fe4a026f5ce6e8451}
       \strng{authorfullhash}{42c4b52dc3a62cebabbc11c73e1afb53}
-      \field{sortinit}{1}
-      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{journaltitle}{arXiv preprint arXiv:1512.03385}
@@ -719,8 +766,8 @@
       \strng{authorbibnamehash}{efa664e154982dfbb2d86b95a77d1448}
       \strng{authornamehash}{3b7e00bc88d7aca4d4d5ddb8c252e36c}
       \strng{authorfullhash}{efa664e154982dfbb2d86b95a77d1448}
-      \field{sortinit}{1}
-      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{booktitle}{European Conference on Computer Vision (ECCV)}

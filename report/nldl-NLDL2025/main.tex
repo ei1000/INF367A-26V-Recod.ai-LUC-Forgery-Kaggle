@@ -183,30 +183,6 @@ To improve pixel-level precision, we additionally apply sliding window inference
 
 where $w_i(p)$ assigns larger weights to central pixels in each patch. This aggregation reduces boundary artifacts while preserving fine local detail.
 
-\subsection{SegNeXt-inspired Baseline and Experimental Comparison}
-
-In addition to the main DINO-based pipeline, we implemented a learning-based baseline inspired by SegNeXt in order to compare a convolutional segmentation architecture against the project baseline. SegNeXt is motivated by the idea that semantic segmentation can benefit from a strong encoder, multi-scale feature interaction, and efficient spatial attention implemented using convolutional operations rather than transformer self-attention \cite{segnext}. In particular, the original SegNeXt design uses a convolutional encoder-decoder architecture with multi-scale convolutional attention to capture contextual information efficiently. The paper reports strong performance-computation trade-offs and shows that such CNN-based designs can outperform transformer-based alternatives on several semantic segmentation benchmarks \cite{segnext}. This comparison formed the main individual contribution of this work, namely to evaluate whether a lightweight CNN-based segmentation approach inspired by SegNeXt could match the stronger DINO-based baseline under the same validation protocol.
-Our goal was not to reproduce the full original SegNeXt architecture exactly, but rather to implement a SegNeXt-inspired segmentation baseline within the project pipeline and evaluate whether this type of learned segmentation model could provide competitive performance on the Recod.ai/LUC scientific image forgery detection task.
-
-\begin{table}[tb]
-\centering
-\small
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{lccccccc}
-\toprule
-Model & Encoder & Pretr. & Train & LR & Ep. & Best Ep. & Val F1 \\
-\midrule
-DINO baseline & ViT-B/14 & Yes & 900 & 3e-5 & 8 & 8 & \textbf{0.1850} \\
-SegNeXt-inspired & custom & No & 500 & 3e-5 & 5 & 1 & 0.0838 \\
-SegNeXt-family & convnext\_tiny & Yes & 900 & 3e-5 & 12 & 10 & 0.1827 \\
-\bottomrule
-\end{tabular}
-\caption{Best configurations for the compared model families.}
-\label{tab:baseline_comparison}
-\end{table}
-
-We evaluated four learning rates: $10^{-4}$, $5 \times 10^{-5}$, $3 \times 10^{-5}$, and $10^{-5}$.
-
 \paragraph{Experimental setup.}
 The experiments were carried out on the same extracted dataset used in the rest of the project. A subset of the forged training images and corresponding masks was prepared from the Kaggle dataset. For the largest experiments, 1000 image-mask pairs were extracted, of which the effective split used during training corresponded to 900 training samples and 100 validation samples. All experiments were run with the same random seed in order to make comparisons more controlled.
 
@@ -236,6 +212,30 @@ All models were compared using the same validation metric, namely the pixel-leve
 For each model family, the reported result corresponds to the run with the highest validation F1 score among the tested configurations.
 All compared models were evaluated under the same dataset splits and the same validation metric, ensuring a fair comparison between the DINO baseline and the SegNeXt-inspired alternatives.
 
+\subsection{SegNeXt-inspired Baseline and Experimental Comparison}
+
+In addition to the main DINO-based pipeline, we implemented a learning-based baseline inspired by SegNeXt in order to compare a convolutional segmentation architecture against the project baseline. SegNeXt is motivated by the idea that semantic segmentation can benefit from a strong encoder, multi-scale feature interaction, and efficient spatial attention implemented using convolutional operations rather than transformer self-attention \cite{segnext}. In particular, the original SegNeXt design uses a convolutional encoder-decoder architecture with multi-scale convolutional attention to capture contextual information efficiently. The paper reports strong performance-computation trade-offs and shows that such CNN-based designs can outperform transformer-based alternatives on several semantic segmentation benchmarks \cite{segnext}. This comparison formed the main individual contribution of this work, namely to evaluate whether a lightweight CNN-based segmentation approach inspired by SegNeXt could match the stronger DINO-based baseline under the same validation protocol.
+Our goal was not to reproduce the full original SegNeXt architecture exactly, but rather to implement a SegNeXt-inspired segmentation baseline within the project pipeline and evaluate whether this type of learned segmentation model could provide competitive performance on the Recod.ai/LUC scientific image forgery detection task.
+
+\begin{table}[tb]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lccccccc}
+\toprule
+Model & Encoder & Pretr. & Train & LR & Ep. & Best Ep. & Val F1 \\
+\midrule
+DINO baseline & ViT-B/14 & Yes & 900 & 3e-5 & 8 & 8 & \textbf{0.1850} \\
+SegNeXt-inspired & custom & No & 500 & 3e-5 & 5 & 1 & 0.0838 \\
+SegNeXt-family & convnext\_tiny & Yes & 900 & 3e-5 & 12 & 10 & 0.1827 \\
+\bottomrule
+\end{tabular}
+\caption{Best configurations for the compared model families.}
+\label{tab:baseline_comparison}
+\end{table}
+
+We evaluated four learning rates: $10^{-4}$, $5 \times 10^{-5}$, $3 \times 10^{-5}$, and $10^{-5}$.
+
 \section{Results}
 
 This section presents the experimental comparison between the project's DINO-based baseline and the implemented SegNeXt-inspired alternatives. We report the best validation F1 obtained for each model family under the tested training settings.
@@ -254,8 +254,7 @@ The comparison highlights three consistent trends: the strength of the DINO base
 
 \begin{table}[tb]
 \centering
-\small
-\setlength{\tabcolsep}{3pt}
+\resizebox{\linewidth}{!}{
 \begin{tabular}{lccc}
 \toprule
 Effective train size & DINO & SegNeXt (custom) & SegNeXt (pretr.) \\
@@ -265,6 +264,7 @@ Effective train size & DINO & SegNeXt (custom) & SegNeXt (pretr.) \\
 900 & \textbf{0.1850} & 0.0649 & 0.1827 \\
 \bottomrule
 \end{tabular}
+}
 \caption{Best validation F1 as a function of effective training size.}
 \label{tab:scaling}
 \end{table}
