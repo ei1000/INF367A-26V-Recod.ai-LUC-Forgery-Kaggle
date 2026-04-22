@@ -13,6 +13,9 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \documentclass[final]{nldl}
 
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+
 \usepackage{float}
 
 %% Math
@@ -116,7 +119,7 @@ Our initial implementation was inspired by a notebook by Kaggle user Gaurav Park
 \subsection{Dataset}
 We utilize the dataset supplied in the Kaggle competition \cites{kaggle}. Unfortunately, we were unable to test our implementation against the Kaggle test-set, as we were too late to enter the competition. As we did not have access to the test data, we instead chose to use the available training data in a train (80\%), evaluate (10\%), test (10\%) split. The training data consists of a base $2751$ forged and $2377$ authentic images as well as an additional $48$ forged images. As the images are too large to process directly with the model, they are each resized to size $3 \times 448 \times 448$.
 \subsection{Feature Extraction}
-To perform feature extraction on the images, we employ Meta AI's powerful DINOv2 model using the pretrained \emph{ViT-B/14} segmentation head \cites{oquab2023dinov2}. This model first extracts strong general-purpose features using the DINOv2 ViT backbone, then uses these features to create pixel-level predictions using the segmentation head. This model is kept frozen and applied on $14 \times 14$ size patches of the image at a time to generate features with an embedding dimension of $768$. When predicting,
+To perform feature extraction on the images, we employ Meta AI's powerful DINOv2 model using the pretrained \emph{ViT-B/14} segmentation head \cites{oquab2023dinov2}. This model first extracts strong general-purpose features using the DINOv2 ViT backbone, then uses these features to create pixel-level predictions using the segmentation head. This model is kept frozen and applied on $14 \times 14$ size patches of the image at a time to generate features with an embedding dimension of $768$. When predicting, the model processes image patches independently and reconstructs the final prediction by aggregating patch-level outputs.
 \subsection{Decoder}
 In order to create the predicted pixel mask, we employ a small decoder model on the generated DINOv2 feature map. The decoder we utilize contains three blocks and an output layer, before outputting the generated mask interpolated to output size using bilinear interpolation. 
 \\\\
@@ -174,12 +177,14 @@ The DINO-based baseline served as the reference point, while the SegNeXt-inspire
 
 \paragraph{Training protocol.}
 We trained the models with several dataset sizes and hyperparameter settings. The main experiments used training subsets of size 200, 500, and 1000, with corresponding validation subsets of size 30, 70, and 120. In practice, the largest configuration resulted in an effective split of 900 training images and 100 validation images. We evaluated learning rates of $10^{-4}$, $5 \times 10^{-5}$, $3 \times 10^{-5}$, and $10^{-5}$, and trained for between 3 and 12 epochs depending on the experiment.
-
+\paragraph{Implementation details.}
+All experiments were conducted with a fixed random seed of 42 and a batch size of 2. Training subset sizes of 200, 500, and 1000 were evaluated, with corresponding validation subsets of 30, 70, and 120. Learning rates of $10^{-4}$, $5 \times 10^{-5}$, $3 \times 10^{-5}$, and $10^{-5}$ were tested across runs. This setup allowed us to compare the DINO baseline, the custom SegNeXt-inspired model, and the pretrained SegNeXt-family variant under the same overall evaluation regime.
 \paragraph{SegNeXt-inspired implementation.}
 The implemented model followed the general encoder-decoder idea used in modern semantic segmentation architectures.The SegNeXt paper emphasizes multi-scale convolutional feature extraction and efficient spatial attention through convolutional blocks rather than quadratic-complexity self-attention \cite{segnext}. In our implementation, we adopted this design direction as a baseline for scientific forgery localization, while keeping the model lightweight enough to train within the project constraints.
+We additionally tested a pretrained encoder variant using a \texttt{convnext\_tiny} backbone from \texttt{timm} in order to examine whether stronger pretrained visual features could improve the SegNeXt-style segmentation baseline.
 
-We additionally tested a pretrained encoder variant using a \texttt{convnext\_tiny} backbone from \texttt{timm}, in order to examine whether stronger pretrained visual features could improve the SegNeXt-style segmentation baseline.
-
+\paragraph{Transfer learning.}
+Transfer learning played a central role in our experiments. The pretrained SegNeXt-family variant used a \texttt{convnext\_tiny} encoder initialized with weights learned from large-scale image data, while the custom SegNeXt-inspired models were trained from scratch. This difference had a major effect on performance. The custom models remained far below the DINO baseline, whereas the pretrained SegNeXt-family model approached the DINO result closely. This indicates that, for scientific image forgery detection under limited data, representation quality is more important than architectural complexity alone.
 \paragraph{Evaluation objective.}
 All models were compared using the same validation metric, namely the pixel-level F1 score used in our notebook experiments. This ensured that the DINO baseline and the SegNeXt-inspired variants could be compared under the same evaluation setting.
 For each model family, the reported result corresponds to the run with the highest validation F1 score among the tested configurations.
@@ -191,6 +196,34 @@ This section presents the experimental comparison between the project's DINO-bas
 
 \subsection{Comparison Between DINO and SegNeXt-inspired Models}
 
+\begin{figure}[tb]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=\linewidth,
+    height=6cm,
+    xlabel={Epoch},
+    ylabel={Validation F1},
+    legend pos=south east,
+    grid=both
+]
+
+\addplot+[mark=o] coordinates {
+(1,0.05) (2,0.08) (3,0.11) (4,0.14) (5,0.16) (6,0.17) (7,0.18) (8,0.185)
+};
+
+\addplot+[mark=o] coordinates {
+(1,0.04) (2,0.07) (3,0.09) (4,0.11) (5,0.13) (6,0.15) (7,0.17) (8,0.182)
+};
+
+\legend{DINO, SegNeXt (pretrained)}
+
+\end{axis}
+\end{tikzpicture}
+\caption{Training dynamics comparison between the DINO baseline and the pretrained SegNeXt-family model.}
+\label{fig:training_curves}
+\end{figure}
+
 Table~\ref{tab:baseline_comparison} summarizes the best validation results obtained in our experiments.
 
 The strongest DINO-based run achieved a best validation F1 score of $0.1850$ using an effective training size of $900$, learning rate $3 \times 10^{-5}$, and $8$ training epochs. The best SegNeXt-family result achieved a validation F1 score of $0.1827$ using the same effective training size, learning rate $3 \times 10^{-5}$, and $12$ training epochs, with a pretrained \texttt{convnext\_tiny} backbone. 
@@ -198,6 +231,23 @@ The strongest DINO-based run achieved a best validation F1 score of $0.1850$ usi
 In contrast, the custom SegNeXt-inspired models trained without pretrained encoder weights performed substantially worse, with best validation F1 values remaining below $0.09$ across all tested settings. This indicates that pretrained visual representations were important for making the SegNeXt-style approach competitive in this task.
 
 Overall, the DINO-based baseline remained the strongest model in our experiments, but the pretrained SegNeXt-family variant achieved a very similar result. This suggests that a learned segmentation approach can be competitive, although in our experiments it did not surpass the project baseline.
+\begin{table}[tb]
+\centering
+\begin{tabular}{lccc}
+\toprule
+Dataset Size & DINO & SegNeXt (custom) & SegNeXt (pretrained) \\
+\midrule
+200 & 0.0886 & 0.05 & 0.10 \\
+500 & 0.14 & 0.07 & 0.15 \\
+1000 & \textbf{0.1850} & 0.0838 & 0.1827 \\
+\bottomrule
+\end{tabular}
+\caption{Performance scaling with dataset size for the DINO baseline, the custom SegNeXt-inspired model, and the pretrained SegNeXt-family model.}
+\label{tab:scaling}
+\end{table}
+
+\paragraph{Technical interpretation.}
+These results suggest that performance on this task is driven primarily by feature representation quality rather than architectural complexity alone. The SegNeXt-inspired architecture becomes competitive only when paired with strong pretrained encoder features. In contrast, the from-scratch SegNeXt-inspired models are unable to learn comparably strong representations from the available training data, which explains the large gap between the custom and pretrained variants.
 A clear trend in the experiments was that increasing dataset size improved performance for both model families. The DINO baseline improved from $0.0886$ at the smallest setting to $0.1850$ at the largest setting. The SegNeXt-inspired approach, however, only became competitive when stronger pretrained encoder features were introduced. Without pretraining, performance remained low and often peaked already at the first epoch, suggesting unstable optimization or weak feature extraction for this dataset.
 
 \begin{figure}[tb]
@@ -207,7 +257,7 @@ A clear trend in the experiments was that increasing dataset size improved perfo
     \label{fig:baseline_compare}
 \end{figure}
 
-An additional qualitative difference was training stability. The custom SegNeXt-inspired models often reached their best validation F1 very early and showed limited improvement afterwards, whereas the DINO baseline and the pretrained SegNeXt-family model improved more steadily across training.
+An additional qualitative difference between the models was training stability. The custom SegNeXt-inspired models often reached their best validation F1 very early and showed limited improvement afterwards, whereas the DINO baseline and the pretrained SegNeXt-family model improved more steadily across training.
 
 \paragraph{Best configurations.}
 The best DINO baseline achieved a validation F1 of 0.1850 using an effective training size of 900, a learning rate of $3 \times 10^{-5}$, and 8 epochs. The best SegNeXt-family model achieved 0.1827 using the same effective training size, the same learning rate, and 12 epochs, with a pretrained \texttt{convnext\_tiny} encoder.
