@@ -147,7 +147,7 @@ The issue with this kind of inference is that although it is able to learn the g
 In addition to the main DINO-based pipeline, we implemented a learning-based baseline inspired by SegNeXt in order to compare a convolutional segmentation architecture against the project baseline. SegNeXt is motivated by the idea that semantic segmentation can benefit from a strong encoder, multi-scale feature interaction, and efficient spatial attention implemented using convolutional operations rather than transformer self-attention \cite{segnext}. In particular, the original SegNeXt design uses a convolutional encoder-decoder architecture with multi-scale convolutional attention to capture contextual information efficiently. The paper reports strong performance-computation trade-offs and shows that such CNN-based designs can outperform transformer-based alternatives on several semantic segmentation benchmarks \cite{segnext}.
 
 Our goal was not to reproduce the full original SegNeXt architecture exactly, but rather to implement a SegNeXt-inspired segmentation baseline within the project pipeline and evaluate whether this type of learned segmentation model could provide competitive performance on the Recod.ai/LUC scientific image forgery detection task.
-\begin{table}[h]
+\begin{table}[tb]
 \centering
 \begin{tabular}{lcccc}
 \toprule
@@ -231,7 +231,7 @@ The strongest DINO-based run achieved a best validation F1 score of $0.1850$ usi
 In contrast, the custom SegNeXt-inspired models trained without pretrained encoder weights performed substantially worse, with best validation F1 values remaining below $0.09$ across all tested settings. This indicates that pretrained visual representations were important for making the SegNeXt-style approach competitive in this task.
 
 Overall, the DINO-based baseline remained the strongest model in our experiments, but the pretrained SegNeXt-family variant achieved a very similar result. This suggests that a learned segmentation approach can be competitive, although in our experiments it did not surpass the project baseline.
-\begin{table}[tb]
+\begin{table}[!t]
 \centering
 \begin{tabular}{lccc}
 \toprule
