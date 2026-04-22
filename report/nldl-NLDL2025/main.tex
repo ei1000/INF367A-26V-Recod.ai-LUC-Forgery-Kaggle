@@ -20,6 +20,7 @@
 
 %% Math
 \usepackage{mathtools}
+\usepackage{amssymb}
 
 % Figures
 \usepackage{graphicx}
@@ -123,8 +124,44 @@ To perform feature extraction on the images, we employ Meta AI's powerful DINOv2
 \subsection{Decoder}
 In order to create the predicted pixel mask, we employ a small decoder model on the generated DINOv2 feature map. The decoder we utilize contains three blocks and an output layer, before outputting the generated mask interpolated to output size using bilinear interpolation. 
 \\\\
+
 The first two blocks of the decoder apply convolutions to bring the dimensionality from $768 \to 384 \to 192$ while also applying \emph{ReLU} and \emph{Dropout} with $p=0.1$ operations in each block. In the third block, a convolution from $192 \to 96$ is applied before a final \emph{ReLU} and the output layer $96 \to 1$, giving the predicted mask. 
+
+Formally, the decoder can be viewed as a mapping from the DINOv2 feature representation to a dense pixel-wise probability map.
+
+Let $X \in \mathbb{R}^{3 \times H \times W}$ denote the input image and $F \in \mathbb{R}^{768 \times h \times w}$ the feature map extracted by the frozen DINOv2 backbone. The decoder produces a probability map $\hat{Y} \in [0,1]^{H \times W}$ after upsampling:
+
+\[
+\hat{Y} = \sigma(\mathrm{Decoder}(F))
+\]
+
+where $\sigma$ denotes the sigmoid activation function.
+
+\subsection{Training Objective and Optimization}
+
+The model is trained as a pixel-wise binary classification problem, where each pixel is classified as either forged or authentic.
+
+We use binary cross-entropy with logits for pixel-wise supervision:
+
+\[
+\mathcal{L}_{BCE} = - \frac{1}{N} \sum_{i=1}^{N} \left[ y_i \log(\hat{y}_i) + (1 - y_i)\log(1 - \hat{y}_i) \right]
+\]
+
+where $\hat{y}_i$ is the predicted probability and $y_i$ is the ground truth label.
+
+All models were optimized using the Adam optimizer with a fixed learning rate, and training was performed with a batch size of 2 due to memory constraints. Model selection was based on the highest validation F1 score.
+
 \subsection{Mask post-processing}
+
+These post-processing steps were critical for performance under the competition metric. In particular, removing small connected components significantly improved the oF1 score by reducing false positives on authentic images. This highlights the mismatch between pixel-wise training objectives and the strict component-level evaluation metric.
+
+Let $\hat{Y}$ denote the predicted probability map. The final binary mask $M$ is obtained as:
+
+\[
+M = \mathrm{FillHoles}(\mathrm{Open}(\mathrm{Close}(\hat{Y} > \tau)))
+\]
+
+where $\tau = 0.5$ is the threshold.
 
 To post-process masks, we applied the following operations to an input map of forged pixel probabilities:
 \begin{enumerate}
@@ -136,35 +173,40 @@ To post-process masks, we applied the following operations to an input map of fo
 \end{enumerate}
 
 \subsection{Sliding window inference}
-In order to learn global relationships between pixels in an image, it is necessary to run inference on images as a whole. This is performed on images of the same resized size as the training image input size. The generated pixel masks are upscaled through bilinear interpolation, similarly to the training image samples.
-\\\\
-The issue with this kind of inference is that although it is able to learn the global relationships between objects in the image, it is challenging to achieve perfect pixel-level precision on images when the resolution is decreased significantly. In order to give our model more pixel-level precision and allow for inference on higher-resolution images directly, we employ sliding window inference. Sliding window inference is performed by performing individual predictions on overlapping patches of the image, which are weighted by a gaussian kernel in order to create a final output pixel map. TODO: More detailed: This is combined with the global prediction performed on the whole downscaled image at once.
-\\\\
+To capture global relationships between pixels, we first perform inference on the full resized image and upsample the resulting prediction map to the original resolution. However, this global prediction alone is often insufficient for precise localization, since downscaling reduces spatial detail.
+
+To improve pixel-level precision, we additionally apply sliding window inference on overlapping image patches. Each patch prediction is weighted by a Gaussian kernel and overlapping predictions are averaged:
+
+\[
+\hat{Y}(p) = \frac{\sum_i w_i(p)\hat{Y}_i(p)}{\sum_i w_i(p)}
+\]
+
+where $w_i(p)$ assigns larger weights to central pixels in each patch. This aggregation reduces boundary artifacts while preserving fine local detail.
 
 \subsection{SegNeXt-inspired Baseline and Experimental Comparison}
 
-In addition to the main DINO-based pipeline, we implemented a learning-based baseline inspired by SegNeXt in order to compare a convolutional segmentation architecture against the project baseline. SegNeXt is motivated by the idea that semantic segmentation can benefit from a strong encoder, multi-scale feature interaction, and efficient spatial attention implemented using convolutional operations rather than transformer self-attention \cite{segnext}. In particular, the original SegNeXt design uses a convolutional encoder-decoder architecture with multi-scale convolutional attention to capture contextual information efficiently. The paper reports strong performance-computation trade-offs and shows that such CNN-based designs can outperform transformer-based alternatives on several semantic segmentation benchmarks \cite{segnext}.
-
+In addition to the main DINO-based pipeline, we implemented a learning-based baseline inspired by SegNeXt in order to compare a convolutional segmentation architecture against the project baseline. SegNeXt is motivated by the idea that semantic segmentation can benefit from a strong encoder, multi-scale feature interaction, and efficient spatial attention implemented using convolutional operations rather than transformer self-attention \cite{segnext}. In particular, the original SegNeXt design uses a convolutional encoder-decoder architecture with multi-scale convolutional attention to capture contextual information efficiently. The paper reports strong performance-computation trade-offs and shows that such CNN-based designs can outperform transformer-based alternatives on several semantic segmentation benchmarks \cite{segnext}. This comparison formed the main individual contribution of this work, namely to evaluate whether a lightweight CNN-based segmentation approach inspired by SegNeXt could match the stronger DINO-based baseline under the same validation protocol.
 Our goal was not to reproduce the full original SegNeXt architecture exactly, but rather to implement a SegNeXt-inspired segmentation baseline within the project pipeline and evaluate whether this type of learned segmentation model could provide competitive performance on the Recod.ai/LUC scientific image forgery detection task.
 
-\begin{table}[t]
+\begin{table}[tb]
 \centering
 \small
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{lcccc}
+\begin{tabular}{lccccccc}
 \toprule
-Model & Pretr. & Train & Ep. & Val F1 \\
+Model & Encoder & Pretr. & Train & LR & Ep. & Best Ep. & Val F1 \\
 \midrule
-DINO baseline & Yes & 900 & 8 & \textbf{0.1850} \\
-SegNeXt-inspired & No & 500 & 5 & 0.0838 \\
-SegNeXt + pretr. enc. & Yes & 900 & 12 & 0.1827 \\
+DINO baseline & ViT-B/14 & Yes & 900 & 3e-5 & 8 & 8 & \textbf{0.1850} \\
+SegNeXt-inspired & custom & No & 500 & 3e-5 & 5 & 1 & 0.0838 \\
+SegNeXt-family & convnext\_tiny & Yes & 900 & 3e-5 & 12 & 10 & 0.1827 \\
 \bottomrule
 \end{tabular}
-\caption{Comparison between the DINO baseline and SegNeXt-inspired variants.}
+\caption{Best configurations for the compared model families.}
 \label{tab:baseline_comparison}
 \end{table}
 
 We evaluated four learning rates: $10^{-4}$, $5 \times 10^{-5}$, $3 \times 10^{-5}$, and $10^{-5}$.
+
 \paragraph{Experimental setup.}
 The experiments were carried out on the same extracted dataset used in the rest of the project. A subset of the forged training images and corresponding masks was prepared from the Kaggle dataset. For the largest experiments, 1000 image-mask pairs were extracted, of which the effective split used during training corresponded to 900 training samples and 100 validation samples. All experiments were run with the same random seed in order to make comparisons more controlled.
 
@@ -182,8 +224,9 @@ The DINO-based baseline served as the reference point, while the SegNeXt-inspire
 We trained the models with several dataset sizes and hyperparameter settings. The main experiments used training subsets of size 200, 500, and 1000, with corresponding validation subsets of size 30, 70, and 120. In practice, the largest configuration resulted in an effective split of 900 training images and 100 validation images. We evaluated learning rates of $10^{-4}$, $5 \times 10^{-5}$, $3 \times 10^{-5}$, and $10^{-5}$, and trained for between 3 and 12 epochs depending on the experiment.
 \paragraph{Implementation details.}
 All experiments were conducted with a fixed random seed of 42 and a batch size of 2. Training subset sizes of 200, 500, and 1000 were evaluated, with corresponding validation subsets of 30, 70, and 120. Learning rates of $10^{-4}$, $5 \times 10^{-5}$, $3 \times 10^{-5}$, and $10^{-5}$ were tested across runs. This setup allowed us to compare the DINO baseline, the custom SegNeXt-inspired model, and the pretrained SegNeXt-family variant under the same overall evaluation regime.
+Optimization settings followed the training objective described earlier, using Adam and pixel-wise binary cross-entropy.
 \paragraph{SegNeXt-inspired implementation.}
-The implemented model followed the general encoder-decoder idea used in modern semantic segmentation architectures.The SegNeXt paper emphasizes multi-scale convolutional feature extraction and efficient spatial attention through convolutional blocks rather than quadratic-complexity self-attention \cite{segnext}. In our implementation, we adopted this design direction as a baseline for scientific forgery localization, while keeping the model lightweight enough to train within the project constraints.
+The implemented model followed the general encoder-decoder idea used in modern semantic segmentation architectures. The SegNeXt paper emphasizes ...
 We additionally tested a pretrained encoder variant using a \texttt{convnext\_tiny} backbone from \texttt{timm} in order to examine whether stronger pretrained visual features could improve the SegNeXt-style segmentation baseline.
 
 \paragraph{Transfer learning.}
@@ -199,63 +242,40 @@ This section presents the experimental comparison between the project's DINO-bas
 
 \subsection{Comparison Between DINO and SegNeXt-inspired Models}
 
-\begin{figure}[tb]
-\centering
-\begin{tikzpicture}
-\begin{axis}[
-    width=\linewidth,
-    height=6cm,
-    xlabel={Epoch},
-    ylabel={Validation F1},
-    legend pos=south east,
-    grid=both
-]
-
-\addplot+[mark=o] coordinates {
-(1,0.05) (2,0.08) (3,0.11) (4,0.14) (5,0.16) (6,0.17) (7,0.18) (8,0.185)
-};
-
-\addplot+[mark=o] coordinates {
-(1,0.04) (2,0.07) (3,0.09) (4,0.11) (5,0.13) (6,0.15) (7,0.17) (8,0.182)
-};
-
-\legend{DINO, SegNeXt (pretrained)}
-
-\end{axis}
-\end{tikzpicture}
-\caption{Training dynamics comparison between the DINO baseline and the pretrained SegNeXt-family model.}
-\label{fig:training_curves}
-\end{figure}
-
 Table~\ref{tab:baseline_comparison} summarizes the best validation results obtained in our experiments.
 
-The best DINO-based run achieved a validation F1 of 0.1850 with 900 training samples, a learning rate of $3 \times 10^{-5}$, and 8 epochs. The best SegNeXt-family run achieved 0.1827 under the same training size and learning rate, but required 12 epochs and a pretrained \texttt{convnext\_tiny} backbone.
+The best DINO-based run achieved a validation F1 of 0.1850 with 900 training samples, a learning rate of $3 \times 10^{-5}$, and 8 epochs. The best pretrained SegNeXt-family run achieved 0.1827 under the same training size and learning rate, but required 12 epochs and a pretrained \texttt{convnext\_tiny} backbone.
 
 In contrast, the custom SegNeXt-inspired models trained without pretrained encoder weights performed substantially worse, with best validation F1 values remaining below $0.09$ across all tested settings. This indicates that pretrained visual representations were important for making the SegNeXt-style approach competitive in this task.
 
-Overall, the DINO-based baseline remained the strongest model in our experiments, but the pretrained SegNeXt-family variant achieved a very similar result. This suggests that a learned segmentation approach can be competitive, although in our experiments it did not surpass the project baseline.
+Overall, the DINO-based baseline consistently achieved the highest validation performance across all tested configurations. The pretrained SegNeXt-family model approached this performance, but required more training epochs and relied heavily on pretrained representations. Without pretraining, segmentation-based approaches failed to produce competitive results.
 
-\begin{table}[t]
+The comparison highlights three consistent trends: the strength of the DINO baseline, the importance of pretraining, and the limited competitiveness of from-scratch segmentation models under the available data regime.
+
+\begin{table}[tb]
 \centering
 \small
 \setlength{\tabcolsep}{3pt}
 \begin{tabular}{lccc}
 \toprule
-Data & DINO & S-Next (cust.) & S-Next (pretr.) \\
+Effective train size & DINO & SegNeXt (custom) & SegNeXt (pretr.) \\
 \midrule
-200 & 0.0886 & 0.05 & 0.10 \\
-500 & 0.14 & 0.07 & 0.15 \\
-1000 & \textbf{0.1850} & 0.0838 & 0.1827 \\
+200 & 0.0886 & 0.0490 & -- \\
+500 & 0.1812 & 0.0838 & -- \\
+900 & \textbf{0.1850} & 0.0649 & 0.1827 \\
 \bottomrule
 \end{tabular}
-\caption{Validation F1 versus dataset size.}
+\caption{Best validation F1 as a function of effective training size.}
 \label{tab:scaling}
 \end{table}
 
 \paragraph{Technical interpretation.}
 These results suggest that performance on this task depends mainly on feature quality. Architectural changes alone were not sufficient. The SegNeXt-inspired model became competitive only when combined with pretrained encoder features.
 
-Performance also improved as dataset size increased. The DINO baseline improved from 0.0886 at the smallest setting to 0.1850 at the largest setting. Without pretraining, the SegNeXt-inspired models remained weak and often peaked very early.
+\paragraph{Hyperparameter sensitivity.}
+The learning rate had a clear effect on final validation performance. Across the strongest configurations, the best results for both the DINO baseline and the pretrained SegNeXt-family model were obtained at $3 \times 10^{-5}$. In contrast, lower-rate runs such as $10^{-5}$ produced weaker results in the large-scale setting.
+
+The custom SegNeXt-inspired model was particularly sensitive and often reached its best validation F1 already at the first epoch, which suggests unstable optimization and weak feature learning without pretraining.
 
 \begin{figure}[tb]
     \centering
@@ -267,16 +287,17 @@ Performance also improved as dataset size increased. The DINO baseline improved 
 An additional qualitative difference between the models was training stability. The custom SegNeXt-inspired models often reached their best validation F1 very early and showed limited improvement afterwards, whereas the DINO baseline and the pretrained SegNeXt-family model improved more steadily across training.
 
 \paragraph{Best configurations.}
+The best DINO baseline achieved a validation F1 of 0.1850 using an effective training size of 900, a learning rate of $3 \times 10^{-5}$, and 8 training epochs. Its best validation performance was reached at epoch 8. The best pretrained SegNeXt-family configuration achieved 0.1827 under the same effective training size and learning rate, but required 12 training epochs and reached its best validation performance at epoch 10. In contrast, the best custom SegNeXt-inspired configuration peaked much earlier, indicating unstable optimization and weak feature learning without pretraining.
 
-The best DINO baseline achieved a validation F1 of 0.1850 using an effective training size of 900, a learning rate of $3 \times 10^{-5}$, and 8 epochs.
-
-The best SegNeXt-family model achieved 0.1827 using the same effective training size and learning rate, but required 12 epochs and a pretrained \texttt{convnext\_tiny} encoder.
+\paragraph{Computational considerations.}
+The DINO-based pipeline relies on a frozen pretrained backbone and a lightweight decoder, which makes optimization comparatively simple and computationally efficient. In contrast, the SegNeXt-family model requires end-to-end forward and backward passes through a trainable encoder-decoder architecture, increasing training cost. While both approaches were feasible under limited compute, the DINO-based pipeline provided a more favorable trade-off between validation performance, optimization stability, and training complexity.
 
 TODO: Show results of experiments. NB: Without interpretation at this stage!
 \\
 Align with method section.
 
 \section{Discussion}
+
 
 TODO: Interpret results, relate to objectives (did we achieve them?), compare against others
 \\
@@ -285,6 +306,10 @@ One issue with this task is loss function misalignment. Although cross-entropy l
 Although beyond the scope of this project, an interesting avenue for future research could be to create a differentiable loss more directly linked to the OF1 objective. As surrogates, we did employ additionally loss penalties for any forged pixels predicted on authentic images, but a more nuanced alternative would be interesting to experiment with.
 \\
 Because of this mismatch, model performance is very sensitive to the operations performed in mask post-processing. We see experimenting with other post-processing techniques as a promising direction for future work. For instance, filtering out small predicted patches led to much better results, as the OF1 metric also penalizes extra component predictions on forged images.
+
+\paragraph{Failure modes.}
+A major failure mode observed across all models was false positive predictions on authentic images. Due to the strict evaluation metric, even a small predicted region results in an oF1 score of zero. This makes the task highly sensitive to noise and small prediction artifacts, and explains why post-processing plays a critical role in final performance.
+
 
 \begin{figure}[tb]
 	\centering
@@ -308,7 +333,7 @@ We attribute some of the difficulty of the task to qualities of the dataset. Oft
 \end{figure}
 \subsection{Deep Cross-Scale PatchMatch}
 The Deep Cross-Scale PatchMatch architecture was proposed by Li \etal in 2024. \cites{li2024deeppatchmatch} It is an end-to-end differentiable deep-learning based architecture where one branch employs the patch match algorithm presented by Barnes \etal in 2009 \cites{barnes2009patchmatch} on different scales of each image in order to attain pixel similarities and offsets from each pixel to it's most similar pixel. The second branch runs a direct feature extraction $\to$ prediction process. Finally, the predictions of the two branches are combined through an argmax operation. \\
-The architecture supports three-channel CMFD, but in our version it is adapted to the single-channel CMFD, using only the first part of the architecture. In addition, our implementation has some other differences from the version by Li \etal. These are partly due to practical concerns, and partly due to ambiguity or lack of detail in the paper regarding specific implementation details.
+The architecture supports three-channel CMFD, but in our version it is adapted to the single-channel CMFD, using only the first part of the architecture. In addition, our implementation has some other differences from the version by Li \etal. These are partly due to practical concerns, and partly due to ambiguity or lack of detail in the paper regarding specific implementation details. 
 
 Most changes were performed in the first branch, where one change performed due to practical concerns was to use a frozen pretrained CNN feature extractor. This meant that it was not necessary to let gradients flow through the DLF and Deep Cross-Scale PatchMatch parts of the networks, saving memory and computation time. We tested using both the pretrained VGG16 and ResNet18 weights from \lstinline|torchvision.models| \cites{simonyan2014vgg16, he2016deep}, achieving best performance with ResNet18. In addition, although the CNN is run multi-scale in the paper, we found that the difference in performance when using pretrained models was marginal, meaning it was more useful to save memory and time by running this model single-scale while still keeping Zernike feature extraction multi-scale. Inspired by its strong performance in our baseline, we performed feature extraction using DINOv2 in the second branch of the architecture.
 
@@ -353,9 +378,9 @@ At the time of writing, the maximum oF1 score achieved on hold-out test data was
 \appendix
 \section{Appendix Example}
 
-\section{TEST}
-HELLO WORLD
 
 \end{document}
+
+
 
 
