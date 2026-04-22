@@ -134,6 +134,37 @@ In order to learn global relationships between pixels in an image, it is necessa
 \\\\
 The issue with this kind of inference is that although it is able to learn the global relationships between objects in the image, it is challenging to achieve perfect pixel-level precision on images when the resolution is decreased significantly. In order to give our model more pixel-level precision and allow for inference on higher-resolution images directly, we employ sliding window inference. Sliding window inference is performed by performing individual predictions on overlapping patches of the image, which are weighted by a gaussian kernel in order to create a final output pixel map. TODO: More detailed: This is combined with the global prediction performed on the whole downscaled image at once.
 \\\\
+
+\subsection{SegNeXt-inspired Baseline and Experimental Comparison}
+
+In addition to the main DINO-based pipeline, we implemented a learning-based baseline inspired by SegNeXt in order to compare a convolutional segmentation architecture against the project baseline. SegNeXt is motivated by the idea that semantic segmentation can benefit from a strong encoder, multi-scale feature interaction, and efficient spatial attention implemented using convolutional operations rather than transformer self-attention \cite{segnext}. In particular, the original SegNeXt design uses a convolutional encoder-decoder architecture with multi-scale convolutional attention to capture contextual information efficiently. The paper reports strong performance-computation trade-offs and shows that such CNN-based designs can outperform transformer-based alternatives on several segmentation benchmarks :contentReference[oaicite:0]{index=0}.
+
+Our goal was not to reproduce the full original SegNeXt architecture exactly, but rather to implement a SegNeXt-inspired segmentation baseline within the project pipeline and evaluate whether this type of learned segmentation model could provide competitive performance on the Recod.ai/LUC scientific image forgery detection task.
+
+\paragraph{Experimental setup.}
+The experiments were carried out on the same extracted dataset used in the rest of the project. A subset of the forged training images and corresponding masks was prepared from the Kaggle dataset. For the largest experiments, 1000 image-mask pairs were extracted, of which the effective split used during training corresponded to 900 training samples and 100 validation samples. All experiments were run with the same random seed in order to make comparisons more controlled.
+
+\paragraph{Compared models.}
+We compared three model families:
+\begin{enumerate}[leftmargin=*]
+    \item a DINO-based baseline used in the main project,
+    \item a custom SegNeXt-inspired segmentation model,
+    \item a pretrained backbone variant using the same lightweight decoder structure.
+\end{enumerate}
+
+The DINO-based baseline served as the reference point, while the SegNeXt-inspired experiments were used to test whether a learned convolutional segmentation model could match or improve the baseline under the same training regime.
+
+\paragraph{Training protocol.}
+We trained the models with several dataset sizes and hyperparameter settings. The main experiments used training subsets of size 200, 500, and 1000, with corresponding validation subsets of size 30, 70, and 120. In practice, the largest configuration resulted in an effective split of 900 training images and 100 validation images. We evaluated learning rates of $10^{-4}$, $5 \times 10^{-5}$, $3 \times 10^{-5}$, and $10^{-5}$, and trained for between 3 and 12 epochs depending on the experiment.
+
+\paragraph{SegNeXt-inspired implementation.}
+The implemented model followed the general encoder-decoder idea used in modern semantic segmentation architectures. The SegNeXt paper emphasizes multi-scale convolutional feature extraction and efficient spatial attention through convolutional blocks rather than quadratic-complexity self-attention :contentReference[oaicite:1]{index=1}. In our implementation, we adopted this design direction as a baseline for scientific forgery localization, while keeping the model lightweight enough to train within the project constraints.
+
+We additionally tested a pretrained encoder variant using a \texttt{convnext\_tiny} backbone from \texttt{timm}, in order to examine whether stronger pretrained visual features could improve the SegNeXt-style segmentation baseline.
+
+\paragraph{Evaluation objective.}
+All models were compared using the same validation metric, namely the pixel-level F1 score used in our notebook experiments. This ensured that the DINO baseline and the SegNeXt-inspired variants could be compared under the same evaluation setting.
+
 \section{Results}
 
 TODO: Show results of experiments. NB: Without interpretation at this stage!
