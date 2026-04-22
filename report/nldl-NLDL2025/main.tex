@@ -167,6 +167,18 @@ All models were compared using the same validation metric, namely the pixel-leve
 
 \section{Results}
 
+This section presents the experimental comparison between the project's DINO-based baseline and the implemented SegNeXt-inspired alternatives. We report the best validation F1 obtained for each model family under the tested training settings.
+
+\subsection{Comparison Between DINO and SegNeXt-inspired Models}
+
+Table~\ref{tab:baseline_comparison} summarizes the best validation results obtained in our experiments.
+
+The strongest DINO-based run achieved a best validation F1 score of $0.1850$ using an effective training size of $900$, learning rate $3 \times 10^{-5}$, and $8$ training epochs. The best SegNeXt-family result achieved a validation F1 score of $0.1827$ using the same effective training size, learning rate $3 \times 10^{-5}$, and $12$ training epochs, with a pretrained \texttt{convnext\_tiny} backbone. 
+
+In contrast, the custom SegNeXt-inspired models trained without pretrained encoder weights performed substantially worse, with best validation F1 values remaining below $0.09$ across all tested settings. This indicates that pretrained visual representations were important for making the SegNeXt-style approach competitive in this task.
+
+Overall, the DINO-based baseline remained the strongest model in our experiments, but the pretrained SegNeXt-family variant achieved a very similar result. This suggests that a learned segmentation approach can be competitive, although in our experiments it did not surpass the project baseline.
+
 TODO: Show results of experiments. NB: Without interpretation at this stage!
 \\\\
 Align with method section.
