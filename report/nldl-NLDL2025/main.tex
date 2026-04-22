@@ -142,20 +142,19 @@ The issue with this kind of inference is that although it is able to learn the g
 In addition to the main DINO-based pipeline, we implemented a learning-based baseline inspired by SegNeXt in order to compare a convolutional segmentation architecture against the project baseline. SegNeXt is motivated by the idea that semantic segmentation can benefit from a strong encoder, multi-scale feature interaction, and efficient spatial attention implemented using convolutional operations rather than transformer self-attention \cite{segnext}. In particular, the original SegNeXt design uses a convolutional encoder-decoder architecture with multi-scale convolutional attention to capture contextual information efficiently. The paper reports strong performance-computation trade-offs and shows that such CNN-based designs can outperform transformer-based alternatives on several segmentation benchmarks :contentReference[oaicite:0]{index=0}.
 
 Our goal was not to reproduce the full original SegNeXt architecture exactly, but rather to implement a SegNeXt-inspired segmentation baseline within the project pipeline and evaluate whether this type of learned segmentation model could provide competitive performance on the Recod.ai/LUC scientific image forgery detection task.
-\begin{table}[H]
+\begin{table}[h]
 \centering
-\small
-\caption{Main experimental configurations used in the comparison between DINO and SegNeXt-inspired models.}
-\label{tab:exp_settings}
-\begin{tabular}{lccc}
+\begin{tabular}{lcccc}
 \toprule
-Setting & Train subset & Validation subset & Epochs \\
+Model & Pretrained & Train Size & Epochs & Best Val F1 \\
 \midrule
-Small & 200 & 30 & 3 \\
-Medium & 500 & 70 & 5 \\
-Large & 1000 & 120 & 8--12 \\
+DINO (baseline) & Yes & 900 & 8 & \textbf{0.1850} \\
+SegNeXt-inspired (custom) & No & 500 & 5 & 0.0838 \\
+SegNeXt (pretrained encoder) & Yes & 900 & 12 & 0.1827 \\
 \bottomrule
 \end{tabular}
+\caption{Comparison of DINO baseline and SegNeXt-inspired variants.}
+\label{tab:baseline_comparison}
 \end{table}
 Across these settings, learning rates of $10^{-4}$, $5 \times 10^{-5}$, $3 \times 10^{-5}$, and $10^{-5}$ were evaluated.
 \paragraph{Experimental setup.}
@@ -215,7 +214,10 @@ A clear trend in the experiments was that increasing dataset size improved perfo
 \begin{figure}[tb][H]
     \centering
     \includegraphics[width=\linewidth]{baseline_vs_segnext_results.png}
-    \caption{Validation F1 comparison between the DINO baseline and the SegNeXt-inspired model variants. The pretrained SegNeXt-family model substantially outperformed the custom non-pretrained variants and approached the best DINO baseline result.}
+    \caption{
+Performance scaling with dataset size for the DINO baseline and the SegNeXt-inspired model.
+The DINO baseline shows strong performance even at smaller dataset sizes, while the SegNeXt-inspired model benefits more significantly from increased data. At the largest dataset size, the pretrained SegNeXt variant approaches the performance of the DINO baseline, indicating that representation quality is the key limiting factor.
+}
     \label{fig:baseline_compare}
 \end{figure}
 An additional difference between the models was training stability. The best custom SegNeXt-inspired runs often reached their peak validation performance already at the first epoch, while the pretrained SegNeXt-family variant required more training and peaked later. In contrast, the DINO baseline showed more stable convergence behavior across epochs.
