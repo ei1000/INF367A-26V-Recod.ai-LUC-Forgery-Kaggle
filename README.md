@@ -28,7 +28,3 @@ The aim of this project is to achieve good performance on the Kaggle competition
 ## Data
 
 - Data is stored in data/ folder. It must be added it if not present in order to run the project.
-
-## Individual contributions
-
-We
