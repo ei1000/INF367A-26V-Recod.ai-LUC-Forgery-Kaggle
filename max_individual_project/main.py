@@ -23,7 +23,6 @@ def main():
         pm_hard_selection=True,
         pm_flat_threshold=0.15,
         pm_margin_threshold=0.10,
-        pm_topk=1,
         dino_model_name="dinov2_vits14",
         localization_resolution="image",
         pm_reduced_precision=True,

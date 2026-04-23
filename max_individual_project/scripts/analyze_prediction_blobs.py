@@ -112,7 +112,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pm-non-local-limit", type=float, default=25.0)
     parser.add_argument("--pm-flat-threshold", type=float, default=0.15)
     parser.add_argument("--pm-margin-threshold", type=float, default=0.10)
-    parser.add_argument("--pm-topk", type=int, default=1)
     parser.add_argument("--pm-reduced-precision", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--localization-resolution", choices=("image",), default="image")
     parser.add_argument("--dlf-error-scaling", choices=("none", "log1p", "zscore"), default="log1p")
@@ -508,7 +507,6 @@ def main() -> None:
             pm_non_local_limit=args.pm_non_local_limit,
             pm_flat_threshold=args.pm_flat_threshold,
             pm_margin_threshold=args.pm_margin_threshold,
-            pm_topk=args.pm_topk,
             pm_reduced_precision=args.pm_reduced_precision,
             localization_resolution=args.localization_resolution,
             dlf_error_scaling=args.dlf_error_scaling,

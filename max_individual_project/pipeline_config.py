@@ -30,7 +30,6 @@ class PipelineConfig:
     pm_non_local_limit: float = 25.0
     pm_flat_threshold: float = 0.15
     pm_margin_threshold: float = 0.10
-    pm_topk: int = 1
     pm_reduced_precision: bool = True
     localization_resolution: str = "image"
     log_every: int = 10

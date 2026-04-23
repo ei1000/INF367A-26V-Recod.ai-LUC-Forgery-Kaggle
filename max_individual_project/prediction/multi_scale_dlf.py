@@ -27,24 +27,12 @@ class MultiScaleDLF:
         cnn_offsets: torch.Tensor,
         zernike_offsets: torch.Tensor | None = None,
         kernel_sizes: np.ndarray | None = None,
-        cnn_topk_offsets: torch.Tensor | None = None,
-        zernike_topk_offsets: torch.Tensor | None = None,
     ):
         self.image = self.as_batched_image(image)
         self.cnn_offsets = self.as_batched_offsets(cnn_offsets).to(dtype=torch.float32)
         self.zernike_offsets = (
             self.as_batched_offsets(zernike_offsets).to(dtype=torch.float32)
             if zernike_offsets is not None
-            else None
-        )
-        self.cnn_topk_offsets = (
-            self.as_batched_topk_offsets(cnn_topk_offsets).to(dtype=torch.float32)
-            if cnn_topk_offsets is not None
-            else None
-        )
-        self.zernike_topk_offsets = (
-            self.as_batched_topk_offsets(zernike_topk_offsets).to(dtype=torch.float32)
-            if zernike_topk_offsets is not None
             else None
         )
 
@@ -68,9 +56,6 @@ class MultiScaleDLF:
                     f"Zernike offsets {self.zernike_offsets.shape}"
                 )
 
-        self.validate_topk_offsets(self.cnn_topk_offsets, self.cnn_offsets, "cnn_topk_offsets")
-        self.validate_topk_offsets(self.zernike_topk_offsets, self.zernike_offsets, "zernike_topk_offsets")
-
         if kernel_sizes is None:
             kernel_sizes = np.array([7, 9, 11])
 
@@ -83,8 +68,6 @@ class MultiScaleDLF:
         self.offset_fields = [self.normalize_offsets(self.cnn_offsets)]
         if self.zernike_offsets is not None:
             self.offset_fields.append(self.normalize_offsets(self.zernike_offsets))
-        self.hypothesis_groups = self.build_hypothesis_groups()
-        self.has_topk_hypotheses = any(len(group) > 1 for group in self.hypothesis_groups)
         self.ones_map, self.x_map, self.y_map, self.x2_map, self.xy_map, self.y2_map = self.get_static_maps(
             self.height,
             self.width,
@@ -107,30 +90,6 @@ class MultiScaleDLF:
         if offsets.dim() != 4 or offsets.shape[1] != 2:
             raise ValueError(f"Expected offsets shape [2,H,W] or [B,2,H,W], got {tuple(offsets.shape)}")
         return offsets
-
-    def as_batched_topk_offsets(self, offsets: torch.Tensor) -> torch.Tensor:
-        if offsets.dim() == 4:
-            offsets = offsets.unsqueeze(0)
-        if offsets.dim() != 5 or offsets.shape[2] != 2:
-            raise ValueError(f"Expected top-k offsets shape [K,2,H,W] or [B,K,2,H,W], got {tuple(offsets.shape)}")
-        return offsets
-
-    def validate_topk_offsets(
-        self,
-        topk_offsets: torch.Tensor | None,
-        reference_offsets: torch.Tensor | None,
-        name: str,
-    ) -> None:
-        if topk_offsets is None or reference_offsets is None:
-            return
-        if topk_offsets.shape[0] != reference_offsets.shape[0]:
-            raise ValueError(
-                f"Batch size mismatch between {name} {tuple(topk_offsets.shape)} and offsets {tuple(reference_offsets.shape)}"
-            )
-        if topk_offsets.shape[-2:] != reference_offsets.shape[-2:]:
-            raise ValueError(
-                f"Spatial size mismatch between {name} {tuple(topk_offsets.shape)} and offsets {tuple(reference_offsets.shape)}"
-            )
 
     @classmethod
     def get_static_maps(
@@ -170,29 +129,6 @@ class MultiScaleDLF:
         normalized[:, 0] = normalized[:, 0] / scale_x
         normalized[:, 1] = normalized[:, 1] / scale_y
         return normalized
-
-    def normalize_topk_offsets(self, offsets: torch.Tensor) -> torch.Tensor:
-        batch_size, topk, _, height, width = offsets.shape
-        flat = offsets.reshape(batch_size * topk, 2, height, width)
-        normalized = self.normalize_offsets(flat)
-        return normalized.reshape(batch_size, topk, 2, height, width)
-
-    def build_hypothesis_groups(self) -> list[list[torch.Tensor]]:
-        groups: list[list[torch.Tensor]] = []
-        groups.append(self.build_branch_hypotheses(self.cnn_offsets, self.cnn_topk_offsets))
-        if self.zernike_offsets is not None:
-            groups.append(self.build_branch_hypotheses(self.zernike_offsets, self.zernike_topk_offsets))
-        return groups
-
-    def build_branch_hypotheses(
-        self,
-        base_offsets: torch.Tensor,
-        topk_offsets: torch.Tensor | None,
-    ) -> list[torch.Tensor]:
-        if topk_offsets is None or topk_offsets.shape[1] <= 1:
-            return [self.normalize_offsets(base_offsets)]
-        normalized = self.normalize_topk_offsets(topk_offsets)
-        return [normalized[:, hypothesis_idx] for hypothesis_idx in range(normalized.shape[1])]
 
     def box_sum(self, tensor: torch.Tensor, kernel_size: int) -> torch.Tensor:
         pad = kernel_size // 2
@@ -299,22 +235,6 @@ class MultiScaleDLF:
         )
         return dx_pred, dy_pred
 
-    def compute_single_hypothesis_error(self, offsets: torch.Tensor, kernel_size: int) -> torch.Tensor:
-        feature_stack, x_map, y_map, dx_map, dy_map = self.build_feature_stack(offsets)
-        box_sums = self.box_sum(feature_stack, kernel_size)
-        xtx, rhs = self.build_local_equations(box_sums)
-        theta = self.solve_coefficients(xtx, rhs)
-
-        dx_pred, dy_pred = self.compute_predictions(theta, x_map, y_map)
-        residuals = torch.cat(
-            (
-                (dx_map - dx_pred).square(),
-                (dy_map - dy_pred).square(),
-            ),
-            dim=1,
-        )
-        return self.box_sum(residuals, kernel_size).sum(dim=1)
-
     def compute_errors_default(self) -> torch.Tensor:
         mean_offsets = torch.stack(self.offset_fields, dim=0).mean(dim=0)
         feature_stack, x_map, y_map, _, _ = self.build_feature_stack(mean_offsets)
@@ -345,27 +265,5 @@ class MultiScaleDLF:
 
         return torch.stack(errors, dim=1)
 
-    def compute_errors_topk(self) -> torch.Tensor:
-        errors = []
-
-        for kernel_size in self.kernel_sizes:
-            kernel_size = int(kernel_size)
-            branch_errors = []
-            for hypothesis_group in self.hypothesis_groups:
-                branch_hypothesis_errors = [
-                    self.compute_single_hypothesis_error(hypothesis_offsets, kernel_size)
-                    for hypothesis_offsets in hypothesis_group
-                ]
-                if len(branch_hypothesis_errors) == 1:
-                    branch_error = branch_hypothesis_errors[0]
-                else:
-                    branch_error = torch.amin(torch.stack(branch_hypothesis_errors, dim=1), dim=1)
-                branch_errors.append(branch_error)
-            errors.append(torch.stack(branch_errors, dim=0).mean(dim=0))
-
-        return torch.stack(errors, dim=1)
-
     def compute_errors(self):
-        if not self.has_topk_hypotheses:
-            return self.compute_errors_default()
-        return self.compute_errors_topk()
+        return self.compute_errors_default()

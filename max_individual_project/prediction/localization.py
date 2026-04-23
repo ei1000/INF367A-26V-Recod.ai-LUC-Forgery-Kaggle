@@ -67,7 +67,6 @@ def extract_localization_inputs(
     collect_stats: bool = False,
     pm_flat_threshold: float = 0.15,
     pm_margin_threshold: float = 0.10,
-    pm_topk: int = 1,
 ):
     """Build the three-branch localization inputs.
 
@@ -133,7 +132,6 @@ def extract_localization_inputs(
         non_local_limit=pm_non_local_limit,
         flat_threshold=pm_flat_threshold,
         margin_threshold=pm_margin_threshold,
-        topk=pm_topk,
     )
 
     if collect_stats:
@@ -147,12 +145,10 @@ def extract_localization_inputs(
     cnn_errors = MultiScaleDLF(
         images,
         batch_cnn_branch.offsets,
-        cnn_topk_offsets=batch_cnn_branch.topk_offsets,
     ).compute_errors()
     zernike_errors = MultiScaleDLF(
         images,
         batch_zernike_branch.offsets,
-        cnn_topk_offsets=batch_zernike_branch.topk_offsets,
     ).compute_errors()
     cnn_errors = normalize_dlf_error_maps(cnn_errors, mode=dlf_error_scaling)
     zernike_errors = normalize_dlf_error_maps(zernike_errors, mode=dlf_error_scaling)
