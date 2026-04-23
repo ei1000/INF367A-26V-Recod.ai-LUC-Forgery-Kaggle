@@ -141,9 +141,9 @@ All models are trained as a pixel-wise binary classification problem, where each
 Within our main method we employ Meta AI's powerful DINOv2 model using the pretrained \emph{ViT-B/14} segmentation head \cites{oquab2023dinov2} in order to perform feature extraction on the images. This model first extracts strong general-purpose features using the DINOv2 ViT backbone, then uses these features to create pixel-level segmentation predictions using the segmentation head. This model is kept frozen and applied on $14 \times 14$ size patches of the image at a time to generate features with an embedding dimension of $768$. When predicting, the model processes image patches independently and reconstructs the final prediction by aggregating patch-level outputs.
 \subsubsection{Decoder}
 To generate the predicted mask, we use a lightweight convolutional decoder on top of the DINOv2 feature map. The decoder consists of three convolutional blocks followed by an output layer, and produces a mask upsampled to the input resolution using bilinear interpolation.
-
+\\\\
 The feature dimensionality is reduced progressively from $768 \to 384 \to 192 \to 96$, with ReLU activations and Dropout ($p=0.1$) applied in each block, before a final $96 \to 1$ projection.
-
+\\\\
 Let $X \in \mathbb{R}^{3 \times H \times W}$ and $F \in \mathbb{R}^{768 \times h \times w}$ denote the input and extracted features. The predicted mask is:
 \[
 \hat{Y} = \sigma(\mathrm{Decoder}(F))
