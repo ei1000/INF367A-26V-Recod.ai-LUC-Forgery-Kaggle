@@ -22,6 +22,10 @@ The architecture of the project is made to be as consistent as possible with the
 
 One important overrall difference is that although my version also can be configured to be end-to-end differentiable, I found it was more practical not to do so, insteading using a pretrained CNN for feature extraction.
 
+### High-Level overview
+
+The final output of the model is a post-processed argmax fusion of the masks generated from SEUNet (`se_u_net.py`, running DINOv2 feature extraction + decoder) and the mask generated from PatchMatch (`cnn_feature_extractor.py` + `zernike_feature_extractor.py` $\to$ `pixel_propagator.py` $\to$ `multi_scale_dlf.py` $\to$ `dlfdecoder.py`).
+
 Following is a more detailed description of the code and structure.
 
 ### Feature extractors
@@ -62,6 +66,8 @@ As the zernike kernels are the same for each run, these are pre-computed and cac
 ### Deep Cross-Scale PatchMatch
 
 ![PatchMatch Architecture](patchmatch_architecture.jpg)
+The PatchMatch architecture is found within `cross_scale_patchmatch/pixel_propagator.py`.
+
 When I implemented the Deep Cross-Scale PatchMatch algorithm as described in the paper, I had some issues with pixel offsets settling by finding local optima within a close vicinity. Essentially, as the features extracted within a local area are quite similar, it was hard for the algorithm to explore beyond this area. To rectify this, I implemented a method that re-randomized any offsets which were within a close vicinity to the pixel itself. As there is no mention of this in the paper, I am unsure whether my implementation diverges at this point or not.
 
 The paper does not specify how many iterations PatchMatch is run for, but to achieve good offsets I found it necessary to use 24 iterations.
@@ -70,11 +76,21 @@ Here is an example of generated offsets visualized:
 
 ### Multi-Scale Dense Linear Fitting and Prediction
 
+The `prediction/multi_scale_dlf.py` file handles creating predicted error maps based on input pixel offsets from `pixel_propagator.py`. These error maps are then given to the DLFDecoder in `dlfdecoder.py` in order to obtain the final mask.
+
 Although this too was hard to interpret, the interpretation I decided on was that the author's implementation only used the CNN offsets to calculate DLF error maps. However, as I was getting poor results using only these offsets, I chose to use Zernike offsets in error calculation as well.
 
 ### Loss functions
 
 In addition to the two dice loss functions used in the paper for $M$ and $M_t$ ($M$ = final merged mask, $M_t$ = SEUnet predicted mask), I added BCELoss as we were using this in the main group implementation. I also added a dice loss term for $M'$ and an additional loss penalty for predicting false positives in an attempt to reduce false positives.
+
+### Post-processing steps
+
+The project pipeline applies post-processing steps to the output predictions mask using `pixelmaputil_mask.py`. These steps are crucial in order to achieve good performance on the strict competition metric. In particular, the `remove_small_components` function had a high impact on the amount of false positives predicted, which uses `ndimage.label` to label connected component.
+
+The post-processing applied is: gaussian blur $\to$ opening $\to$ removal of small components $\to$ closing $\to$ fill components.
+
+However, the filtering of small components does carry some risks, as there are also examples of copied regions in the dataset which are quite small.
 
 ## Challenges
 
@@ -84,8 +100,6 @@ Although the network performed decently with regards to many metrics, it was ver
 2. It highly values consistent "blob"-like predictions, and predicting the correct amount of blobs. For instance, take the example of an image where there is one true copied object (source and target). Even if our model perfectly predicts this object (both source and target) if it generates say 5 other small blobs (even if they are only a few pixels each), the resulting of1 score has a maximum value of 1 \* (1/5) = 0.2.
 
 In many of the runs, this was a major issue, with the model predicting way too many small regions on both authentic and forged images, even though it often also detected the true forged regions. In other words: recall was high, but it had poor precision.
-
-A method that slightly helped this was applying post-processing operations of filtering out collections of pixels below a certain size. However, this is not a sure-fire fix, as there are also examples of copied regions in the dataset which are quite small. (example: train/forged/10.png).
 
 Although it is hard to diagnose exactly what leads to this behaviour, through multiple runs and by comparing the two different branch, I believe this comes down in large part to a mistmatch between the architecture and the given dataset. The PatchMatch architecture relies mainly on finding groups of pixels which have high feature similarity. In the paper, it trains on a training set generated from MS COCO applying a copy-move with rotation and scaling operation to a random area of the image. The module is tested on a similarly generated synthetic dataset as well as the CASIA CMFD, CoMoFoD and CMH datasets.
 
@@ -106,7 +120,7 @@ Because of time limits and the complexity of the task I was not able to carry ou
 - Further optimising the PatchMatch module, which was a major bottleneck in training the network. This would allow for more efficient running for a larger amount of epochs. (This part of the network is already optimised quite a lot and with some LLM assistance to make the runtime even feasible, but perhaps there is some other, better way to implement it.)
 - Applying different post-processing techniques, as model performance is highly sensitive to this.
 
-## Disclaimer: Use of LLM and other sources
+## Disclaimer: Use of LLM and group project resources
 
 This project is completed with some assistance from LLMs, and some of the code is inspired by the implementation used in the shared group project. Most notably, `dino_feature_extractor.py` and `pixelmaputil_mask.py` are heavily inspired by the group project versions.
 

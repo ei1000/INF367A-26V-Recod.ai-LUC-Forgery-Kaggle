@@ -4,7 +4,7 @@ import torch
 
 from feature_extractors.cnn_feature_extractor import PretrainedBackboneExtractor, SingleScaleFeatureExtractor
 from feature_extractors.zernike_feature_extractor import PyramidZernikeExtractor, default_pq_list
-from prediction.decoder import DLFDecoder
+from max_individual_project.prediction.dlfdecoder import DLFDecoder
 from prediction.pixelmaputil_mask import post_process_mask_batch
 from prediction.se_u_net import SEUNet
 
