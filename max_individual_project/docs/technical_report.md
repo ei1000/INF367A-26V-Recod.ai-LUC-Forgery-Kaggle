@@ -92,12 +92,14 @@ In addition to the two Dice loss functions used in the paper for $M$ and $M_t$ (
 
 The pipeline applies post-processing steps using `pixelmaputil_mask.py`. These steps are important for achieving good performance on the competition metric.
 
-In particular, the `remove_small_components` function has a large impact on reducing false positives and uses `ndimage.label` to identify connected components.
+In particular, the `remove_small_components` function has a large impact on reducing false positives and uses `ndimage.label` to identify connected components. See `val_eval_component_sizes/` for more details. In general, because of the punishing $0$ score for false positives, the general impact of increasing minimal component size is a slight decrease in performance on forged images, but an increase in the performance on authentic OF1. The optimal trade-off point between these on validation data was with size = $920$, where sizes above this impact performance on forged images too much.
 
 The applied pipeline is:
 gaussian blur $\to$ opening $\to$ removal of small components $\to$ closing $\to$ fill components.
 
-However, removing small components can also eliminate true positives, as some copied regions in the dataset are small.
+### Scripts
+
+The project includes some scripts for visualizing images + masks and for running the completed models. These can be run through the command line with arguments as described in their individual `parse_args()` functions.
 
 ## Challenges
 
@@ -139,3 +141,4 @@ This project was completed with some assistance from LLMs, and parts of the impl
 - Improvements to DLF computation and helper methods (including `box_sum()`)
 - Assistance with dataset splitting logic
 - Helper functions for logging and saving pipeline outputs
+- Help in setting up the required script arguments and parsing in `scripts/`
