@@ -56,7 +56,7 @@ The model is evaluated on the competition dataset using the OF1 metric, which st
 
 After training had concluded, the weights of the best-performing model were saved. Then, after analyzing predictions on the validation data, I had the idea to try different minimum component sizes, as the size $64$ was used above. As it was too expensive to run a full retrain, I instead used the best weights to rerun experiments on the same validation set. Based on this pass, I selected the final size $920$ to use on the hold-out test set, achieving a validation OF1 of $0.472$. This size aggressively prunes small components, but achieves a better average of1 score by removing false positives. The results are in the `docs/val_eval_component_sizes` directory.
 
-Using the selected minimum component size of $920$, the model was run on the hold-out test set, achieving an of1 score of $0.466$. More details about this run can be viewed in `docs/test_performance_summary.json`.
+Using the selected minimum component size of $920$, the model was run on the hold-out test set, achieving an of1 score of $0.466$. More details about this run can be viewed in `docs/heldout_test_eval/summary.json`.
 
 Note that other metrics are also computed in order to gauge model performance, but "val_of1" is the important one for the Kaggle score.
 

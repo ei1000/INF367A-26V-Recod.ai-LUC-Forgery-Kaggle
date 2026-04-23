@@ -39,7 +39,7 @@ def main():
         post_process_confident_threshold=0.9,
         post_process_threshold=0.6,
         post_process_apply_closing=True,
-        post_process_min_component_area=512,
+        post_process_min_component_area=920,
     )
     pipeline(config)
 

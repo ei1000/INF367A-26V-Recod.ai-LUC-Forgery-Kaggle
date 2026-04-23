@@ -5,7 +5,7 @@ import time
 import torch
 import torch.nn.functional as F
 
-from cross_scale_patternmatch.pixel_propagator import PixelPropagator
+from cross_scale_patchmatch.pixel_propagator import PixelPropagator
 from dataset import imagenet_normalize_tensor
 from datatypes import DLFDecoderInput, PatchMatchBranchResult
 from prediction.multi_scale_dlf import MultiScaleDLF
