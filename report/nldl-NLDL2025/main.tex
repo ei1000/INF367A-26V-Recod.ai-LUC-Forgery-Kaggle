@@ -16,6 +16,8 @@
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.18}
 
+\usepackage{lmodern}
+
 \usepackage{float}
 
 %% Math
@@ -75,8 +77,9 @@
 \maketitle
 
 \begin{abstract}
-TODO - "Short summary of the paper, including results. Often written last".
-We additionally implemented a SegNeXt-inspired segmentation baseline and compared it with the project's DINO-based baseline. While the DINO-based model achieved the best validation F1 score of 0.1850, the best pretrained SegNeXt-family variant reached a comparable score of 0.1827, showing that learned segmentation approaches can be competitive on this task.
+This paper presents a model for the Recod.AI Scientific Image Forgery Detection Kaggle competition, and compares it with selected other architectures for Copy-Move Forgery Detection (CMFD). The comparison highlights different useful techniques for CMFD as well as dataset/task-specific considerations when performing CMFD. Although we were unable to test our method on the Kaggle test set due to late entry, we achieve a score of (TODO: Legg inn baseline of1 her Einar:) on a hold-out test set derived from the Kaggle train set, indicating strong performance. 
+\\\\\
+Additionally, we examine the role of strong pretrained feature extraction for this task by implementing a SegNeXt-inspired segmentation baseline and comparing it with the project's DINO-based baseline. The results show that using strong pretrained features is essential for CMFD.
 \end{abstract}
 
 \section{Introduction}
@@ -85,11 +88,11 @@ We additionally implemented a SegNeXt-inspired segmentation baseline and compare
 
 Copy-Move Forgery is a class of image forgery where regions of an image are duplicated and moved to other areas of the image. Commonly, techniques such as rotation, flipping and scaling of the copied region are applied, as well as post-processing such as edge smoothing, brightness adjustment and adding extra noise. These techniques can lead to forgeries which are hard to detect both through manual review and automated detectors. This method of forgery can be used within scientific images in order to fabricate results, where the complexity of the figures creates additional difficulties. \cites{kaggle}
 \subsection{Related works}
-Copy-move image forgery detection has been studied through the lens of many different techniques. Early approaches focused on hand-crafted descriptors extracted either densely over overlapping blocks or sparsely at keypoints, followed by nearest-neighbour matching and geometric consistency checks \cite{fridrich2003copymove,christlein2012evaluation}. These methods established the basic copy-move detection pipeline and showed that explicit correspondence search can be effective, but they are often sensitive to strong post-processing, complex geometric transformations, and repeated structures in the scene \cite{christlein2012evaluation}.
+Copy-move image forgery detection has been studied using a range of techniques. Early approaches relied on hand-crafted descriptors with nearest-neighbour matching and geometric consistency checks \cite{fridrich2003copymove,christlein2012evaluation}, but are sensitive to strong post-processing, geometric transformations, and repeated structures \cite{christlein2012evaluation}.
 \\\\
-In more recent work, the focus has shifted towards deep learning for copy-move detection. Some methods retain the classical matching intuition while replacing hand-crafted features with learned representations and stronger dense matching modules \cite{liu2022twostage}. Others formulate the task as end-to-end forgery localization, using CNN-based architectures to jointly detect duplicated content and localize manipulated regions \cite{wu2018busternet}. Attention-based models have further improved localization by explicitly modelling patch relationships and co-occurrence cues \cite{islam2020doagan}, while more recent transformer-based approaches have explored global context modelling for copy-move detection \cite{liu2024cmfdformer}. In parallel, source-target disambiguation has also emerged as an important subproblem, since detecting near-duplicate regions alone is not always sufficient to identify the truly manipulated area \cite{barni2021copymove}.
+More recent work focuses on deep learning. Some methods retain the matching paradigm with learned features \cite{liu2022twostage}, while others formulate the task as end-to-end forgery localization using CNN-based architectures \cite{wu2018busternet}. Attention-based and transformer-based models further improve performance by modelling patch relationships and global context \cite{islam2020doagan, liu2024cmfdformer}. Source-target disambiguation has also emerged as an important subproblem \cite{barni2021copymove}. 
 \\\\
-One of the other architectures we tried for this task even combines both perspectives by using CNN crafted features in combination with features computed through Zernike kernels. \cites{li2024deeppatchmatch}
+Some methods seek to combine the strengths of both approaches, such as one of the architecture examined in this paper which combines learned CNN features with Zernike-based descriptors \cite{li2024deeppatchmatch}.
 
 \subsection{Objectives}
 We aim to create a full prediction pipeline for CMFD which could perform well on the Recod.AI Scientific Image Forgery Detection dataset. Ideally, our model should be robust towards post-processing techniques. The main goal is to perform well on the competition metric, which is a modified version of F1 which computes pixelwise F1 on pairs of (\emph{predicted mask, ground truth mask}) using the following formula \cites{metric}:
@@ -116,200 +119,121 @@ The competition metric is challenging for a few reasons. Firstly, it requires hi
 \subsection{Contributions}
 This paper presents a complete main pipeline for CMFD and several alternate methods, discussing the strengths and weaknesses of the different approaches. Through a discussion and presentation of these methods, we aim to identify what directions could be promising for future work and further nuance the task of CMFD.
 \section{Methods}
-As the Kaggle competition had already been running for ~3 months when we began our experiments, our initial implementation was inspired by the techniques used by other users \cites{notebook1, notebook2}. We noted that many users employed the the DINOv2 model \cites{oquab2023dinov2}, as well as techniques prediction mask post-processing. For our own implementation we build on these techniques.
+As the Kaggle competition had already been running for 3 months when we began our experiments, our initial implementation was inspired by the techniques used by other users \cites{notebook1, notebook2}. We noted that many users employed the the DINOv2 model \cites{oquab2023dinov2}, as well as techniques for prediction mask post-processing. Our main model is inspired by the use of these techniques.
+\\\\
+We run two main experiments. Firstly, to assess the performance of our implementation as a whole, we compare it to a model inspired by Deep Cross-Scale PatchMatch \cites{li2024deeppatchmatch} and BusterNet (TODO: Source). All experiments were conducted with a fixed random seed of 42.
+\\\
+Then, in order to evaluate the feature extraction strength of DINOv2, we evaluate it against a pretrained SegNeXt-inspired model for different dataset sizes, measuring validation F1, without applying any post-processing in order to keep this experiment clean.
+
 \subsection{Dataset}
-We utilize the dataset supplied in the Kaggle competition \cites{kaggle}. Unfortunately, we were unable to test our implementation against the Kaggle test-set, as we were too late to enter the competition. As we did not have access to the test data, we instead chose to use the available training data in a train (80\%), evaluate (10\%), test (10\%) split. The training data consists of a base $2751$ forged and $2377$ authentic images as well as an additional $48$ forged images. As the images are too large to process directly with the model, they are each resized to size $3 \times 448 \times 448$.
-\subsection{Feature Extraction}
-To perform feature extraction on the images, we employ Meta AI's powerful DINOv2 model using the pretrained \emph{ViT-B/14} segmentation head \cites{oquab2023dinov2}. This model first extracts strong general-purpose features using the DINOv2 ViT backbone, then uses these features to create pixel-level predictions using the segmentation head. This model is kept frozen and applied on $14 \times 14$ size patches of the image at a time to generate features with an embedding dimension of $768$. When predicting, the model processes image patches independently and reconstructs the final prediction by aggregating patch-level outputs.
-\subsection{Decoder}
-In order to create the predicted pixel mask, we employ a small decoder model on the generated DINOv2 feature map. The decoder we utilize contains three blocks and an output layer, before outputting the generated mask interpolated to output size using bilinear interpolation. 
-\\\\
-The first two blocks of the decoder apply convolutions to bring the dimensionality from $768 \to 384 \to 192$ while also applying \emph{ReLU} and \emph{Dropout} with $p=0.1$ operations in each block. In the third block, a convolution from $192 \to 96$ is applied before a final \emph{ReLU} and the output layer $96 \to 1$, giving the predicted mask. 
-\\\\
-Let $X \in \mathbb{R}^{3 \times H \times W}$ denote the input image and $F \in \mathbb{R}^{768 \times h \times w}$ the feature map extracted by the frozen DINOv2 backbone. The decoder produces a probability map $\hat{Y} \in [0,1]^{H \times W}$ after upsampling:
-
-\[
-\hat{Y} = \sigma(\mathrm{Decoder}(F))
-\]
-
-where $\sigma$ denotes the sigmoid activation function.
+We utilize the dataset supplied in the Kaggle competition \cites{kaggle}. Unfortunately, we were unable to test our implementation against the Kaggle test-set, as we were too late to enter the competition. Instead, we chose to use the available training data in a train (80\%), evaluate (10\%), test (10\%) split for the main evaluation. The training data consists of a base $2751$ forged and $2377$ authentic images as well as an additional $48$ forged images. As the images are too large to process directly with the model, they are each resized to size $3 \times 448 \times 448$.
 
 \subsection{Training Objective and Optimization}
 
-The model is trained as a pixel-wise binary classification problem, where each pixel is classified as either forged or authentic. We use binary cross-entropy loss for pixel-wise supervision, and utilize the Adam optimizer with a learning rate $\alpha = 0.0001$:
+All models are trained as a pixel-wise binary classification problem, where each pixel is classified as either forged or authentic. We use binary cross-entropy loss for pixel-wise supervision, and utilize the Adam optimizer with a learning rate $\alpha = 0.0001$:
 
 \[
 \mathcal{L}_{BCE} = - \frac{1}{N} \sum_{i=1}^{N} \left[ y_i \log(\hat{y}_i) + (1 - y_i)\log(1 - \hat{y}_i) \right]
 \]
 
+\subsection{Main method (TODO: Name?)}
+\subsubsection{Feature Extraction}
+Within our main method we employ Meta AI's powerful DINOv2 model using the pretrained \emph{ViT-B/14} segmentation head \cites{oquab2023dinov2} in order to perform feature extraction on the images. This model first extracts strong general-purpose features using the DINOv2 ViT backbone, then uses these features to create pixel-level segmentation predictions using the segmentation head. This model is kept frozen and applied on $14 \times 14$ size patches of the image at a time to generate features with an embedding dimension of $768$. When predicting, the model processes image patches independently and reconstructs the final prediction by aggregating patch-level outputs.
+\subsubsection{Decoder}
+To generate the predicted mask, we use a lightweight convolutional decoder on top of the DINOv2 feature map. The decoder consists of three convolutional blocks followed by an output layer, and produces a mask upsampled to the input resolution using bilinear interpolation.
+
+The feature dimensionality is reduced progressively from $768 \to 384 \to 192 \to 96$, with ReLU activations and Dropout ($p=0.1$) applied in each block, before a final $96 \to 1$ projection.
+
+Let $X \in \mathbb{R}^{3 \times H \times W}$ and $F \in \mathbb{R}^{768 \times h \times w}$ denote the input and extracted features. The predicted mask is:
+\[
+\hat{Y} = \sigma(\mathrm{Decoder}(F))
+\]
+\subsection{Deep Cross-Scale PatchMatch}
+The Deep Cross-Scale PatchMatch architecture \cite{li2024deeppatchmatch} combines two branches: a PatchMatch-based module \cite{barnes2009patchmatch} that estimates pixel correspondences across scales, and a direct feature extraction → prediction branch. Their outputs are combined via an argmax operation.
+\\\\
+We adapt the architecture to single-channel CMFD and use only the first branch. To reduce computational cost, we replace the original feature extractor with a frozen pretrained CNN, avoiding backpropagation through the PatchMatch module. We evaluate both VGG16 and ResNet18 backbones \cite{simonyan2014vgg16, he2016deep}, with ResNet18 performing best. We further simplify the model by using single-scale CNN features while retaining multi-scale Zernike features. Inspired by our baseline, we use DINOv2 for feature extraction in the second branch.
+\\\\
+In addition to the original dice losses for the final mask $M$ and SEUnet output $M_t$, we include the binary cross-entropy used in the baseline loss as well as two auxiliary terms: (i) a dice loss on the PatchMatch output $M'$ to prevent collapse, and (ii) a penalty on predictions for authentic images to reduce false positives. These are weighted by $0.8$ and $0.25$, respectively.
+\subsection{SegNeXt-inspired implementation}
+SegNeXt is motivated by the idea that semantic segmentation benefits from strong encoders, multi-scale feature interaction, and efficient spatial attention implemented with convolutional operations rather than transformer self-attention \cite{segnext}. It employs a convolutional encoder–decoder architecture with multi-scale convolutional attention to capture contextual information efficiently, achieving strong performance–computation trade-offs and outperforming transformer-based alternatives on several benchmarks \cite{segnext}. We use SegNeXt to evaluate whether a lightweight CNN-based approach can match the stronger DINO-based baseline.
+\\\\
+Our goal was not to reproduce the full SegNeXt architecture, but rather to implement a simplified, SegNeXt-inspired baseline within our pipeline. The model follows a standard encoder–decoder design, emphasizing convolutional feature extraction and multi-scale context aggregation. This lightweight setup makes it feasible under project constraints while remaining relevant for scientific forgery localization. Additionally, we evaluate a pretrained variant using a \texttt{convnext\_tiny} backbone from \texttt{timm} to assess the impact of stronger pretrained visual features.
 \subsection{Mask post-processing}
-
-These post-processing steps were critical for performance under the competition metric. In particular, removing small connected components significantly improved the oF1 score by reducing false positives on authentic images. This highlights the mismatch between pixel-wise training objectives and the strict component-level evaluation metric.
-
-Let $\hat{Y}$ denote the predicted probability map. The final binary mask $M$ is obtained as:
-
-\[
-M = \mathrm{FillHoles}(\mathrm{Open}(\mathrm{Close}(\hat{Y} > \tau)))
-\]
-
-where $\tau = 0.5$ is the threshold.
-
-To post-process masks, we applied the following operations to an input map of forged pixel probabilities:
-\begin{enumerate}
-	\item Gaussian blur: A smoothing operation implemented through \texttt{scipy.ndimage.gaussian\_filter}
-	\item Confidence threshold filtering: Creates an initial binary mask by filtering probabilities on the threshold $0.5$.
-	\item Closing operation: Applies dilation followed by erosion to create more coherent objects, implemented using \texttt{scipy.ndimage.binary\_closing} with a $5 \times 5$ structuring element.
-	\item Opening operation: Applies erosion followed by dilation to remove small isolated blobs, implemented using \texttt{scipy.ndimage.binary\_opening} with a $3 \times 3$ structuring element.
-	\item Finally, remaining holes in binary objects are filled using \texttt{scipy.ndimage.binary\_fill\_holes}.
-\end{enumerate}
-
-\subsection{Sliding window inference}
-To capture global relationships between pixels, we first perform inference on the full resized image and upsample the resulting prediction map to the original resolution. However, this global prediction alone is often insufficient for precise localization, since downscaling reduces spatial detail.
-
-To improve pixel-level precision, we additionally apply sliding window inference on overlapping image patches. Each patch prediction is weighted by a Gaussian kernel and overlapping predictions are averaged:
-
-\[
-\hat{Y}(p) = \frac{\sum_i w_i(p)\hat{Y}_i(p)}{\sum_i w_i(p)}
-\]
-
-where $w_i(p)$ assigns larger weights to central pixels in each patch. This aggregation reduces boundary artifacts while preserving fine local detail.
-
-\paragraph{Experimental setup.}
-The experiments were carried out on the same extracted dataset used in the rest of the project. A subset of the forged training images and corresponding masks was prepared from the Kaggle dataset. For the largest experiments, 1000 image-mask pairs were extracted, of which the effective split used during training corresponded to 900 training samples and 100 validation samples. All experiments were run with the same random seed in order to make comparisons more controlled.
-
-\paragraph{Compared models.}
-We compared three model families:
-\begin{enumerate}[leftmargin=*]
-    \item a DINO-based baseline used in the main project,
-    \item a custom SegNeXt-inspired segmentation model,
-    \item a pretrained backbone variant using the same lightweight decoder structure.
-\end{enumerate}
-
-The DINO-based baseline served as the reference point, while the SegNeXt-inspired experiments were used to test whether a learned convolutional segmentation model could match or improve the baseline under the same training regime.
-
-\paragraph{Training protocol.}
-We trained the models with several dataset sizes and hyperparameter settings. The main experiments used training subsets of size 200, 500, and 1000, with corresponding validation subsets of size 30, 70, and 120. In practice, the largest configuration resulted in an effective split of 900 training images and 100 validation images. We evaluated learning rates of $10^{-4}$, $5 \times 10^{-5}$, $3 \times 10^{-5}$, and $10^{-5}$, and trained for between 3 and 12 epochs depending on the experiment.
-\paragraph{Implementation details.}
-All experiments were conducted with a fixed random seed of 42 and a batch size of 2. Training subset sizes of 200, 500, and 1000 were evaluated, with corresponding validation subsets of 30, 70, and 120. Learning rates of $10^{-4}$, $5 \times 10^{-5}$, $3 \times 10^{-5}$, and $10^{-5}$ were tested across runs. This setup allowed us to compare the DINO baseline, the custom SegNeXt-inspired model, and the pretrained SegNeXt-family variant under the same overall evaluation regime.
-Optimization settings followed the training objective described earlier, using Adam and pixel-wise binary cross-entropy.
-
-\paragraph{SegNeXt-inspired implementation.}
-The implemented model followed the general encoder-decoder idea used in modern semantic segmentation architectures. In the original SegNeXt design, the main emphasis is on combining convolution-based feature extraction with efficient multi-scale context aggregation, rather than relying on transformer self-attention \cite{segnext}. In our implementation, we adopted this general design direction as a lightweight baseline for scientific forgery localization, while keeping the model simple enough to train within the project constraints. We additionally tested a pretrained encoder variant using a \texttt{convnext\_tiny} backbone from \texttt{timm} in order to examine whether stronger pretrained visual features could improve the SegNeXt-style segmentation baseline.
-
-\paragraph{Transfer learning.}
-Transfer learning played a central role in our experiments. The pretrained SegNeXt-family variant used a \texttt{convnext\_tiny} encoder initialized with weights learned from large-scale image data, while the custom SegNeXt-inspired models were trained from scratch. This difference had a major effect on performance. The custom models remained far below the DINO baseline, whereas the pretrained SegNeXt-family model approached the DINO result closely. This indicates that, for scientific image forgery detection under limited data, representation quality is more important than architectural complexity alone.
-\paragraph{Evaluation objective.}
-All models were compared using the same validation metric, namely the pixel-level F1 score used in our notebook experiments. This ensured that the DINO baseline and the SegNeXt-inspired variants could be compared under the same evaluation setting.
-For each model family, the reported result corresponds to the run with the highest validation F1 score among the tested configurations.
-All compared models were evaluated under the same dataset splits and the same validation metric, ensuring a fair comparison between the DINO baseline and the SegNeXt-inspired alternatives.
-
-\subsection{SegNeXt-inspired Baseline and Experimental Comparison}
-
-In addition to the main DINO-based pipeline, we implemented a learning-based baseline inspired by SegNeXt in order to compare a convolutional segmentation architecture against the project baseline. SegNeXt is motivated by the idea that semantic segmentation can benefit from a strong encoder, multi-scale feature interaction, and efficient spatial attention implemented using convolutional operations rather than transformer self-attention \cite{segnext}. In particular, the original SegNeXt design uses a convolutional encoder-decoder architecture with multi-scale convolutional attention to capture contextual information efficiently. The paper reports strong performance-computation trade-offs and shows that such CNN-based designs can outperform transformer-based alternatives on several semantic segmentation benchmarks \cite{segnext}. This comparison formed the main individual contribution of this work, namely to evaluate whether a lightweight CNN-based segmentation approach inspired by SegNeXt could match the stronger DINO-based baseline under the same validation protocol.
-Our goal was not to reproduce the full original SegNeXt architecture exactly, but rather to implement a SegNeXt-inspired segmentation baseline within the project pipeline and evaluate whether this type of learned segmentation model could provide competitive performance on the Recod.ai/LUC scientific image forgery detection task.
-
-\begin{table}[tb]
-\centering
-\small
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{lccccccc}
-\toprule
-Model & Encoder & Pretr. & Train & LR & Ep. & Best Ep. & Val F1 \\
-\midrule
-DINO baseline & ViT-B/14 & Yes & 900 & 3e-5 & 8 & 8 & \textbf{0.1850} \\
-SegNeXt-inspired & custom & No & 500 & 3e-5 & 5 & 1 & 0.0838 \\
-SegNeXt-family & convnext\_tiny & Yes & 900 & 3e-5 & 12 & 10 & 0.1827 \\
-\bottomrule
-\end{tabular}
-\caption{Best configurations for the compared model families.}
-\label{tab:baseline_comparison}
-\end{table}
-
-We evaluated four learning rates: $10^{-4}$, $5 \times 10^{-5}$, $3 \times 10^{-5}$, and $10^{-5}$.
-
+Post-processing steps were critical for performance under the competition metric. In particular, removing small connected components significantly improved the oF1 score by reducing false positives on authentic images. In the main method, we employ the following post-processing steps in order: gaussian blur, confidence threshold filtering based on the threshold $0.5$, closing with a $5 \times 5$ structuring element, opening and binary filling. The gaussian blur, closing, opening and binary filling operation are all implemented through the \texttt{scipy.ndimage} library. The PatchMatch implementation runs similar post-processing but first applies filtering of small components in order to reduce false positives.
 \section{Results}
+\subsection{Main results}
+At the time of writing, the maximum oF1 score achieved on hold-out test data was $0.458$, achieved by Kaggle user \emph{orshanec}. \cites{kaggle} We again emphasize that our architecture cannot be directly compared with this metric due to us being unable to access the Kaggle hold-out test set.
+\subsubsection{Main model results}
+Our main model achieved an OF1 score of : (TODO: Add baseline performance here Einar + maybe some nice plots:).
+\subsubsection{Deep Cross-Scale PatchMatch results}
+The PatchMatch architecture achieved competitive performance, reaching 0.538 on authentic images and 0.378 on forged images, giving a combined score of $0.452$. However, this architecture had much higher runtime and memory consumption compared to our main method. The runtime is particularly dependent on the number of PatchMatch iterations which are performed. This module iteratively executes propagation and evaluation steps "several times" \cite[p.~7]{li2024deeppatchmatch}. While the original paper does not specify the number of iterations, we found that 24 iterations produced stable results. Using this amount of iterations, PatchMatch on a single image takes $~4$s on an NVIDIA RTX 4070 TI Super GPU, while other components of the network take less than $0.1s$ to run.
+\\\\
+Achieving good performance with this approach was highly dependent on mask post-processing.. In particular, it is crucial to perform filtering of small objects, as the architecture generated many small false positive areas on authentic images, automatically giving an OF1 score of $0$ in these cases. We theorize that this tendency to predict false positives is because smaller groups of pixels are more likely to be similar to each other "by accident" than larger groups of pixels. The best version of the pipeline on validation data filters out components with a size less than $512$. Although this means accepting that the model will never be able to deal with very small copy-move forgeries, it led to strong performance on average due to the removal of many false positives.
+\begin{figure}[tb]
+	\centering
+	\includegraphics[width=\linewidth]{patchmatch_good_example_no_postprocess.png}
+	\caption{PatchMatch on an image using no post-processing, achieving OF1=0.063. The model detects the copied object but also generates many small components, leading to an overall low OF1 score, even though per-pixel precision is quite strong.}
+	\label{fig:no_postprocess}
+\end{figure}
 
-This section presents the experimental comparison between the project's DINO-based baseline and the implemented SegNeXt-inspired alternatives. We report the best validation F1 obtained for each model family under the tested training settings.
+\begin{figure}[tb]
+	\centering
+	\includegraphics[width=\linewidth]{patchmatch_good_example.png}
+	\caption{PatchMatch on the same image as in Figure 1 using post-processing, achieving OF1=0.948}
+	\label{fig:patchmatch_good_case}
+\end{figure}
+\subsubsection{BusterNet results}
+(TODO: Add some busternet performance or something here Einar :)
 
 \subsection{Comparison Between DINO and SegNeXt-inspired Models}
 
-Table~\ref{tab:baseline_comparison} summarizes the best validation results obtained in our experiments.
-
-The best DINO-based run achieved a validation F1 of 0.1850 with 900 training samples, a learning rate of $3 \times 10^{-5}$, and 8 epochs. The best pretrained SegNeXt-family run achieved 0.1827 under the same training size and learning rate, but required 12 epochs and a pretrained \texttt{convnext\_tiny} backbone.
-
-In contrast, the custom SegNeXt-inspired models trained without pretrained encoder weights performed substantially worse, with best validation F1 values remaining below $0.09$ across all tested settings. This indicates that pretrained visual representations were important for making the SegNeXt-style approach competitive in this task.
-
-Overall, the DINO-based baseline consistently achieved the highest validation performance across all tested configurations. The pretrained SegNeXt-family model approached this performance, but required more training epochs and relied heavily on pretrained representations. Without pretraining, segmentation-based approaches failed to produce competitive results.
-
-The comparison highlights three consistent trends: the strength of the DINO baseline, the importance of pretraining, and the limited competitiveness of from-scratch segmentation models under the available data regime.
-
 \begin{table}[tb]
-\centering
-\resizebox{\linewidth}{!}{
-\begin{tabular}{lccc}
-\toprule
-Effective train size & DINO & SegNeXt (custom) & SegNeXt (pretr.) \\
-\midrule
-200 & 0.0886 & 0.0490 & -- \\
-500 & 0.1812 & 0.0838 & -- \\
-900 & \textbf{0.1850} & 0.0649 & 0.1827 \\
-\bottomrule
-\end{tabular}
-}
-\caption{Best validation F1 as a function of effective training size.}
-\label{tab:scaling}
+	\centering
+	\small
+	\resizebox{\linewidth}{!}{
+		\begin{tabular}{lccc}
+			\toprule
+			& DINO baseline & SegNeXt-inspired & SegNeXt-family \\
+			\midrule
+			Encoder & ViT-B/14 & custom & convnext\_tiny \\
+			Pretr. & Yes & No & Yes \\
+			Train & 900 & 500 & 900 \\
+			LR & 3e-5 & 3e-5 & 3e-5 \\
+			Ep. & 8 & 5 & 12 \\
+			Best Ep. & 8 & 1 & 10 \\
+			Val F1 & \textbf{0.1850} & 0.0838 & 0.1827 \\
+			\bottomrule
+		\end{tabular}
+	}
+	\caption{Best configurations for the compared model families}
+	\label{tab:baseline_comparison_transposed}
 \end{table}
-
-\paragraph{Technical interpretation.}
-These results suggest that performance on this task depends mainly on feature quality. Architectural changes alone were not sufficient. The SegNeXt-inspired model became competitive only when combined with pretrained encoder features.
-
-\paragraph{Hyperparameter sensitivity.}
-The learning rate had a clear effect on final validation performance. Across the strongest configurations, the best results for both the DINO baseline and the pretrained SegNeXt-family model were obtained at $3 \times 10^{-5}$. In contrast, lower-rate runs such as $10^{-5}$ produced weaker results in the large-scale setting.
-
-The custom SegNeXt-inspired model was particularly sensitive and often reached its best validation F1 already at the first epoch, which suggests unstable optimization and weak feature learning without pretraining.
-
+Overall, the DINO-based baseline consistently achieved the highest validation performance across all tested configurations. The pretrained SegNeXt-family model approached this performance, but required more training epochs and relied heavily on pretrained representations. Learning rate had a clear effect on final validation performance, giving much stronger results for both methods for $3 \times 10^{-5}$ than for $10^{-5}$ for both models. 
+\\\\
+We also attempted using a custom SegNeXt-inspired model without pretraining, but this performed substantially worse, with best validation F1 values remaining below $0.09$ across all tested settings. This custom model often reached its best validation F1 already at the first epoch, which suggests unstable optimization and weak feature learning without pretraining, indicating the importance of pretrained visual representations.
 \begin{figure}[tb]
     \centering
     \includegraphics[width=\linewidth]{baseline_vs_segnext_results.png}
 	\caption{Validation F1 versus dataset size. The DINO baseline performs better at small dataset sizes, while the pretrained SegNeXt-family variant approaches it at the largest setting.}
     \label{fig:baseline_compare}
 \end{figure}
-
-An additional qualitative difference between the models was training stability. The custom SegNeXt-inspired models often reached their best validation F1 very early and showed limited improvement afterwards, whereas the DINO baseline and the pretrained SegNeXt-family model improved more steadily across training.
-
-\paragraph{Best configurations.}
-The best DINO baseline achieved a validation F1 of 0.1850 using an effective training size of 900, a learning rate of $3 \times 10^{-5}$, and 8 training epochs. Its best validation performance was reached at epoch 8. The best pretrained SegNeXt-family configuration achieved 0.1827 under the same effective training size and learning rate, but required 12 training epochs and reached its best validation performance at epoch 10. In contrast, the best custom SegNeXt-inspired configuration peaked much earlier, indicating unstable optimization and weak feature learning without pretraining.
-
-\paragraph{Computational considerations.}
-The DINO-based pipeline relies on a frozen pretrained backbone and a lightweight decoder, which makes optimization comparatively simple and computationally efficient. In contrast, the SegNeXt-family model requires end-to-end forward and backward passes through a trainable encoder-decoder architecture, increasing training cost. While both approaches were feasible under limited compute, the DINO-based pipeline provided a more favorable trade-off between validation performance, optimization stability, and training complexity.
-
-TODO: Show results of experiments. NB: Without interpretation at this stage!
-\\
-Align with method section.
-
 \section{Discussion}
 
-
-TODO: Interpret results, relate to objectives (did we achieve them?), compare against others
-\\
-One issue with this task is loss function misalignment. Although cross-entropy loss correctly penalizes incorrect pixel-level predictions, it is not fully aligned with the strict conditions that the oF1 metric expects. For instance, if a small area of forged pixels is predicted on an authentic image, the impact on the loss is not large, but this makes the oF1 metric $0$. This meant that we in the process of training different models observed that from epoch to epoch, even if the overall validation loss decreased, it could be the case that performance in regard to the oF1 metric became worse. 
-\\
-Although beyond the scope of this project, an interesting avenue for future research could be to create a differentiable loss more directly linked to the OF1 objective. As surrogates, we did employ additionally loss penalties for any forged pixels predicted on authentic images, but a more nuanced alternative would be interesting to experiment with.
-\\
-Because of this mismatch, model performance is very sensitive to the operations performed in mask post-processing. We see experimenting with other post-processing techniques as a promising direction for future work. For instance, filtering out small predicted patches led to much better results, as the OF1 metric also penalizes extra component predictions on forged images.
-
-\paragraph{Failure modes.}
-A major failure mode observed across all models was false positive predictions on authentic images. Due to the strict evaluation metric, even a small predicted region results in an oF1 score of zero. This makes the task highly sensitive to noise and small prediction artifacts, and explains why post-processing plays a critical role in final performance.
-
-
+(TODO: Add BusterNet specific comments if applicable)
+\paragraph{Transfer learning.} Transfer learning played a central role in our experiments. The pretrained SegNeXt-family model approached the DINO baseline, while models trained from scratch performed substantially worse. This suggests that, under limited data, representation quality is a primary bottleneck, and strong pretrained encoders are crucial for effective CMFD.
+\paragraph{Loss function misalignment.} Although cross-entropy loss correctly penalizes incorrect pixel-level predictions, it is not fully aligned with the strict conditions that the oF1 metric expects. For instance, if a small area of forged pixels is predicted on an authentic image, the impact on the loss is not large, but this makes the oF1 metric $0$. We observed that validation loss could decrease while oF1 performance worsened, indicating a mismatch between the training objective and evaluation metric. A promising direction for future work is to design a differentiable loss more closely aligned with the oF1 objective. As surrogates, we did experiment with employing loss penalties for any forged pixels predicted on authentic images, but a more nuanced alternative would be interesting to experiment with.
+\paragraph{Post-processing.}Because of the loss function mismatch, model performance is highly sensitive to post-processing, making it an important direction for further optimization in future work. For instance, filtering out small predicted patches led to much better results, as the OF1 metric also penalizes extra component predictions on forged images. Other pitfalls are combining pixels too aggressively, causing large connected patches where the true prediction should consist of multiple smaller patches.
 \begin{figure}[tb]
 	\centering
-	\includegraphics[width=\linewidth]{patchmatch_good_example_no_postprocess.png}
-	\caption{Results on an image using no post-processing. The model detects the copied object but also generates many small components, leading to an overall low OF1 score, even though per-pixel precision is quite strong.}
-	\label{fig:no_postprocess}
+	\includegraphics[width=\linewidth]{patchmatch_scientific_bad.png}
+	\caption{A scientific image mask-post-processing combines components too aggressively. In addition, this highlights some challenges due to dataset characteristics - the text ("MutEPOR") is predicted as a forgery because it appears in the exact same form twice}
+	\label{fig:patchmatch_bad_case}
 \end{figure}
-
-We attribute some of the difficulty of the task to qualities of the dataset. Often, authentic images containing very similar objects, increasing the probability of a model predicting false positives. In the forged images, many of the forgeries . However, we also found examples of forgeries using small areas of the background, making the prediction task difficult. 
+\paragraph{Failure modes.}
+A major failure mode observed across all models was false positive predictions on authentic images. Due to the strict evaluation metric, even a small predicted region results in an oF1 score of zero. This makes the task highly sensitive to small prediction artifacts.
+\paragraph{Dataset.}We attribute part of the difficulty to dataset characteristics. Authentic images often contain visually similar structures, increasing the likelihood of false positives. While many forgeries involve large, consistent objects, some occur in small background regions, making detection more challenging.
+\\\\
+For instance, PatchMatch's reliance on finding groups of pixels with high feature similarity may have some other fundamental issues in regards to this particular dataset. In the paper, the architecture utilized by Li \etal trains on a training set generated from MS COCO \cites{lin2014coco} by applying a random copy-move, rotation and scaling operation to a random area. It is then evaluated on a synthetic dataset generated in the same way as well as CASIA CMFD, CoMoFoD and CMH \cites{dong2013casia, tralic2013comofo, silva2015copy}. The common denominator for these datasets is that they feature photo-realistic images with varied objects and backgrounds. This means that there is natural variation in the qualities of pixels (for instance, they do not feature a consistent single-colour background) in contrast to many of the scientific images, which are dark, or figures containing a consistent background in which many false positives are generated from pixel-wise similarities. On the images where the copy-move is direct and not subject to post-processing, our architecture performed much better.
 \begin{figure}[tb]
 	\centering
 	\includegraphics[width=\linewidth]{patchmatch_bad_dataset_example.png}
@@ -322,48 +246,6 @@ We attribute some of the difficulty of the task to qualities of the dataset. Oft
 	\caption{A forged image with the source being hard to predict due to size}
 	\label{fig:hard_prediction_case}
 \end{figure}
-\subsection{Deep Cross-Scale PatchMatch}
-The Deep Cross-Scale PatchMatch architecture was proposed by Li \etal in 2024. \cites{li2024deeppatchmatch} It is an end-to-end differentiable deep-learning based architecture where one branch employs the patch match algorithm presented by Barnes \etal in 2009 \cites{barnes2009patchmatch} on different scales of each image in order to attain pixel similarities and offsets from each pixel to it's most similar pixel. The second branch runs a direct feature extraction $\to$ prediction process. Finally, the predictions of the two branches are combined through an argmax operation. \\
-The architecture supports three-channel CMFD, but in our version it is adapted to the single-channel CMFD, using only the first part of the architecture. In addition, our implementation has some other differences from the version by Li \etal. These are partly due to practical concerns, and partly due to ambiguity or lack of detail in the paper regarding specific implementation details. 
-
-Most changes were performed in the first branch, where one change performed due to practical concerns was to use a frozen pretrained CNN feature extractor. This meant that it was not necessary to let gradients flow through the DLF and Deep Cross-Scale PatchMatch parts of the networks, saving memory and computation time. We tested using both the pretrained VGG16 and ResNet18 weights from \lstinline|torchvision.models| \cites{simonyan2014vgg16, he2016deep}, achieving best performance with ResNet18. In addition, although the CNN is run multi-scale in the paper, we found that the difference in performance when using pretrained models was marginal, meaning it was more useful to save memory and time by running this model single-scale while still keeping Zernike feature extraction multi-scale. Inspired by its strong performance in our baseline, we performed feature extraction using DINOv2 in the second branch of the architecture.
-
-In the original paper, dice losses for the final combined mask $M$ and for the SEUnet output $M_t$ are employed. In addition, we added two other loss terms to try and stabilize the behaviour of our algorithm. The first is a dice loss for the PatchMatch output mask $M'$ in order to prevent this branch collapsing to predicting \emph{authentic} for all images too soon. The second is a penalty for predictions made on authentic images in order to attempt to reduce false positives, which for each branch computes $0.5 \times \text{mean\_activation} + 0.5 * \text{max\_activation}$ and averages results together. These added losses are weighted through a tuneable hyperparameter and are empirically set to $0.8$ for the $M'$ loss and $0.25$ for the empty target penalty.
-
-The main weaknesses of this architecture are in runtime and memory consumption. The runtime is particularly dependent on the number of PatchMatch iterations which are performed. This module recurrently executes the propagation and evaluation layers "several times" \cite[p.~7]{li2024deeppatchmatch}. It is not clear how many iterations the authors employed, but in order to attain decent offsets, we found that a suitable amount was $24$ iterations. Using this amount of iterations, PatchMatch on a single image takes $~4$s on an NVIDIA RTX 4070 TI Super GPU, while other components of the network take less than $0.1s$ to run.
-
-The performance of this model was highly dependent on mask-post processing. In particular, it is crucial to perform filtering of small objects, as the architecture generated many small false positive areas on authentic images, automatically giving an OF1 score of $0$ in these cases. We theorize that this tendency to predict false positives is because smaller groups of pixels are more likely to be similar to each other "by accident" than larger groups of pixels. The best version of the pipeline on validation data filters out components with a size less than $512$. Although this means accepting that the model will never be able to deal with very small copy-move forgeries, this also meant that OF1 performance on the hold-out test set reached $0.538$ on authentic images and $0.378$ on forged images, giving a combined score of $0.452$. 
-
-PatchMatch's reliance on finding groups of pixels with high feature similarity may have some other fundamental issues in regards to this particular dataset. In the paper, the architecture utilized by Li \etal trains on a training set generated from MS COCO \cites{lin2014coco} by applying a random copy-move, rotation and scaling operation to a random area. It is then evaluated on a synthetic dataset generated in the same way as well as CASIA CMFD, CoMoFoD and CMH \cites{dong2013casia, tralic2013comofo, silva2015copy}. The common denominator for these datasets is that they feature photo-realistic images with varied objects and backgrounds. This means that there is natural variation in the qualities of pixels (for instance, they do not feature a consistent single-colour background) in contrast to many of the scientific images, which are dark, or figures containing a consistent background in which many false positives are generated from pixel-wise similarities. On the images where the copy-move is direct and not subject to post-processing, our architecture performed much better.
-\begin{figure}[tb]
-	\centering
-	\includegraphics[width=\linewidth]{patchmatch_good_example.png}
-	\caption{An example from the Kaggle dataset featuring similarities to the MC COCO-generated test set used in Li \etal \cites{li2024deeppatchmatch}, where our architecture achieves good performance. Note that this is the same image as in figure 1, but with post-processing applied to the predicted mask.}
-	\label{fig:patchmatch_good_case}
-\end{figure}
-
-\begin{figure}[tb]
-	\centering
-	\includegraphics[width=\linewidth]{patchmatch_scientific_bad.png}
-	\caption{A scientific image where duplicated text ("MutEPOR") is predicted as a forgery and mask-post-processing combines components too aggressively.}
-	\label{fig:patchmatch_bad_case}
-\end{figure}
-\subsection{BusterNet}
-TODO: BusterNet Comments
-
-\subsection{Lessons from the SegNeXt-inspired Baseline}
-
-The SegNeXt-inspired experiments provide two main findings. First, a purely learned segmentation approach can perform competitively on this task when supported by strong pretrained visual features. The best pretrained SegNeXt-family model reached a validation F1 of $0.1827$, which was close to the best DINO baseline result of $0.1850$. This suggests that the task is learnable through end-to-end segmentation and not limited to handcrafted matching pipelines.
-
-Second, the large gap between the custom non-pretrained SegNeXt-inspired models and the pretrained variant indicates that feature quality is a major bottleneck in scientific image forgery detection. In our setting, simply adopting a segmentation architecture was not sufficient; strong initialization from pretrained encoders was crucial.
-
-At the same time, the DINO baseline remained slightly better overall and reached its best result with fewer epochs. This suggests that the DINO-based pipeline was more stable under the available data and compute constraints. Therefore, while the SegNeXt-inspired baseline was useful as a comparison model and produced competitive performance when pretrained, it did not outperform the project baseline in our experiments.
-
-These findings suggest that the gap between the approaches is driven not only by architecture choice, but also by representation quality and data efficiency.
-
-\subsection{Comments on Kaggle submissions}
-
-At the time of writing, the maximum oF1 score achieved on hold-out test data was $0.458$, achieved by Kaggle user \emph{orshanec}. \cites{kaggle} We again emphasize that our architecture cannot be directly compared with this metric due to us being unable to access the Kaggle hold-out test set.
 
 \printbibliography
 \appendix
