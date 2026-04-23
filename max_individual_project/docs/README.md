@@ -6,11 +6,13 @@ _This readme contains documentation and information for the implementation._
 
 This implementation of Deep PatchMatch is based on the paper "Image Copy-Move Forgery Detection via Deep PatchMatch and Pairwise Ranking Learning" (Li et. al., available at https://arxiv.org/pdf/2404.17310).
 
-The implementation is tailored towards performance in the kaggle competition "Recod.ai/LUC - Scientific Image Forgery Detection" (https://www.kaggle.com/competitions/recodai-luc-scientific-image-forgery-detection/data). Because of this, there are a number of changes between my implementation and the paper version.
+The implementation is tailored towards performance in the kaggle competition "Recod.ai/LUC - Scientific Image Forgery Detection" (https://www.kaggle.com/competitions/recodai-luc-scientific-image-forgery-detection/data). Because of this, there are a number of changes between my implementation and the paper version. These changes are in the interest of making the implementation perform and include the usage of DINOv2 and ResNet18 models, in addition tp pixel mask post-processing techniques.
 
 Most significantly, the Kaggle competition involves single-channel CMFD. This is a prediction task where the model aims to generate a binary pixel map of the same size of the image, where a 0-value indicates an authentic pixel, whereas a 1-value indicates a forged pixel. A forged pixel is defined as one that is either part of the source region, where the object is copied from, or the target region, where the object is copied to.
 
 The architecture proposed in the paper supports three-channel CMFD, where instead of a binary pixel map, the model should predict for each pixel whether it is part of the background, source, or target. I did not implement the components of the architecture related to performing three-channel CMFD.
+
+In addition, many parameters related to the training process are neither mentioned by Li et. al. nor documented in code. This means that I had to do some experimentation on my own, leading to a structure that may have significant differences from the version Li et. al. used to achieve their results.
 
 ## Architecture and code structure
 
@@ -29,9 +31,9 @@ Inside `/feature_extractors` are the components utilized in the **Feature Extrac
 #### CNN
 
 In this implementation, the most practical choice is to use a frozen pretrained extractor such as the ones that are options in `cnn_feature_extractor.py` (VGG16 and RESNET18).
-I also experimented with using Meta's _dinov2_vitb14_ model in `dino_feature_extractor.py`, but found that it was too memory-intensive to be safely utilized, particularly as my implementation batches and performs concurrent operations on the different image scaling. One option is to have a layer compressing Dino's output to a lower dimensionality, but then this compression layer would have to be trained, and
+I also experimented with using Meta's _dinov2_vitb14_ model, but found that it was too memory-intensive to be safely utilized in this branch, particularly as my implementation batches and performs concurrent operations on the different image scaling. Note however that the DINOv2 was utilized in the independent SEUNet branch.
 
-Although the paper does not mention specifically whether the CNN feature extractor is pretrained or not, my interpretation is that it most likely was not, as this would be consistent with the fact that the architecture is end-to-end differentiable.
+Although the paper does not explicitly state whether the CNN feature extractor is pretrained, it is reasonable to assume that it was not, given that the architecture is described as fully end-to-end differentiable. However, in practice, using an untrained feature extractor led to poor performance and proved difficult to optimize, largely because it required gradient propagation through the entire PatchMatch module. While the network is theoretically fully differentiable, propagating gradients through the full PatchMatch pipeline was too demanding for available GPU memory when combined with other operations. To address this, a frozen pretrained CNN based on VGG16 was used as the feature extractor. This modification not only improved stability and performance but also enabled the use of a hard argmax operation instead of the differentiable soft argmax controlled by the $\beta$ parameter described in the paper.
 
 #### Zernike
 
@@ -59,11 +61,20 @@ As the zernike kernels are the same for each run, these are pre-computed and cac
 
 ### Deep Cross-Scale PatchMatch
 
+![PatchMatch Architecture](patchmatch_architecture.jpg)
 When I implemented the Deep Cross-Scale PatchMatch algorithm as described in the paper, I had some issues with pixel offsets settling by finding local optima within a close vicinity. Essentially, as the features extracted within a local area are quite similar, it was hard for the algorithm to explore beyond this area. To rectify this, I implemented a method that re-randomized any offsets which were within a close vicinity to the pixel itself. As there is no mention of this in the paper, I am unsure whether my implementation diverges at this point or not.
+
+The paper does not specify how many iterations PatchMatch is run for, but to achieve good offsets I found it necessary to use 24 iterations.
+Here is an example of generated offsets visualized:
+![PatchMatch Offsets](offsets_example.png)
 
 ### Multi-Scale Dense Linear Fitting and Prediction
 
-Although this too was hard to interpret, the interpretation I decided on was that the author's implementation only used the CNN offsets to calculate DLF error maps. However, as I was getting poor
+Although this too was hard to interpret, the interpretation I decided on was that the author's implementation only used the CNN offsets to calculate DLF error maps. However, as I was getting poor results using only these offsets, I chose to use Zernike offsets in error calculation as well.
+
+### Loss functions
+
+In addition to the two dice loss functions used in the paper for $M$ and $M_t$ ($M$ = final merged mask, $M_t$ = SEUnet predicted mask), I added BCELoss as we were using this in the main group implementation. I also added a dice loss term for $M'$ and an additional loss penalty for predicting false positives in an attempt to reduce false positives.
 
 ## Challenges
 
@@ -82,7 +93,7 @@ All of these datasets feature "realistic" images. By this I mean that they are p
 
 I believe that this difference in the backgrounds of images is highly significant in explaining the architectures performance on this dataset.
 
-To align my experiments more with the paper and to test out some of these differences in image qualities, I also included the CASIA CMFD dataset in my training set. This choice was also inspired by the conception that CMFD is a general task where it is always helpful to have more data. In retrospect, this may have been a poor decision, as the CMFD task may have some inherent differences based on the class of images, as described above. In addition, including more data led to increased training times.
+To align my experiments more with the paper and to test out some of these differences in image qualities, I also tested included the CASIA CMFD dataset in my training set. This choice was also inspired by the conception that CMFD is a general task where it is always helpful to have more data. However, for the final assessment of the project, the model is run with only the Kaggle competition data.
 
 ## Improvements given more time
 
@@ -93,11 +104,16 @@ Because of time limits and the complexity of the task I was not able to carry ou
 - Using a larger amount of data or more varied data.
 - Simply running for more epochs.
 - Further optimising the PatchMatch module, which was a major bottleneck in training the network. This would allow for more efficient running for a larger amount of epochs. (This part of the network is already optimised quite a lot and with some LLM assistance to make the runtime even feasible, but perhaps there is some other, better way to implement it.)
+- Applying different post-processing techniques, as model performance is highly sensitive to this.
 
-## Other inconsistencies
+## Disclaimer: Use of LLM and other sources
 
-Unfortunately, many parameters related to the training process are neither mentioned by Li et. al. nor documented in code. This means that I had to do some experimentation on my own, leading to a structure that may have significant differences from the version Li et. al. used to achieve their results.
+This project is completed with some assistance from LLMs, and some of the code is inspired by the implementation used in the shared group project. Most notably, `dino_feature_extractor.py` and `pixelmaputil_mask.py` are heavily inspired by the group project versions.
 
-Although the network in theory is fully differentiable, propagating gradients throughout the whole PatchMatch module was too much to handle for my GPU memory concurrently with all other operations. Therefore, I used a frozen pretrained CNN containing the VGG16 weights (https://arxiv.org/abs/1409.1556).
+### LLM usage
 
-## Technical details
+- Optimizations from more intuitive, vectorized pixel-by-pixel logic to using `torch.roll` in `PixelPropagator` and `.repeat` in `ZernikeFeatureExtractor`. This efficiency increase was necessary in order to make running the PatchMatch module feasible.
+- Some helpers methods for ensuring correct dimensionality of tensors and error handling (e.g, `_as_batched_errors()` in `DLFDecoder`).
+- Extensive usage in `MultiScaleDLF` in order to implement efficient fitting in most methods. Essentially, I implemented the `compute_errors_default()` method, but as it was unstable and slow, I used an LLM to improve on most of the helpers used here and to implement the `box_sum()` method.
+- Inspiration and improvement for some of the splitting methods used in `dataset.py`.
+- For creating some of the helper functions for saving and logging model behaviour during the pipeline run in `pipeline.py`
