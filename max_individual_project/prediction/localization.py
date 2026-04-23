@@ -198,3 +198,62 @@ def decode_and_refine_masks(
         target_map = F.interpolate(target_map, size=output_size, mode="bilinear", align_corners=False)
         dlf_map = F.interpolate(dlf_map, size=output_size, mode="bilinear", align_corners=False)
     return refined_mask, target_map, dlf_map
+
+
+def run_localization(
+    images: torch.Tensor,
+    pm_backbone,
+    pyramid_zm,
+    dino_extractor,
+    dlf_decoder,
+    se_model,
+    *,
+    separate_transforms: bool,
+    cnn_feature_norm: bool,
+    pm_random_window: int,
+    pm_iters: int,
+    pm_beta: float,
+    pm_hard_selection: bool,
+    pm_use_non_local: bool,
+    pm_non_local_limit: float,
+    pm_reduced_precision: bool = True,
+    localization_resolution: str = "image",
+    dlf_error_scaling: str = "log1p",
+    collect_stats: bool = False,
+    pm_flat_threshold: float = 0.15,
+    pm_margin_threshold: float = 0.10,
+):
+    cnn_errors, zernike_errors, cnn_branch_result, zernike_branch_result, dino_features, localization_stats = (
+        extract_localization_inputs(
+            images=images,
+            pm_backbone=pm_backbone,
+            pyramid_zm=pyramid_zm,
+            dino_extractor=dino_extractor,
+            separate_transforms=separate_transforms,
+            cnn_feature_norm=cnn_feature_norm,
+            pm_random_window=pm_random_window,
+            pm_iters=pm_iters,
+            pm_beta=pm_beta,
+            pm_hard_selection=pm_hard_selection,
+            pm_use_non_local=pm_use_non_local,
+            pm_non_local_limit=pm_non_local_limit,
+            pm_reduced_precision=pm_reduced_precision,
+            localization_resolution=localization_resolution,
+            dlf_error_scaling=dlf_error_scaling,
+            collect_stats=collect_stats,
+            pm_flat_threshold=pm_flat_threshold,
+            pm_margin_threshold=pm_margin_threshold,
+        )
+    )
+    refined_mask, target_map, dlf_map = decode_and_refine_masks(
+        images=images,
+        cnn_error_maps=cnn_errors,
+        zernike_error_maps=zernike_errors,
+        cnn_branch_result=cnn_branch_result,
+        zernike_branch_result=zernike_branch_result,
+        dlf_decoder=dlf_decoder,
+        se_model=se_model,
+        dino_features=dino_features,
+        output_size=images.shape[-2:],
+    )
+    return refined_mask, target_map, dlf_map, cnn_branch_result, zernike_branch_result, dino_features, cnn_errors, localization_stats
