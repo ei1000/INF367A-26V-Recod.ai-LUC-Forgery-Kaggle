@@ -116,7 +116,7 @@ The competition metric is challenging for a few reasons. Firstly, it requires hi
 \subsection{Contributions}
 This paper presents a complete main pipeline for CMFD and several alternate methods, discussing the strengths and weaknesses of the different approaches. Through a discussion and presentation of these methods, we aim to identify what directions could be promising for future work and further nuance the task of CMFD.
 \section{Methods}
-Our initial implementation was inspired by a notebook by Kaggle user Gaurav Parkhedkar \cites{notebook}, who successfully employed a range of different techniques to perform a score of $0.332$ on the competition metric on the test set. These techniques include feature extraction through the DINOv2 model \cites{oquab2023dinov2}, sliding window inference and prediction mask post-processing. For our own implementation we build on these techniques to try other possibilities.
+As the Kaggle competition had already been running for ~3 months when we began our experiments, our initial implementation was inspired by the techniques used by other users \cites{notebook1, notebook2}. We noted that many users employed the the DINOv2 model \cites{oquab2023dinov2}, as well as techniques prediction mask post-processing. For our own implementation we build on these techniques.
 \subsection{Dataset}
 We utilize the dataset supplied in the Kaggle competition \cites{kaggle}. Unfortunately, we were unable to test our implementation against the Kaggle test-set, as we were too late to enter the competition. As we did not have access to the test data, we instead chose to use the available training data in a train (80\%), evaluate (10\%), test (10\%) split. The training data consists of a base $2751$ forged and $2377$ authentic images as well as an additional $48$ forged images. As the images are too large to process directly with the model, they are each resized to size $3 \times 448 \times 448$.
 \subsection{Feature Extraction}
@@ -124,11 +124,8 @@ To perform feature extraction on the images, we employ Meta AI's powerful DINOv2
 \subsection{Decoder}
 In order to create the predicted pixel mask, we employ a small decoder model on the generated DINOv2 feature map. The decoder we utilize contains three blocks and an output layer, before outputting the generated mask interpolated to output size using bilinear interpolation. 
 \\\\
-
 The first two blocks of the decoder apply convolutions to bring the dimensionality from $768 \to 384 \to 192$ while also applying \emph{ReLU} and \emph{Dropout} with $p=0.1$ operations in each block. In the third block, a convolution from $192 \to 96$ is applied before a final \emph{ReLU} and the output layer $96 \to 1$, giving the predicted mask. 
-
-Formally, the decoder can be viewed as a mapping from the DINOv2 feature representation to a dense pixel-wise probability map.
-
+\\\\
 Let $X \in \mathbb{R}^{3 \times H \times W}$ denote the input image and $F \in \mathbb{R}^{768 \times h \times w}$ the feature map extracted by the frozen DINOv2 backbone. The decoder produces a probability map $\hat{Y} \in [0,1]^{H \times W}$ after upsampling:
 
 \[
@@ -139,17 +136,11 @@ where $\sigma$ denotes the sigmoid activation function.
 
 \subsection{Training Objective and Optimization}
 
-The model is trained as a pixel-wise binary classification problem, where each pixel is classified as either forged or authentic.
-
-We use binary cross-entropy loss for pixel-wise supervision:
+The model is trained as a pixel-wise binary classification problem, where each pixel is classified as either forged or authentic. We use binary cross-entropy loss for pixel-wise supervision, and utilize the Adam optimizer with a learning rate $\alpha = 0.0001$:
 
 \[
 \mathcal{L}_{BCE} = - \frac{1}{N} \sum_{i=1}^{N} \left[ y_i \log(\hat{y}_i) + (1 - y_i)\log(1 - \hat{y}_i) \right]
 \]
-
-where $\hat{y}_i$ is the predicted probability and $y_i$ is the ground truth label.
-
-All models were optimized using the Adam optimizer with a fixed learning rate, using binary cross-entropy loss for pixel-wise supervision.
 
 \subsection{Mask post-processing}
 

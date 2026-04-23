@@ -453,7 +453,7 @@
       \field{title}{RecodAI F1}
       \field{year}{2025}
     \endentry
-    \entry{notebook}{misc}{}
+    \entry{notebook1}{misc}{}
       \name{author}{1}{}{%
         {{hash=6282df62bc027d3cb2e954927ba1fec1}{%
            family={Parkhedkar},
@@ -474,6 +474,29 @@
       \field{howpublished}{\url{https://www.kaggle.com/code/gauravparkhedkar/dinov2-base-0-332-high-res-4500px-robust-inf}}
       \field{note}{[Online; accessed January-2026]}
       \field{title}{DINOv2 Base [0.332] | High-Res 4500px | Robust Inf}
+      \field{year}{2026}
+    \endentry
+    \entry{notebook2}{misc}{}
+      \name{author}{1}{}{%
+        {{hash=1ab8899369cc893b181adcc5709b8ece}{%
+           family={Ravaghi},
+           familyi={R\bibinitperiod},
+           given={Mahdi},
+           giveni={M\bibinitperiod}}}%
+      }
+      \strng{namehash}{1ab8899369cc893b181adcc5709b8ece}
+      \strng{fullhash}{1ab8899369cc893b181adcc5709b8ece}
+      \strng{bibnamehash}{1ab8899369cc893b181adcc5709b8ece}
+      \strng{authorbibnamehash}{1ab8899369cc893b181adcc5709b8ece}
+      \strng{authornamehash}{1ab8899369cc893b181adcc5709b8ece}
+      \strng{authorfullhash}{1ab8899369cc893b181adcc5709b8ece}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{howpublished}{\url{https://www.kaggle.com/code/ravaghi/scientific-image-forgery-detection-dinov2}}
+      \field{note}{[Online; accessed January-2026]}
+      \field{title}{Scientific Image Forgery Detection | DINOv2}
       \field{year}{2026}
     \endentry
     \entry{oquab2023dinov2}{article}{}
