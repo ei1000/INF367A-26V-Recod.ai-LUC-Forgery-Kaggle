@@ -5,7 +5,9 @@ import torch
 from einar_busternet.config import BusterNetConfig
 from einar_busternet.model import BinaryFusionDinoBusterNet, DinoBusterNet
 from einar_busternet.train import (
+    BinaryUnionBCEDiceLoss,
     BinaryUnionBCEWithLogitsLoss,
+    BCEDiceLoss,
     build_config_from_args,
     build_fusion_loss,
     build_model,
@@ -35,6 +37,25 @@ class BusterNetTrainTests(unittest.TestCase):
         self.assertEqual(config.stage2_epochs, 1)
         self.assertEqual(config.stage3_epochs, 0)
 
+    def test_loss_override_args_are_configurable(self) -> None:
+        config = build_config_from_args(
+            [
+                "--stage1-lr",
+                "0.002",
+                "--branch-dice-weight",
+                "0.25",
+                "--fusion-dice-weight",
+                "0.75",
+                "--pred-threshold",
+                "0.25",
+            ]
+        )
+
+        self.assertEqual(config.stage1_lr, 0.002)
+        self.assertEqual(config.branch_dice_weight, 0.25)
+        self.assertEqual(config.fusion_dice_weight, 0.75)
+        self.assertEqual(config.pred_threshold, 0.25)
+
     def test_binary_fusion_arg_selects_binary_union_mode(self) -> None:
         config = build_config_from_args(["--fusion-mode", "binary_union"])
 
@@ -45,7 +66,7 @@ class BusterNetTrainTests(unittest.TestCase):
         bce_loss = build_fusion_loss(BusterNetConfig(fusion_mode="binary_union"), torch.device("cpu"))
 
         self.assertIsInstance(ce_loss, torch.nn.CrossEntropyLoss)
-        self.assertIsInstance(bce_loss, BinaryUnionBCEWithLogitsLoss)
+        self.assertIsInstance(bce_loss, BinaryUnionBCEDiceLoss)
 
     def test_binary_union_loss_uses_source_target_union(self) -> None:
         loss_fn = BinaryUnionBCEWithLogitsLoss()
@@ -59,6 +80,20 @@ class BusterNetTrainTests(unittest.TestCase):
         )
 
         torch.testing.assert_close(loss, expected)
+
+    def test_bce_dice_loss_is_bce_plus_one_minus_dice(self) -> None:
+        loss_fn = BCEDiceLoss(dice_weight=1.0)
+        logits = torch.zeros(1, 2, 3)
+        targets = torch.tensor([[[0.0, 1.0, 1.0], [0.0, 0.0, 1.0]]])
+
+        loss = loss_fn(logits, targets)
+        bce = torch.nn.functional.binary_cross_entropy_with_logits(logits, targets)
+        probs = torch.sigmoid(logits)
+        intersection = (probs * targets).sum(dim=(-2, -1))
+        denominator = probs.sum(dim=(-2, -1)) + targets.sum(dim=(-2, -1))
+        dice_loss = 1.0 - ((2.0 * intersection + 1.0) / (denominator + 1.0)).mean()
+
+        torch.testing.assert_close(loss, bce + dice_loss)
 
     def test_build_model_selects_binary_fusion_class_without_torch_hub(self) -> None:
         config = BusterNetConfig(fusion_mode="binary_union")

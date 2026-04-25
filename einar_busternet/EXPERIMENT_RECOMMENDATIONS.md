@@ -1,9 +1,46 @@
 # BusterNet Experiment Notes And Next Steps
 
-Last updated: 2026-04-25.
+Last updated: 2026-04-26.
 
 This note tracks what we tried, what failed, what helped, and the next experiments.
 Keep it practical. Details live in `SPEC.md`, `PLAN.md`, and `decisions_taken.md`.
+
+## Breakthrough Result: BCE+Dice Binary Fusion
+
+Observed during the current run:
+
+```text
+Validation timing (epoch 6): inference=22.71s postprocess=5.65s scoring=0.07s
+Stage 2 epoch 1: avg_loss=0.7423 kaggle_score=0.5321
+```
+
+This is the strongest BusterNet validation score so far.
+
+What changed:
+
+```python
+fusion_mode = "binary_union"
+stage1_lr = 1e-3
+branch_dice_weight = 0.5
+fusion_dice_weight = 1.0
+```
+
+Stage 1 branch heads and binary fusion now use BCE+soft-Dice. Stage 1 uses a lower LR
+and lower Dice weight to avoid the NaNs seen with full Dice weight at `1e-2`.
+
+Why this likely worked:
+
+- Binary fusion aligns the final head with the Kaggle/oF1 union-mask objective.
+- BCE stabilizes pixel-wise probability learning.
+- Dice directly rewards foreground overlap and counteracts background dominance.
+- Splitting branch/fusion Dice weights keeps auxiliary branch pretraining stable while
+  letting the final union head optimize overlap strongly.
+
+Takeaway:
+
+The main bottleneck was not post-processing. It was objective alignment: BCE-only binary
+fusion was too conservative, while 3-class fusion had a source/target-to-union mismatch.
+BCE+Dice on the binary union objective is now the primary baseline to beat.
 
 ## Current State
 
@@ -258,6 +295,119 @@ thresholds = [0.35, 0.4, 0.45, 0.5, 0.55]
 ```
 
 Keep the sweep small.
+
+## Current Running Experiment
+
+Run:
+
+```bash
+uv run python -m einar_busternet.train --fusion-mode binary_union
+```
+
+Current settings:
+
+```python
+stage1_lr = 1e-3
+branch_dice_weight = 0.5
+fusion_dice_weight = 1.0
+fusion_mode = "binary_union"
+```
+
+Why:
+
+- Previous Stage 1 with `stage1_lr=1e-2` and full Dice weight produced NaNs.
+- Dice is still useful for Stage 1 masks, but branch pretraining is auxiliary and should
+  not dominate optimization.
+- Fusion is the competition-facing union task, so it keeps full Dice weight first.
+
+Check after training:
+
+- best validation kaggle score
+- latest validation kaggle score
+- authentic empty rate
+- forged empty rate
+- forged nonempty mean F1
+- forged GT-size bucket summary
+- whether lowering threshold improves forged recall without breaking authentic F1
+
+## Next Experiment Decision Tree
+
+### If BCE+Dice Improves Forged Recall And Authentic Stays Good
+
+Keep the loss. Then test small threshold changes:
+
+```text
+thresholds = [0.35, 0.4, 0.45, 0.5, 0.55]
+```
+
+Choose the threshold from validation oF1, not from visual preference.
+
+### If Forged Empty Rate Is Still High Or Source Regions Are Still Missing
+
+Move to the architecture ablation next:
+
+1. Add Mani/Simi auxiliary logits to the fusion input.
+2. Widen/deepen fusion.
+3. Consider richer decoders if fusion capacity alone is not enough.
+4. Keep DINO frozen and unchanged.
+
+Reason:
+
+- DINO dominates runtime, so larger decoders/fusion are cheap compared with the encoder.
+- The current binary head may not have enough capacity to combine manipulation and
+  similarity evidence.
+- Missing source regions suggests the Simi branch evidence is not being used strongly
+  enough by fusion.
+- We should not over-tune the loss if the bottleneck is representational capacity.
+
+Keep Tversky as a later fallback, not the next move.
+
+### If Authentic False Positives Come Back
+
+Back off the overlap pressure:
+
+```python
+branch_dice_weight = 0.25
+fusion_dice_weight = 0.5
+```
+
+Then inspect threshold sweep. If the model becomes noisy only below 0.5, keep the higher
+threshold rather than weakening the loss too much.
+
+### If Stage 1 Produces NaNs Again
+
+Use the same loss but reduce optimization pressure:
+
+```python
+stage1_lr = 5e-4
+branch_dice_weight = 0.25
+fusion_dice_weight = 1.0
+```
+
+Do not use checkpoints from a run after NaNs appear.
+
+### If Stage 3 Hurts The Best Stage 2 Checkpoint
+
+Keep using `best.pt`; it already tracks validation oF1.
+
+Then try one of:
+
+```python
+stage3_lr = 5e-6
+stage3_epochs = 5
+```
+
+or add persistent auxiliary losses during Stage 3:
+
+```text
+stage3_loss =
+    fusion_binary_loss
+  + 0.1 * mani_aux_target_loss
+  + 0.1 * simi_aux_union_loss
+```
+
+Only add persistent auxiliary loss after confirming branch drift or source undercoverage
+in diagnostics.
 
 ## Source Notes
 

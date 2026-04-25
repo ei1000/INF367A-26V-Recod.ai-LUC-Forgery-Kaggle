@@ -10,7 +10,7 @@ class BusterNetConfig:
     batch_size: int = 32
     seed: int = 42
     target_size: int = 448
-    pred_threshold: float = 0.5
+    pred_threshold: float = 0.2
     harden_temperature: float = 0.7
     hard_clip_low: float = 0.1
     hard_clip_high: float = 0.9
@@ -56,7 +56,7 @@ class BusterNetConfig:
     stage1_epochs: int = 5
     stage2_epochs: int = 5
     stage3_epochs: int = 10
-    stage1_lr: float = 1e-2
+    stage1_lr: float = 1e-3
     stage2_lr: float = 1e-2
     stage3_lr: float = 1e-5
     nb_pools: int = 100
@@ -81,6 +81,9 @@ class BusterNetConfig:
     stage3_scheduler_factor: float = 0.5
     stage3_scheduler_patience: int = 1
     early_stop_patience: int = 5
+
+    branch_dice_weight: float = 0.5
+    fusion_dice_weight: float = 1.0
 
     @property
     def total_stage_epochs(self) -> int:

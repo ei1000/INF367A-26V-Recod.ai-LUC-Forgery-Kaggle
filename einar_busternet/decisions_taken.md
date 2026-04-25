@@ -84,6 +84,25 @@ the union forgery mask with binary BCE. The competition only scores the union, s
 a reasonable problem-specific variant. The 3-class model remains available as
 `fusion_mode="three_class"`.
 
+When inspecting the binary fusion model it performed better. It got high f1 on authentic but low on forged. I tried tuning but it did not work. Then thought about changing the loss function to something more relevant.
+
+Did some research and found that DICE is a better loss function for pixel overlap that is important for the forgery f1. Think that the BCE is still important to punish false positives on authentic. Therefore combining them weighted instead. 
+
+Follow-up: binary fusion with BCE alone was still too conservative on forged images.
+We changed the binary objective to BCE+soft-Dice, split Dice weights for branch and
+fusion losses, and lowered Stage 1 LR:
+
+```python
+stage1_lr = 1e-3
+branch_dice_weight = 0.5
+fusion_dice_weight = 1.0
+```
+
+The first Stage 2 validation after this change reached `kaggle_score=0.5354`, the best
+BusterNet result so far. This supports the decision that the competition-facing head
+should optimize binary union overlap directly, not only per-pixel BCE or 3-class
+source/target separation.
+
 ## Fuse Decoder Features, Not Auxiliary Branch Logits
 
 The BusterNet paper feeds Mani-Det and Simi-Det mask-decoder feature maps into Fusion.

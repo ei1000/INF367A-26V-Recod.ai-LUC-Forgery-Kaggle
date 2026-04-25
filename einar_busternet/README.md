@@ -5,6 +5,8 @@ I have been using AI tools like codex when implementing this project. I have not
 
 The architecture is my own adaptation of busternet based on the baseline and modern practices. The tools have given me the oppertunity to implement and test ideas at a speed that would not have been possible with normal time and work constraints. I fully understand what the code does, and have spent much time doing code-review and refactoring.
 
+For instance it loves to use torch autocast nested and introduce memory leaks causing OOM on both ram and Vram if you are not carefull.
+
 I used a spec, plan, implement, test stragegy. Where I first do research and create a spec. Then create a plan for how to implement the code. Then implement and test one step at a time to ensure everything works. 
 
 I wanted to be transparent with this whilst showcasing how it can be used responsibly. I am a software engineer, and we use these tools at work. This way I could spend more time on machine learning instead of code plumbing. The results backs this up too. 

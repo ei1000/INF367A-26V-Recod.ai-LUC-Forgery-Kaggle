@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -38,7 +39,11 @@ def build_config_from_args(argv: Sequence[str] | None = None) -> BusterNetConfig
     parser.add_argument("--stage1-epochs", type=int, default=None)
     parser.add_argument("--stage2-epochs", type=int, default=None)
     parser.add_argument("--stage3-epochs", type=int, default=None)
+    parser.add_argument("--stage1-lr", type=float, default=None)
     parser.add_argument("--fusion-mode", choices=("three_class", "binary_union"), default=None)
+    parser.add_argument("--branch-dice-weight", type=float, default=None)
+    parser.add_argument("--fusion-dice-weight", type=float, default=None)
+    parser.add_argument("--pred-threshold", type=float, default=None)
     parser.add_argument("--resume-checkpoint-path", type=str, default=None)
     parser.add_argument(
         "--validation-transfer-mode",
@@ -56,7 +61,11 @@ def build_config_from_args(argv: Sequence[str] | None = None) -> BusterNetConfig
         ("stage1_epochs", "stage1_epochs"),
         ("stage2_epochs", "stage2_epochs"),
         ("stage3_epochs", "stage3_epochs"),
+        ("stage1_lr", "stage1_lr"),
         ("fusion_mode", "fusion_mode"),
+        ("branch_dice_weight", "branch_dice_weight"),
+        ("fusion_dice_weight", "fusion_dice_weight"),
+        ("pred_threshold", "pred_threshold"),
         ("resume_checkpoint_path", "resume_checkpoint_path"),
         ("validation_transfer_mode", "validation_transfer_mode"),
     ):
@@ -132,6 +141,50 @@ class BinaryUnionBCEWithLogitsLoss(nn.Module):
         return self.loss(logits[:, 0], union_mask)
 
 
+class SoftDiceLoss(nn.Module):
+    """Soft Dice loss. Computed in fp32 to avoid AMP precision loss on large spatial sums."""
+
+    def __init__(self, smooth: float = 1.0) -> None:
+        super().__init__()
+        self.smooth = smooth
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        # .float() overrides autocast — no nested context manager needed
+        probs = torch.sigmoid(logits.float())
+        targets_f = targets.float()
+        intersection = (probs * targets_f).sum(dim=(-2, -1))
+        denominator = probs.sum(dim=(-2, -1)) + targets_f.sum(dim=(-2, -1))
+        dice_per_sample = (2.0 * intersection + self.smooth) / (denominator + self.smooth)
+        return 1.0 - dice_per_sample.mean()
+
+
+class BCEDiceLoss(nn.Module):
+    """BCE + soft Dice compound loss for binary segmentation."""
+
+    def __init__(self, dice_weight: float = 1.0) -> None:
+        super().__init__()
+        self.bce = nn.BCEWithLogitsLoss()
+        self.dice = SoftDiceLoss()
+        self.dice_weight = dice_weight
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        return self.bce(logits, targets) + self.dice_weight * self.dice(logits, targets)
+
+
+class BinaryUnionBCEDiceLoss(nn.Module):
+    """BCE+Dice compound loss that converts raw label tensors to binary union mask."""
+
+    def __init__(self, dice_weight: float = 1.0) -> None:
+        super().__init__()
+        self.loss = BCEDiceLoss(dice_weight=dice_weight)
+
+    def forward(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        if logits.ndim != 4 or logits.shape[1] != 1:
+            raise ValueError(f"Expected binary logits with shape (B,1,H,W), got {tuple(logits.shape)}")
+        union_mask = (labels > 0).float()
+        return self.loss(logits[:, 0], union_mask)
+
+
 def build_model(config: BusterNetConfig) -> DinoBusterNet:
     model_cls = {
         "three_class": DinoBusterNet,
@@ -152,7 +205,7 @@ def build_fusion_loss(config: BusterNetConfig, device: torch.device) -> nn.Modul
         ce_weights = torch.tensor(config.ce_class_weights, dtype=torch.float32, device=device)
         return nn.CrossEntropyLoss(weight=ce_weights)
     if config.fusion_mode == "binary_union":
-        return BinaryUnionBCEWithLogitsLoss()
+        return BinaryUnionBCEDiceLoss(dice_weight=config.fusion_dice_weight)
     raise ValueError(f"Unknown fusion_mode: {config.fusion_mode}")
 
 
@@ -189,7 +242,6 @@ def train_stage1_epoch(
             mani_loss = loss_fn(mani_logits[:, 0], target_mask)
             simi_loss = loss_fn(simi_logits[:, 0], union_mask)
             loss = mani_loss + simi_loss
-
         if scaler is not None and use_amp:
             scaler.scale(loss).backward()
             scaler.unscale_(mani_optimizer)
@@ -432,14 +484,14 @@ def main(config: BusterNetConfig | None = None) -> None:
     configure_trainable_parts(model, stage=1)
     mani_optimizer = torch.optim.Adam(_trainable_params((model.mani_decoder, model.mani_classifier)), lr=config.stage1_lr)
     simi_optimizer = torch.optim.Adam(_trainable_params((model.simi_decoder, model.simi_classifier)), lr=config.stage1_lr)
-    bce_loss = nn.BCEWithLogitsLoss()
+    branch_loss = BCEDiceLoss(dice_weight=config.branch_dice_weight)
     for epoch in range(config.stage1_epochs):
         metrics = train_stage1_epoch(
             model=model,
             train_loader=train_loader,
             mani_optimizer=mani_optimizer,
             simi_optimizer=simi_optimizer,
-            loss_fn=bce_loss,
+            loss_fn=branch_loss,
             device=device,
             grad_clip_max_norm=config.grad_clip_max_norm,
             epoch_idx=epoch,
@@ -447,6 +499,8 @@ def main(config: BusterNetConfig | None = None) -> None:
             scaler=scaler,
         )
         global_epoch += 1
+        if not all(math.isfinite(value) for value in metrics.values()):
+            raise FloatingPointError(f"Stage 1 produced non-finite epoch metrics: {metrics}")
         print(
             f"Stage 1 epoch {epoch + 1}: "
             f"loss={metrics['loss']:.4f} mani={metrics['mani_loss']:.4f} simi={metrics['simi_loss']:.4f}"
