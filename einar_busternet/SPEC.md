@@ -154,8 +154,9 @@ which matters for the official oF1 score.
 - **Simi-Det**: supervised on derived **source mask** — copy origin is self-similar to target.
   `L_simi = BCEWithLogitsLoss(simi_binary_logit, source_mask_float)`
 
-Binary logit = sigmoid of the sum of that branch's 3-channel output (channels 1+2),
-keeping the auxiliary task simple. LR: `1e-2` (paper).
+Use raw branch logits with `BCEWithLogitsLoss`: `mani_logits[:, 1]` for target
+supervision and `simi_logits[:, 2]` for source supervision. Do not apply sigmoid before
+the loss. LR: `1e-2` (paper).
 
 ### Stage 2 — Freeze branches, train Fusion only
 

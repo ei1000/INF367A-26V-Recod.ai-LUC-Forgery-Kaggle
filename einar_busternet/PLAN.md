@@ -2,7 +2,7 @@
 
 Deadline: 2026-04-26 23:59. All steps below are ordered by dependency.
 
-## Step 0 — Derived source/target masks  `generate_source_target_masks.py`
+## Step 0 — Derived source/target masks  `generate_source_target_masks.py` — done
 
 Create the BusterNet-compatible masks once before model training.
 
@@ -41,10 +41,9 @@ Current generated counts:
 - `374` target-only fallbacks without authentic pairs, excluded from initial training
 - `0` empty target masks
 
-Optional but recommended:
-- Add a small notebook/audit cell that visualizes random generated pairs before training.
+Audit notebook added: `einar_busternet/explore_source_target_masks.ipynb`.
 
-## Step 1 — Data layer  `dataset.py`
+## Step 1 — Data layer  `dataset.py` — done
 
 Create `BusterNetDataset` extending the existing `ForgeryDataset` pattern.
 
@@ -67,7 +66,7 @@ Differences from `ForgeryDataset`:
   resize with nearest-neighbor interpolation, RGB image tensor `(3, H, W)`, optional
   DINO/ImageNet normalisation, label tensor `(H, W)` with dtype `torch.long`.
 
-Suggested constructor:
+Implemented constructor:
 
 ```python
 BusterNetDataset(
@@ -95,9 +94,11 @@ Focused tests:
 - missing Step 0 masks raise a clear error
 - resized label maps still contain only integer class IDs `{0, 1, 2}`
 
-## Step 2 — Model  `model.py`
+Implemented tests: `tests/test_busternet_dataset.py`.
 
-Two classes:
+## Step 2 — Model  `model.py` — done
+
+Implemented classes:
 
 **`SelfCorrelPercPooling`**: stateless module implementing the GPU-native correlation.
 - Input: `(B, C, H, W)` — DINO features
@@ -125,9 +126,14 @@ Two classes:
   simplified fusion head from the spec before upsampling.
 - Final output is bilinearly upsampled once to the padded image size, then cropped back
   to the original input size, matching `DinoSegmenter`.
-- Expose branch outputs for Stage 1, e.g. `forward_branches(x)` returning full-resolution
-  `mani_logits` and `simi_logits`, or `forward(x, return_branches=True)` returning a
-  small dict. Stage 1 needs these auxiliary logits without going through fusion.
+- Exposes `forward_branches(x)` returning full-resolution `mani_logits` and `simi_logits`
+  for Stage 1 auxiliary losses.
+
+**`BusterNetUnionWrapper`**: evaluation adapter.
+- Wraps a trained `DinoBusterNet`.
+- Converts softmax source+target probability into one-channel binary logits with
+  `torch.logit(...clamp(1e-6, 1 - 1e-6))`.
+- Lets baseline validation call `sigmoid(model(x))` unchanged.
 
 Focused tests:
 - `SelfCorrelPercPooling` returns `(B, nb_pools, H, W)` and finite values for normal and
@@ -137,6 +143,9 @@ Focused tests:
   14 and for one that requires padding/cropping
 - branch output API returns two `(B, 3, H, W)` tensors for Stage 1
 - frozen encoder stays in eval mode when `model.train()` is called
+- `BusterNetUnionWrapper` sigmoid output matches `P(target)+P(source)`
+
+Implemented tests: `tests/test_busternet_model.py`.
 
 ## Step 3 — Config  `config.py`
 
@@ -144,9 +153,17 @@ Dataclass `BusterNetConfig` with all hyperparameters. Mirrors `BaselineConfig` p
 so existing utilities (`seed_worker`, `set_seed`) work unchanged.
 
 Fields:
-- All standard training fields (epochs, lr, batch_size, seed, target_size, etc.)
-- BusterNet-specific: `nb_pools`, mask paths, `diff_threshold`,
-  `component_change_fraction`
+- Baseline-compatible fields: `batch_size`, `seed`, `target_size`, `pred_threshold`,
+  post-processing settings, workers, DINO model name/embed dim, AMP, sliding-window
+  settings, split ratios, checkpoint cadence, etc.
+- Stage schedule: `stage1_epochs`, `stage2_epochs`, `stage3_epochs`.
+- Stage learning rates: `stage1_lr=1e-2`, `stage2_lr=1e-2`, `stage3_lr=1e-5`.
+- Loss settings: `ce_class_weights=(0.1, 1.0, 1.0)`, `union_wrapper_eps=1e-6`.
+- BusterNet/model fields: `nb_pools=100`, `freeze_dino_encoder=True`.
+- Dataset fields: `metadata_path`, `allowed_forged_statuses=("derived_from_pair",)`,
+  `include_authentic=True`, `authentic_policy="paired_derived_only"`.
+- Step 0 audit fields: `diff_threshold`, `component_change_fraction` for reporting only;
+  training reads the generated masks and metadata.
 - Checkpointing: `checkpoint_dir = "einar_busternet/artifacts/checkpoints"`
 - Results: `results_dir = "einar_busternet/artifacts/results"`
 
@@ -155,22 +172,28 @@ Fields:
 Three-stage training following the BusterNet paper curriculum. Continue from the baseline
 training/validation stack and make small generic extensions only when needed. Reuses from
 project root:
-- `engine/train_loop.py` → `train_one_epoch` (pass custom loss via argument)
-- `engine/validate_loop.py` → `validate_one_epoch`
+- Stage 1 needs a BusterNet-specific training loop because it uses `forward_branches`
+  and two optimizers.
+- Stage 2/3 can reuse `engine/train_loop.py` → `train_one_epoch` with
+  `CrossEntropyLoss`.
+- `engine/validate_loop.py` → `validate_one_epoch` with `BusterNetUnionWrapper(model)`.
 - `engine/checkpointing.py` → save/load checkpoints
 - `datasets/splits.py` → `make_grouped_stratified_splits`
 - `dataset_utils.py` → `list_labeled_samples`
 
 **Stage 1** — independent branch pre-training (auxiliary binary tasks, LR=1e-2):
 - Mani optimizer: `Adam(mani_decoder.parameters(), lr=1e-2)`
-- Simi optimizer: `Adam(simi_decoder.parameters() + corr_pooling.parameters(), lr=1e-2)`
-- Loss: `BCEWithLogitsLoss` — mani on target mask, simi on source mask
+- Simi optimizer: `Adam(simi_decoder.parameters(), lr=1e-2)` because
+  `SelfCorrelPercPooling` has no learnable parameters.
+- Loss: `BCEWithLogitsLoss` — `mani_logits[:, 1]` on target mask,
+  `simi_logits[:, 2]` on source mask. These are raw logits; do not apply sigmoid before
+  the loss.
 - Only the 2377 forged cases with authentic pairs and derived source/target labels, plus
   their authentic counterparts as all-background negatives
 - Runs for `config.stage1_epochs` epochs
 
 **Stage 2** — freeze branches, train Fusion only (LR=1e-2):
-- Freeze all Mani-Det and Simi-Det parameters
+- Freeze all Mani-Det and Simi-Det parameters. DINO remains frozen.
 - Optimizer: `Adam(fusion.parameters(), lr=1e-2)`
 - Loss: `CrossEntropyLoss(weight=[0.1, 1.0, 1.0])`
 - Only the 2377 paired forged cases plus their authentic counterparts for the initial
@@ -185,8 +208,9 @@ project root:
 - Same paired-only data policy as Stage 2 for the initial run.
 - Runs for `config.stage3_epochs` epochs
 
-Checkpoint saving: best by validation kaggle_score (same criterion as baseline).
-Save to `artifacts/checkpoints/best.pt`.
+Validation during training uses `BusterNetUnionWrapper(model)` so the baseline validation
+path scores `P(target)+P(source)`. Checkpoint saving: best by validation kaggle_score
+(same criterion as baseline). Save to `artifacts/checkpoints/best.pt`.
 
 ## Step 5 — Evaluation  `evaluate.py`
 
@@ -225,8 +249,8 @@ einar_busternet/
 ├── README.md             ← write last (needs results)
 ├── __init__.py
 ├── generate_source_target_masks.py ← Step 0
-├── dataset.py            ← Step 1
-├── model.py              ← Step 2
+├── dataset.py            ← Step 1 done
+├── model.py              ← Step 2 done
 ├── config.py             ← Step 3
 ├── train.py              ← Step 4
 ├── evaluate.py           ← Step 5
