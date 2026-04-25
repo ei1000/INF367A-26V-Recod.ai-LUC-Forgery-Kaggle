@@ -147,10 +147,11 @@ Focused tests:
 
 Implemented tests: `tests/test_busternet_model.py`.
 
-## Step 3 — Config  `config.py`
+## Step 3 — Config  `config.py` — done
 
-Dataclass `BusterNetConfig` with all hyperparameters. Mirrors `BaselineConfig` pattern
-so existing utilities (`seed_worker`, `set_seed`) work unchanged.
+Dataclass `BusterNetConfig` with all hyperparameters. Carries the baseline-compatible
+fields needed by the shared loaders, DINO setup, validation, post-processing, and
+checkpointing code. Re-exports `seed_worker` and `set_seed` from the baseline config.
 
 Fields:
 - Baseline-compatible fields: `batch_size`, `seed`, `target_size`, `pred_threshold`,
@@ -166,6 +167,15 @@ Fields:
   training reads the generated masks and metadata.
 - Checkpointing: `checkpoint_dir = "einar_busternet/artifacts/checkpoints"`
 - Results: `results_dir = "einar_busternet/artifacts/results"`
+- Checkpoint names: `best.pt`, `last.pt`
+- Convenience: `total_stage_epochs` property.
+
+Default stage schedule:
+- `stage1_epochs=3`
+- `stage2_epochs=3`
+- `stage3_epochs=10`
+
+Implemented tests: `tests/test_busternet_config.py`.
 
 ## Step 4 — Training script  `train.py`
 
@@ -251,7 +261,7 @@ einar_busternet/
 ├── generate_source_target_masks.py ← Step 0
 ├── dataset.py            ← Step 1 done
 ├── model.py              ← Step 2 done
-├── config.py             ← Step 3
+├── config.py             ← Step 3 done
 ├── train.py              ← Step 4
 ├── evaluate.py           ← Step 5
 └── artifacts/

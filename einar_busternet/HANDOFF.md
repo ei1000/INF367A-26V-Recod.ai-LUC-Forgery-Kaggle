@@ -1,11 +1,11 @@
 # Handoff: BusterNet-DINO
 
 This directory contains Einar's BusterNet-inspired individual project plan. The current
-state is ready for Step 3 implementation.
+state is ready for Step 4 implementation.
 
 ## Current State
 
-Steps 0, 1, and 2 are complete.
+Steps 0, 1, 2, and 3 are complete.
 
 Generated artifacts:
 
@@ -76,6 +76,12 @@ Key decisions:
 - `tests/test_busternet_model.py`
   - Unit tests for correlation pooling, model shapes, branch outputs, frozen encoder
     behavior, and evaluation wrapper probabilities.
+- `einar_busternet/config.py`
+  - `BusterNetConfig`.
+  - Baseline-compatible training/validation fields plus BusterNet stage, loss, dataset,
+    and artifact settings.
+- `tests/test_busternet_config.py`
+  - Unit tests for defaults, dataset policy, artifact paths, and baseline seed helpers.
 - `einar_busternet/explore_source_target_masks.ipynb`
   - Lightweight visual audit notebook for paired and no-pair masks.
 
@@ -92,6 +98,19 @@ Ran 23 tests
 OK
 ```
 
+Step 3 focused verification:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python -m unittest tests.test_busternet_config tests.test_busternet_model tests.test_busternet_dataset
+```
+
+Result:
+
+```text
+Ran 19 tests
+OK
+```
+
 Post-generation invariants checked:
 
 - source mask file count: `2751`
@@ -102,19 +121,14 @@ Post-generation invariants checked:
 
 ## Recommended Next Step
 
-Implement Step 3 from `PLAN.md`:
+Implement Step 4 from `PLAN.md`:
 
-- create `einar_busternet/config.py`
-- add `BusterNetConfig`
-- mirror baseline config fields needed for loaders, DINO, validation, checkpointing, and
-  post-processing
-- add BusterNet-specific fields:
-  - `stage1_epochs`, `stage2_epochs`, `stage3_epochs`
-  - `stage1_lr`, `stage2_lr`, `stage3_lr`
-  - `nb_pools`
-  - `ce_class_weights`
-  - `union_wrapper_eps`
-  - dataset filtering fields for `BusterNetDataset`
+- create `einar_busternet/train.py`
+- build loaders with `BusterNetDataset` and `BusterNetConfig`
+- implement Stage 1 custom branch pretraining with `forward_branches`
+- reuse baseline `train_one_epoch` for Stage 2/3 with `CrossEntropyLoss`
+- validate through `BusterNetUnionWrapper(model)` and baseline `validate_one_epoch`
+- save best and last checkpoints under `einar_busternet/artifacts/checkpoints`
 
 ## Caution
 
