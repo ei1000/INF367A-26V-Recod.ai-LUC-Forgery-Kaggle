@@ -60,6 +60,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--val-subset", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=None)
+    parser.add_argument("--pred-threshold", type=float, default=None)
     parser.add_argument(
         "--validation-transfer-mode",
         choices=("per_batch", "accumulate_gpu"),
@@ -132,6 +133,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         overrides["val_subset"] = args.val_subset
     if args.batch_size is not None:
         overrides["batch_size"] = args.batch_size
+    if args.pred_threshold is not None:
+        overrides["pred_threshold"] = args.pred_threshold
     if args.validation_transfer_mode is not None:
         overrides["validation_transfer_mode"] = args.validation_transfer_mode
     if overrides:

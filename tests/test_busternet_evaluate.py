@@ -11,6 +11,12 @@ class BusterNetEvaluateTests(unittest.TestCase):
         self.assertEqual(str(args.checkpoint), "einar_busternet/artifacts/checkpoints/best.pt")
         self.assertEqual(str(args.output), "einar_busternet/artifacts/results/eval_summary.json")
         self.assertFalse(args.allow_torch_hub)
+        self.assertIsNone(args.pred_threshold)
+
+    def test_parse_args_accepts_prediction_threshold_override(self) -> None:
+        args = parse_args(["--pred-threshold", "0.4"])
+
+        self.assertEqual(args.pred_threshold, 0.4)
 
     def test_validate_model_loading_requires_explicit_allowance(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "allow-torch-hub"):

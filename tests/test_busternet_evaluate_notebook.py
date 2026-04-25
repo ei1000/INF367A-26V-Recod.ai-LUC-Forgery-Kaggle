@@ -17,18 +17,25 @@ class BusterNetEvaluateNotebookTests(unittest.TestCase):
 
         self.assertIn("authentic_fp", source)
         self.assertIn("forged_misses", source)
+        self.assertIn("forged_empty_near_threshold", source)
         self.assertIn("forged_successes", source)
         self.assertIn("random_examples", source)
         self.assertIn("pixel_stats", source)
+        self.assertIn("gt_size_bucket", source)
+        self.assertIn("forged_nonempty_summary", source)
+        self.assertIn("size_bucket_summary", source)
         self.assertIn("plot_prediction", source)
         self.assertIn("Cleanup GPU Memory", source)
         self.assertIn("torch.cuda.empty_cache()", source)
         self.assertIn("MAX_SWEEP_SETTINGS = 5", source)
+        self.assertIn("PRED_THRESHOLDS = [0.35, 0.4, 0.45, 0.5, 0.55]", source)
         self.assertIn("iter_postprocess_settings", source)
         self.assertIn('CHECKPOINT_CHOICE = "last"', source)
         self.assertIn('"best": Path("einar_busternet/artifacts/checkpoints/best.pt")', source)
         self.assertIn('"last": Path("einar_busternet/artifacts/checkpoints/last.pt")', source)
         self.assertIn("validation_diagnostics.csv", source)
+        self.assertIn("validation_diagnostics_forged_nonempty_summary.csv", source)
+        self.assertIn("validation_diagnostics_size_bucket_summary.csv", source)
 
 
 if __name__ == "__main__":
