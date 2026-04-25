@@ -15,7 +15,7 @@ class BusterNetConfigTests(unittest.TestCase):
         self.assertEqual(config.nb_pools, 100)
         self.assertEqual(config.ce_class_weights, (0.1, 1.0, 1.0))
         self.assertEqual(config.union_wrapper_eps, 1e-6)
-        self.assertEqual(config.total_stage_epochs, 16)
+        self.assertEqual(config.total_stage_epochs, 20)
 
     def test_dataset_defaults_use_clean_pairs_and_paired_authentic(self) -> None:
         config = BusterNetConfig()
@@ -39,9 +39,10 @@ class BusterNetConfigTests(unittest.TestCase):
             "freeze_dino_encoder",
             "validation_inference_mode",
             "validation_probability_dtype",
-            "validation_transfer_mode",
         ):
             self.assertEqual(getattr(config, field_name), getattr(baseline, field_name))
+
+        self.assertEqual(config.validation_transfer_mode, "accumulate_gpu")
 
     def test_artifacts_stay_inside_busternet_tree(self) -> None:
         config = BusterNetConfig()

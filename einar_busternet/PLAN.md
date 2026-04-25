@@ -171,13 +171,13 @@ Fields:
 - Convenience: `total_stage_epochs` property.
 
 Default stage schedule:
-- `stage1_epochs=3`
-- `stage2_epochs=3`
+- `stage1_epochs=5`
+- `stage2_epochs=5`
 - `stage3_epochs=10`
 
 Implemented tests: `tests/test_busternet_config.py`.
 
-## Step 4 — Training script  `train.py`
+## Step 4 — Training script  `train.py` — code done, run pending
 
 Three-stage training following the BusterNet paper curriculum. Continue from the baseline
 training/validation stack and make small generic extensions only when needed. Reuses from
@@ -222,6 +222,24 @@ Validation during training uses `BusterNetUnionWrapper(model)` so the baseline v
 path scores `P(target)+P(source)`. Checkpoint saving: best by validation kaggle_score
 (same criterion as baseline). Save to `artifacts/checkpoints/best.pt`.
 
+Implemented:
+- `configure_trainable_parts(model, stage)` keeps DINO frozen and switches branch/fusion
+  trainability for stages 1/2/3.
+- `train_stage1_epoch(...)` uses `forward_branches`, two optimizers, raw logits, and
+  `BCEWithLogitsLoss` without sigmoid.
+- Stage 2/3 use baseline `train_one_epoch` with `CrossEntropyLoss`.
+- Validation uses baseline `ForgeryDataset` plus `BusterNetUnionWrapper`, so the score is
+  binary union on the normal validation split while training still uses 3-class labels.
+- Training transfers each batch to GPU once with non-blocking copies when pinned memory is
+  enabled, and loss logging syncs once per epoch.
+- Validation defaults to `validation_transfer_mode="accumulate_gpu"` to avoid per-batch
+  GPU→CPU probability transfers before CPU post-processing/scoring.
+- CLI overrides support quick smoke runs, subsets, batch size, stage epochs, validation
+  transfer mode, and checkpoint weight loading.
+- Best/last checkpoints go under `einar_busternet/artifacts/checkpoints`.
+
+Implemented tests: `tests/test_busternet_train.py`.
+
 ## Step 5 — Evaluation  `evaluate.py`
 
 Wraps existing `collect_validation_predictions` and `score_validation_predictions`,
@@ -262,7 +280,7 @@ einar_busternet/
 ├── dataset.py            ← Step 1 done
 ├── model.py              ← Step 2 done
 ├── config.py             ← Step 3 done
-├── train.py              ← Step 4
+├── train.py              ← Step 4 code done
 ├── evaluate.py           ← Step 5
 └── artifacts/
     ├── checkpoints/

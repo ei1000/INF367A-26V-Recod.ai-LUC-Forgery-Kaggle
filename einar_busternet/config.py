@@ -48,7 +48,7 @@ class BusterNetConfig:
     post_process_apply_closing: bool = True
     post_process_keep_confident_seeded_components: bool = False
     val_batch_size: int | None = None
-    validation_transfer_mode: str = "per_batch"
+    validation_transfer_mode: str = "accumulate_gpu"
     resume_checkpoint_path: str | None = None
     save_last_checkpoint: bool = True
     save_last_every_epochs: int = 1

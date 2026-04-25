@@ -1,11 +1,12 @@
 # Handoff: BusterNet-DINO
 
 This directory contains Einar's BusterNet-inspired individual project plan. The current
-state is ready for Step 4 implementation.
+state is ready for the first Step 4 training run or Step 5 evaluation script.
 
 ## Current State
 
-Steps 0, 1, 2, and 3 are complete.
+Steps 0, 1, 2, and 3 are complete. Step 4 training code is implemented but not run on
+the real dataset/GPU yet.
 
 Generated artifacts:
 
@@ -80,8 +81,19 @@ Key decisions:
   - `BusterNetConfig`.
   - Baseline-compatible training/validation fields plus BusterNet stage, loss, dataset,
     and artifact settings.
+  - Current stage schedule is `5 + 5 + 10` epochs.
+  - BusterNet validation defaults to `accumulate_gpu` transfer mode.
 - `tests/test_busternet_config.py`
   - Unit tests for defaults, dataset policy, artifact paths, and baseline seed helpers.
+- `einar_busternet/train.py`
+  - Three-stage training entrypoint.
+  - Stage 1 custom branch pretraining with two optimizers and raw BCE logits.
+  - Stage 2/3 reuse baseline `train_one_epoch`.
+  - Validation wraps the 3-class model with `BusterNetUnionWrapper`.
+  - Training loss logging syncs once per epoch, not once per batch.
+  - Supports `--smoke` and small CLI overrides for first-run safety.
+- `tests/test_busternet_train.py`
+  - Unit tests for stage trainability and Stage 1 branch updates.
 - `einar_busternet/explore_source_target_masks.ipynb`
   - Lightweight visual audit notebook for paired and no-pair masks.
 
@@ -111,6 +123,32 @@ Ran 19 tests
 OK
 ```
 
+Step 4 focused verification:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run python -m unittest tests.test_busternet_train tests.test_busternet_config tests.test_busternet_model tests.test_busternet_dataset
+```
+
+Result:
+
+```text
+Ran 21 tests
+OK
+```
+
+Broader Step 4 verification:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache MPLCONFIGDIR=/tmp/mpl uv run python -m unittest tests.test_busternet_train tests.test_busternet_config tests.test_busternet_model tests.test_busternet_dataset tests.test_source_target_masks tests.test_forgery_plotter tests.test_forgery_dataset tests.test_checkpointing
+```
+
+Result:
+
+```text
+Ran 39 tests
+OK
+```
+
 Post-generation invariants checked:
 
 - source mask file count: `2751`
@@ -121,14 +159,8 @@ Post-generation invariants checked:
 
 ## Recommended Next Step
 
-Implement Step 4 from `PLAN.md`:
-
-- create `einar_busternet/train.py`
-- build loaders with `BusterNetDataset` and `BusterNetConfig`
-- implement Stage 1 custom branch pretraining with `forward_branches`
-- reuse baseline `train_one_epoch` for Stage 2/3 with `CrossEntropyLoss`
-- validate through `BusterNetUnionWrapper(model)` and baseline `validate_one_epoch`
-- save best and last checkpoints under `einar_busternet/artifacts/checkpoints`
+Run the first BusterNet training job, or implement Step 5 `evaluate.py` if we want the
+evaluation wrapper script before spending GPU time.
 
 ## Caution
 
