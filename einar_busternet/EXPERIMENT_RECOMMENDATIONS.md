@@ -206,6 +206,8 @@ Why:
 
 ## Architecture Recommendation
 
+Status: implemented for the next run.
+
 Do loss first. If loss improves but source coverage remains weak, enlarge fusion and feed
 auxiliary logits into fusion.
 
@@ -238,6 +240,9 @@ Conv 128 -> 64
 BN/ReLU
 Conv 64 -> 1
 ```
+
+Current implementation uses this wider fusion body for both `three_class` and
+`binary_union`; only the output channel count changes.
 
 Why this is cheap:
 
@@ -295,6 +300,19 @@ thresholds = [0.35, 0.4, 0.45, 0.5, 0.55]
 ```
 
 Keep the sweep small.
+
+Current cheap post-processing ablation for the next run:
+
+```python
+pred_threshold = 0.2
+min_component_area = 10
+post_process_apply_opening = False
+```
+
+Reason: diagnostics showed small/tiny forged samples are missed most often, and opening
+plus a 50-pixel component cutoff can erase weak small detections before scoring. If
+authentic false positives rise too much, revert `min_component_area` first or re-enable
+opening.
 
 ## Current Running Experiment
 

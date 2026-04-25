@@ -1,13 +1,13 @@
 # Handoff: BusterNet-DINO
 
 This directory contains Einar's BusterNet-inspired individual project plan. The current
-state is ready to evaluate the current best checkpoint or rerun training with the updated
-Stage 1 Simi union supervision.
+state is ready to rerun the binary-union BCE+Dice model with loosened small-mask
+post-processing and the larger fusion ablation.
 
 ## Current State
 
-Steps 0, 1, 2, and 3 are complete. Step 4 training code is implemented but not run on
-the real dataset/GPU yet.
+Steps 0 through 5 are implemented. Recent experiments showed binary union fusion with
+BCE+Dice is the current strongest direction.
 
 Generated artifacts:
 
@@ -42,9 +42,11 @@ Key decisions:
 - Use cosine similarity for DINOv2 features, not Pearson correlation.
 - Use image difference only to classify clean GT connected components; do not use raw
   thresholded difference as the mask geometry.
-- Default model output is 3-channel logits `[background, target, source]`.
-- Binary fusion ablation is available with `fusion_mode="binary_union"` and outputs
-  one-channel union logits.
+- Default model output is still 3-channel logits `[background, target, source]`.
+- Binary fusion is the main current ablation with `fusion_mode="binary_union"` and
+  outputs one-channel union logits.
+- Current BusterNet post-processing defaults are `pred_threshold=0.2`,
+  `min_component_area=10`, and `post_process_apply_opening=False`.
 - Dataset label map should be `(H, W)` long tensor with classes
   `{0=background, 1=target, 2=source}`, batched as `(B, H, W)`.
 - Evaluation wraps the model with `BusterNetUnionWrapper`, so the baseline validation
@@ -79,9 +81,11 @@ Key decisions:
   - `DinoBusterNet`.
   - `BinaryFusionDinoBusterNet`.
   - `BusterNetUnionWrapper`.
-- Fusion consumes Mani/Simi decoder features, not auxiliary branch logits.
+- Fusion consumes Mani/Simi decoder features plus the two auxiliary branch logits.
 - Branch auxiliary classifiers are explicit one-channel heads.
-  - Old checkpoints from the fused-logit architecture will not load into this model.
+  - Current fusion input is 162 channels: 96 Mani features, 64 Simi features, and two
+    one-channel auxiliary logits.
+  - Old checkpoints from earlier fusion architectures will not load into this model.
 - `tests/test_busternet_model.py`
   - Unit tests for correlation pooling, model shapes, branch outputs, frozen encoder
     behavior, and evaluation wrapper probabilities.
@@ -99,7 +103,7 @@ Key decisions:
   - Stage 1 custom branch pretraining with two optimizers and raw BCE logits: Mani
     target mask, Simi source+target union mask.
   - Stage 1 trains decoder + auxiliary classifier for each branch.
-  - Stage 2/3 reuse baseline `train_one_epoch` with 3-class CE or binary union BCE.
+  - Stage 2/3 reuse baseline `train_one_epoch` with 3-class CE or binary union BCE+Dice.
   - Validation wraps the model with `BusterNetUnionWrapper`.
   - Training loss logging syncs once per epoch, not once per batch.
   - Supports `--smoke` and small CLI overrides for first-run safety.
@@ -184,6 +188,19 @@ Ran 26 tests
 OK
 ```
 
+Latest focused verification after the postprocess/fusion ablation:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache MPLCONFIGDIR=/tmp/mpl uv run python -m unittest tests.test_busternet_model tests.test_busternet_config tests.test_busternet_train
+```
+
+Result:
+
+```text
+Ran 27 tests
+OK
+```
+
 Post-generation invariants checked:
 
 - source mask file count: `2751`
@@ -194,7 +211,13 @@ Post-generation invariants checked:
 
 ## Recommended Next Step
 
-Evaluate the current best checkpoint:
+Retrain with the current binary union ablation:
+
+```bash
+uv run python -m einar_busternet.train --fusion-mode binary_union
+```
+
+Then evaluate the new best checkpoint:
 
 ```bash
 uv run python -m einar_busternet.evaluate --allow-torch-hub
@@ -210,4 +233,4 @@ model.
 
 Stage 1 uses `forward_branches(x)` and two optimizers, so it needs a small
 BusterNet-specific training loop. Stage 2 and Stage 3 can reuse the baseline
-`train_one_epoch` with `CrossEntropyLoss`.
+`train_one_epoch` with the configured fusion loss.

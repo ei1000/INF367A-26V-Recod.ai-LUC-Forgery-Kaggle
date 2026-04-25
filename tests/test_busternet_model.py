@@ -70,12 +70,15 @@ class BusterNetModelTests(unittest.TestCase):
         self.assertEqual(tuple(mani_logits.shape), (1, 1, 16, 16))
         self.assertEqual(tuple(simi_logits.shape), (1, 1, 16, 16))
 
-    def test_fusion_uses_decoder_features_not_branch_logits(self) -> None:
+    def test_fusion_uses_decoder_features_and_branch_logits(self) -> None:
         model = DinoBusterNet(FakeDinoEncoder(), embed_dim=8, nb_pools=4)
 
         self.assertEqual(model.mani_classifier.out_channels, 1)
         self.assertEqual(model.simi_classifier.out_channels, 1)
-        self.assertEqual(model.fusion[0].in_channels, 160)
+        self.assertEqual(model.fusion[0].in_channels, 162)
+        self.assertEqual(model.fusion[0].out_channels, 128)
+        self.assertEqual(model.fusion[3].out_channels, 128)
+        self.assertEqual(model.fusion[6].out_channels, 64)
 
     def test_binary_fusion_model_returns_one_channel_logits(self) -> None:
         model = BinaryFusionDinoBusterNet(FakeDinoEncoder(), embed_dim=8, nb_pools=4)

@@ -80,7 +80,13 @@ class SimiGridDecoder(nn.Module):
 
 def _fusion_head(out_channels: int) -> nn.Sequential:
     return nn.Sequential(
-        nn.Conv2d(160, 64, 1),
+        nn.Conv2d(162, 128, 1),
+        nn.BatchNorm2d(128),
+        nn.ReLU(inplace=True),
+        nn.Conv2d(128, 128, 3, padding=1),
+        nn.BatchNorm2d(128),
+        nn.ReLU(inplace=True),
+        nn.Conv2d(128, 64, 3, padding=1),
         nn.BatchNorm2d(64),
         nn.ReLU(inplace=True),
         nn.Conv2d(64, out_channels, 3, padding=1),
@@ -207,6 +213,14 @@ class DinoBusterNet(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         return self.mani_classifier(mani_features), self.simi_classifier(simi_features)
 
+    def _fusion_grid_from_branch_features(
+        self,
+        mani_features: torch.Tensor,
+        simi_features: torch.Tensor,
+    ) -> torch.Tensor:
+        mani_grid, simi_grid = self._branch_grid_logits_from_features(mani_features, simi_features)
+        return self.fusion(torch.cat([mani_features, simi_features, mani_grid, simi_grid], dim=1))
+
     def _upsample_and_crop(self, logits: torch.Tensor, padded_size: tuple[int, int], original_size: tuple[int, int]) -> torch.Tensor:
         logits = F.interpolate(logits, size=padded_size, mode="bilinear", align_corners=False)
         orig_h, orig_w = original_size
@@ -229,7 +243,7 @@ class DinoBusterNet(nn.Module):
         x_pad, _ = self._pad_to_patch_multiple(x)
         features = self.forward_features(x_pad)
         mani_features, simi_features = self._branch_grid_features(features)
-        fused_grid = self.fusion(torch.cat([mani_features, simi_features], dim=1))
+        fused_grid = self._fusion_grid_from_branch_features(mani_features, simi_features)
         padded_size = (x_pad.shape[-2], x_pad.shape[-1])
         return self._upsample_and_crop(fused_grid, padded_size, orig_size)
 

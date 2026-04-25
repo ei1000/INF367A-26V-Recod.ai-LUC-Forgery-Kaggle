@@ -18,6 +18,8 @@ class BusterNetConfigTests(unittest.TestCase):
         self.assertEqual(config.branch_dice_weight, 0.5)
         self.assertEqual(config.fusion_dice_weight, 1.0)
         self.assertEqual(config.pred_threshold, 0.2)
+        self.assertEqual(config.min_component_area, 10)
+        self.assertFalse(config.post_process_apply_opening)
         self.assertEqual(config.union_wrapper_eps, 1e-6)
         self.assertEqual(config.total_stage_epochs, 20)
 

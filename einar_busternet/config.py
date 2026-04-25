@@ -14,7 +14,7 @@ class BusterNetConfig:
     harden_temperature: float = 0.7
     hard_clip_low: float = 0.1
     hard_clip_high: float = 0.9
-    min_component_area: int = 50
+    min_component_area: int = 10
     train_subset: int | None = None
     val_subset: int | None = None
     grad_clip_max_norm: float = 1.0
@@ -44,7 +44,7 @@ class BusterNetConfig:
     post_process_confident_threshold: float | None = 0.9
     post_process_smooth_probabilities: bool = True
     post_process_fill_holes: bool = True
-    post_process_apply_opening: bool = True
+    post_process_apply_opening: bool = False
     post_process_apply_closing: bool = True
     post_process_keep_confident_seeded_components: bool = False
     val_batch_size: int | None = None

@@ -55,9 +55,11 @@ Mani-Det branch              Simi-Det branch
                              → aux Conv2d(64,1,3)
                              → copy-move union logits
        ↘                         ↙
-       Fusion: concat decoder features → (B,160,32,32)
-       BN-Inception (simplified: Conv2d(160,64,1) + BN + ReLU)
-       → Conv2d(64,3,3,padding=1)
+       Fusion: concat decoder features + aux logits → (B,162,32,32)
+       Conv2d(162,128,1) + BN + ReLU
+       → Conv2d(128,128,3) + BN + ReLU
+       → Conv2d(128,64,3) + BN + ReLU
+       → Conv2d(64,out,3,padding=1)
        bilinear upsample → (B,3,448,448)
        raw 3-class logits: [background, target, source]
 ```
@@ -121,21 +123,24 @@ Memory: (1024×1024) × 4B × B ≈ 16MB per batch of 4 — fine.
 
 ## Fusion Module
 
-Paper fuses the two branch mask-decoder feature maps, not the auxiliary binary
-classifier masks. It uses `BN-Inception 3@[1,3,5]` (three parallel Conv2d branches with
-kernel sizes 1, 3, 5, concatenated, then BN) followed by `Conv2d(..., 3×3) + softmax`.
+Paper fuses the two branch mask-decoder feature maps. It uses `BN-Inception 3@[1,3,5]`
+(three parallel Conv2d branches with kernel sizes 1, 3, 5, concatenated, then BN)
+followed by `Conv2d(..., 3×3) + softmax`.
 
-Our simplified but faithful adaptation:
+Our current competition-oriented adaptation:
 ```
-concat(mani_features, simi_features) → (B, 160, 32, 32)
-Conv2d(160, 64, 1) + BN + ReLU               ← simplified BN-Inception
-Conv2d(64, 3, 3, padding=1)                  ← final classifier
+concat(mani_features, simi_features, mani_logit, simi_logit) → (B, 162, 32, 32)
+Conv2d(162, 128, 1) + BN + ReLU
+Conv2d(128, 128, 3, padding=1) + BN + ReLU
+Conv2d(128, 64, 3, padding=1) + BN + ReLU
+Conv2d(64, out_channels, 3, padding=1)        ← final classifier
 raw logits
 bilinear upsample to (B, 3, 448, 448)
 ```
 
-The simplification reduces the multi-kernel Inception block to a single 1×1 conv,
-which is acceptable given that DINOv2 features are already richer than VGG-16.
+The auxiliary logits give the fusion head direct Mani target evidence and Simi union
+evidence while retaining the richer decoder features. `out_channels=3` for
+`three_class`; `out_channels=1` for `binary_union`.
 Branch classifiers are explicit one-channel auxiliary heads:
 `Conv2d(96,1,3,padding=1)` for Mani-Det and `Conv2d(64,1,3,padding=1)` for Simi-Det.
 Softmax is applied by losses/evaluation, not inside the training forward pass.
@@ -148,27 +153,28 @@ Three stages, DINOv2 always frozen:
 
 ### Stage 1 — Independent branch pre-training (auxiliary tasks)
 
-Train each branch separately with binary BCE. Separate optimizers, no cross-branch
+Train each branch separately with BCE+soft-Dice. Separate optimizers, no cross-branch
 gradients. Initial training uses clean paired cases plus their authentic counterparts.
 Forged samples use only `status == "derived_from_pair"` source/target labels; authentic
 samples are all-background labels so the model also learns to suppress false positives,
 which matters for the official oF1 score.
 
 - **Mani-Det**: supervised on derived **target mask** — pasted region has visual artifacts.
-  `L_mani = BCEWithLogitsLoss(mani_binary_logit, target_mask_float)`
+  `L_mani = BCEWithLogitsLoss + branch_dice_weight * SoftDiceLoss`
 - **Simi-Det**: supervised on derived **source+target union mask** — self-similarity is
   symmetric and should detect both duplicated regions, not decide which one was pasted.
-  `L_simi = BCEWithLogitsLoss(simi_foreground_logit, union_mask_float)`
+  `L_simi = BCEWithLogitsLoss + branch_dice_weight * SoftDiceLoss`
 
-Use raw one-channel auxiliary branch logits with `BCEWithLogitsLoss`:
+Use raw one-channel auxiliary branch logits:
 `mani_logits[:, 0]` for target supervision and `simi_logits[:, 0]` for source+target
-union supervision. Do not apply sigmoid before the loss. LR: `1e-2` (paper).
+union supervision. Do not apply sigmoid before BCE/Dice; Dice applies sigmoid internally.
+Current LR: `1e-3`.
 
 ### Stage 2 — Freeze branches, train Fusion only
 
 Freeze all Mani-Det and Simi-Det parameters. Train only the Fusion module.
 Default loss: `CrossEntropyLoss(weight=[0.3, 1.0, 1.0])` on 3-class labels.
-Binary-fusion ablation: `BCEWithLogitsLoss` on `(label_map > 0).float()`.
+Binary-fusion ablation: BCE+soft-Dice on `(label_map > 0).float()`.
 LR: `1e-2` (paper). Initial training uses only paired forged cases with reliable
 source/target labels plus their authentic counterparts as all-background negatives.
 
@@ -251,7 +257,7 @@ by VGG-16 constraints, we apply the modern equivalent for DINOv2.
 | Correlation matrix | 256×256 | 1024×1024 | Larger grid, still GPU-tractable on 4080 Super (~16MB/batch) |
 | Percentile pooling | K=100 | K=100 | Faithful to paper |
 | Decoder | 4-stage BN-Inception + BilinearUpPool | 3 conv blocks + bilinear upsample | VGG needed 4× upsampling stages; DINOv2 grid needs only one upsample; lighter is sufficient |
-| Fusion module | Decoder-feature fusion with BN-Inception 3@[1,3,5] + Conv2d | Decoder-feature fusion with Conv2d(160,64,1)+BN+ReLU + Conv2d(64,3,3 or 1) | Fuse branch evidence before auxiliary classifier bottlenecks; simplify only the multi-kernel Inception block |
+| Fusion module | Decoder-feature fusion with BN-Inception 3@[1,3,5] + Conv2d | Decoder features plus auxiliary logits, Conv2d(162,128,1) + two 3x3 blocks + classifier | DINO dominates runtime, so a wider fusion head is cheap; auxiliary logits provide direct Mani/Simi evidence |
 | Training data | 100K synthetic COCO samples | 2377 real scientific image pairs initially; 374 no-pair cases reserved | Real domain-specific data; avoid target-only labels corrupting source learning |
 | External mani data | IFS-TC + Wild Web datasets | None | Time constraint; noted as a limitation |
 | Image size | 256×256 | 448×448 | Matches project baseline and pipeline |

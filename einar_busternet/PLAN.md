@@ -124,9 +124,8 @@ Implemented classes:
 - Copy decoder: lightweight 3-conv-block CNN on top of `SelfCorrelPercPooling`
   (`nb_pools→128→64`) on the same feature grid.
 - Simi auxiliary classifier: `Conv2d(64,1,3,padding=1)` for Stage 1 union-mask BCE.
-- Fusion: concatenate Mani and Simi decoder features into `(B, 160, h, w)`, then apply
-  the simplified fusion head from the spec before upsampling. Fusion does not consume
-  auxiliary branch classifier logits.
+- Fusion: concatenate Mani and Simi decoder features plus their auxiliary logits into
+  `(B, 162, h, w)`, then apply the wider fusion head from the spec before upsampling.
 - Final output is bilinearly upsampled once to the padded image size, then cropped back
   to the original input size, matching `DinoSegmenter`.
 - Exposes `forward_branches(x)` returning full-resolution one-channel `mani_logits` and
@@ -196,13 +195,13 @@ project root:
 - `datasets/splits.py` → `make_grouped_stratified_splits`
 - `dataset_utils.py` → `list_labeled_samples`
 
-**Stage 1** — independent branch pre-training (auxiliary binary tasks, LR=1e-2):
-- Mani optimizer: `Adam(mani_decoder + mani_classifier, lr=1e-2)`
-- Simi optimizer: `Adam(simi_decoder + simi_classifier, lr=1e-2)` because
+**Stage 1** — independent branch pre-training (auxiliary binary tasks, LR=1e-3):
+- Mani optimizer: `Adam(mani_decoder + mani_classifier, lr=1e-3)`
+- Simi optimizer: `Adam(simi_decoder + simi_classifier, lr=1e-3)` because
   `SelfCorrelPercPooling` has no learnable parameters.
-- Loss: `BCEWithLogitsLoss` — `mani_logits[:, 0]` on target mask, and
-  `simi_logits[:, 0]` on source+target union mask. These are raw one-channel auxiliary
-  logits; do not apply sigmoid before the loss.
+- Loss: BCE+soft-Dice — `mani_logits[:, 0]` on target mask, and `simi_logits[:, 0]`
+  on source+target union mask. These are raw one-channel auxiliary logits; do not apply
+  sigmoid before the loss functions.
 - Only the 2377 forged cases with authentic pairs and derived source/target labels, plus
   their authentic counterparts as all-background negatives
 - Runs for `config.stage1_epochs` epochs
@@ -211,7 +210,7 @@ project root:
 - Freeze all Mani-Det and Simi-Det parameters. DINO remains frozen.
 - Optimizer: `Adam(fusion.parameters(), lr=1e-2)`
 - Loss: `CrossEntropyLoss(weight=[0.3, 1.0, 1.0])` for `three_class`, or
-  `BCEWithLogitsLoss` on source+target union for `binary_union`.
+  BCE+soft-Dice on source+target union for `binary_union`.
 - Only the 2377 paired forged cases plus their authentic counterparts for the initial
   run. The 374 no-pair cases are excluded because target-only labels would teach the
   model that source regions are background.
@@ -232,10 +231,10 @@ Implemented:
 - `configure_trainable_parts(model, stage)` keeps DINO frozen and switches branch/fusion
   trainability for stages 1/2/3.
 - `train_stage1_epoch(...)` uses `forward_branches`, two optimizers, raw logits, and
-  `BCEWithLogitsLoss` without sigmoid. Mani learns target; Simi learns source+target
+  BCE+soft-Dice without external sigmoid. Mani learns target; Simi learns source+target
   union because similarity detection is symmetric.
-- Fusion now consumes branch decoder features rather than auxiliary branch logits,
-  matching the paper's data flow more closely.
+- Fusion consumes branch decoder features plus auxiliary logits so the final head sees
+  both rich features and direct Mani/Simi evidence.
 - Stage 2/3 use baseline `train_one_epoch` with the selected fusion loss.
 - Validation uses baseline `ForgeryDataset` plus `BusterNetUnionWrapper`, so the score is
   binary union on the normal validation split. The wrapper collapses 3-class output or

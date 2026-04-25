@@ -116,3 +116,41 @@ We updated the model to match that flow:
 
 This is an architecture-breaking change for old checkpoints. Retrain before evaluating
 new results with this model definition.
+
+## Loosen Small-Mask Post-Processing
+
+Diagnostics showed that forged recall is weakest on small and tiny masks. Some forged
+samples also produced isolated confident pixels that were removed before scoring. For the
+next BusterNet runs we lowered the component filter and stopped opening by default:
+
+```python
+pred_threshold = 0.2
+min_component_area = 10
+post_process_apply_opening = False
+```
+
+Reason: opening and a `50` pixel component cutoff can erase thin or small copy-move
+predictions. This may cost some authentic precision, so it should be judged by validation
+oF1 and forged/authentic diagnostics, not only by visual inspection.
+
+## Larger Fusion With Auxiliary Logit Hints
+
+After BCE+Dice and binary union fusion, the remaining failure mode was mostly forged
+false negatives and weak source coverage. We kept DINO frozen and enlarged only the cheap
+fusion head:
+
+```text
+mani decoder features: 96
+simi decoder features: 64
+mani auxiliary logit: 1
+simi auxiliary logit: 1
+fusion input: 162
+
+Conv 162 -> 128 -> 128 -> 64 -> output
+```
+
+This slightly relaxes the earlier "features only" decision. Fusion still receives rich
+decoder features, but it also gets the two branch classifiers as low-dimensional hints:
+Mani gives target evidence and Simi gives union/similarity evidence. This is an
+architecture-breaking ablation; old checkpoints should not be reused with this model
+definition.
