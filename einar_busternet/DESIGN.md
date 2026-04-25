@@ -45,10 +45,10 @@ unconstrained VGG-16 activations, not for ViT features.
 Derived from authentic-forged pixel difference — no synthetic data needed:
 - **Target**: component with ≥25% pixels changed by >5 intensity units (pasted region)
 - **Source**: remaining components (copy origin, unchanged in authentic)
-- ~85% of forged cases have authentic pairs; remainder falls back to target-only
+- 2377/2751 forged cases have authentic pairs; 374 no-pair cases are reserved for later
 
-**Advantage over paper**: Wu et al. required 100K synthetic COCO samples. We use 2377
-real scientific image pairs with domain-specific labels.
+**Advantage over paper**: Wu et al. required 100K synthetic COCO samples. We initially
+use 2377 real scientific image pairs with domain-specific source/target labels.
 
 ## Training Stages
 
@@ -70,5 +70,5 @@ balanced synthetic data and needed no weighting).
 | Pearson correlation (z-score) | Cosine similarity (L2) | DINOv2 optimised for cosine |
 | 4-stage BN-Inception decoder | 3 conv blocks + upsample | 16× vs ~14× upsampling; DINOv2 features are richer |
 | Multi-kernel Inception fusion | Conv2d(6→3) + Conv2d(3→3) | Unnecessary at DINOv2 feature quality |
-| 100K synthetic samples | 2377 real pairs | Real > synthetic for domain-specific task |
+| 100K synthetic samples | 2377 real pairs initially | Real > synthetic for domain-specific task |
 | No class weighting | `[0.1, 1.0, 1.0]` | Real data is imbalanced |

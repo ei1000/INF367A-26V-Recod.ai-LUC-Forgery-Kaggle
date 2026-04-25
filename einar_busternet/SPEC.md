@@ -22,8 +22,11 @@ we can classify each connected component of the union forgery mask:
 This derivation mirrors `visualization/forgery_plotter.py::derive_source_target_masks`
 and is materialized before training into `data/train_masks_source/` and
 `data/train_masks_target/`.
-~85% of forged training cases (2377/2799) have authentic pairs and can use this labeling.
-The remaining ~15% fall back to the full union mask as target-only supervision.
+~86% of forged training cases (2377/2751) have authentic pairs and can use this labeling.
+The remaining 374 cases have generated target-only fallback masks for later analysis,
+but are excluded from the initial BusterNet training run.
+If no component in an authentic-pair case clears the difference threshold, the most
+changed component is assigned as target so every forged sample has target supervision.
 
 **Advantage over the original BusterNet paper**: Wu et al. had no real-world source/target
 ground truth and were forced to generate 100,000 synthetic COCO-based copy-move samples.
@@ -151,7 +154,8 @@ keeping the auxiliary task simple. LR: `1e-2` (paper).
 
 Freeze all Mani-Det and Simi-Det parameters. Train only the Fusion module.
 Loss: `CrossEntropyLoss(weight=[0.1, 1.0, 1.0])` on 3-class labels.
-LR: `1e-2` (paper). All cases used (fallback for no-pair cases: label forged → class 1).
+LR: `1e-2` (paper). Initial training uses only paired cases with reliable source/target
+labels.
 
 ```
 labels ∈ {0=background, 1=target, 2=source}  per pixel  (B, H, W) long tensor
@@ -172,6 +176,9 @@ One dataset class for all stages. Always emits `(image, label_map)` where:
   `(B, H, W)`, not one-hot encoded
 - target/source masks are read from precomputed `data/train_masks_target/` and
   `data/train_masks_source/`
+- initial BusterNet training filters forged samples to metadata
+  `status == "derived_from_pair"` so target-only no-pair cases do not corrupt the
+  source/target objective
 - Stage 1 losses derive binary masks on the fly: `(label_map == 1).float()` for target,
   `(label_map == 2).float()` for source
 - Stage 2+3: `label_map` used directly with CrossEntropyLoss
@@ -199,7 +206,7 @@ by VGG-16 constraints, we apply the modern equivalent for DINOv2.
 | Percentile pooling | K=100 | K=100 | Faithful to paper |
 | Decoder | 4-stage BN-Inception + BilinearUpPool | 3 conv blocks + bilinear upsample | VGG needed 4× upsampling stages; DINOv2 grid needs only one upsample; lighter is sufficient |
 | Fusion module | BN-Inception 3@[1,3,5] + Conv2d | Conv2d(6,3,1)+BN+ReLU + Conv2d(3,3,3) | DINOv2 features are already rich; multi-scale Inception fusion is over-engineered |
-| Training data | 100K synthetic COCO samples | 2377 real scientific image pairs | Real domain-specific data; source/target derived from authentic-forged pixel diff |
+| Training data | 100K synthetic COCO samples | 2377 real scientific image pairs initially; 374 no-pair cases reserved | Real domain-specific data; avoid target-only labels corrupting source learning |
 | External mani data | IFS-TC + Wild Web datasets | None | Time constraint; noted as a limitation |
 | Image size | 256×256 | 448×448 | Matches project baseline and pipeline |
 | LR scheduling | Halve on plateau, patience=20 | ReduceLROnPlateau, tighter patience | Training runs in minutes, not days; aggressive patience is meaningless at our scale |

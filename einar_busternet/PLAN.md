@@ -23,16 +23,25 @@ For forged cases with authentic pairs:
 - Use the diff only to classify clean GT components:
   - target if at least `component_change_fraction = 0.25` of pixels changed
   - source otherwise
+- If no component clears the threshold, assign the most changed component to target
+  so every forged case has target supervision.
 - Save clean component masks to `train_masks_source/{case_id}.npy` and
   `train_masks_target/{case_id}.npy`.
 
 For forged cases without authentic pairs:
-- Save full union mask as target.
-- Save empty source mask.
+- Save full union mask as target and empty source mask for later analysis only.
+- Do not use these target-only labels in the initial BusterNet training run.
+
+Also write `data/train_masks_source_target_metadata.csv` with `case_id`, pixel counts,
+component counts, thresholds, and status flags for audit/debugging.
+
+Current generated counts:
+- `2751` forged cases processed
+- `2377` derived from authentic/forged pairs
+- `374` target-only fallbacks without authentic pairs, excluded from initial training
+- `0` empty target masks
 
 Optional but recommended:
-- Write `data/train_masks_source_target_metadata.csv` with `case_id`, pixel counts,
-  component counts, thresholds, and status flags for audit/debugging.
 - Add a small notebook/audit cell that visualizes random generated pairs before training.
 
 ## Step 1 — Data layer  `dataset.py`
@@ -43,6 +52,8 @@ Differences from `ForgeryDataset`:
 - Output label is a single integer class map `(H, W)` with values
   `{0=background, 1=target, 2=source}` rather than a binary float mask or one-hot mask.
 - Read precomputed masks from `data/train_masks_target/` and `data/train_masks_source/`.
+- Initial training dataset filters forged samples to `status == "derived_from_pair"` in
+  `data/train_masks_source_target_metadata.csv`; the 374 target-only cases are excluded.
 - If derived masks are missing for a forged case: fail clearly and ask to run Step 0.
 - Authentic images: all pixels → class 0.
 - Mask resize uses nearest-neighbor interpolation.
@@ -91,20 +102,22 @@ Three-stage training following the BusterNet paper curriculum. Reuses from proje
 - Mani optimizer: `Adam(mani_decoder.parameters(), lr=1e-2)`
 - Simi optimizer: `Adam(simi_decoder.parameters() + corr_pooling.parameters(), lr=1e-2)`
 - Loss: `BCEWithLogitsLoss` — mani on target mask, simi on source mask
-- Only cases with authentic pairs (source/target split available)
+- Only the 2377 cases with authentic pairs and derived source/target labels
 - Runs for `config.stage1_epochs` epochs
 
 **Stage 2** — freeze branches, train Fusion only (LR=1e-2):
 - Freeze all Mani-Det and Simi-Det parameters
 - Optimizer: `Adam(fusion.parameters(), lr=1e-2)`
 - Loss: `CrossEntropyLoss(weight=[0.1, 1.0, 1.0])`
-- All cases (fallback label for no-pair cases: forged→class 1)
+- Only the 2377 paired cases for the initial run. The 374 no-pair cases are excluded
+  because target-only labels would teach the model that source regions are background.
 - Runs for `config.stage2_epochs` epochs
 
 **Stage 3** — unfreeze branches + Fusion, end-to-end fine-tuning (LR=1e-5):
 - Unfreeze Mani-Det + Simi-Det + Fusion (DINOv2 stays frozen)
 - Optimizer: `Adam(all_trainable_params, lr=1e-5)`
 - Same CrossEntropyLoss; LR halved on plateau, early stop on patience
+- Same paired-only data policy as Stage 2 for the initial run.
 - Runs for `config.stage3_epochs` epochs
 
 Checkpoint saving: best by validation kaggle_score (same criterion as baseline).

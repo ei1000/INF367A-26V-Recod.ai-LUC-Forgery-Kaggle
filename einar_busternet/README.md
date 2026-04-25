@@ -21,7 +21,7 @@ Combining both signals is more principled than binary segmentation alone for CMF
 
 ### Source/Target Label Derivation
 
-The Kaggle dataset provides authentic-forged image pairs for ~85% of forged cases.
+The Kaggle dataset provides authentic-forged image pairs for 2377/2751 forged cases.
 The absolute pixel difference between authentic and forged images cleanly separates
 source from target:
 
@@ -30,6 +30,8 @@ source from target:
 
 Classification is done per connected component: if ≥25% of a component's pixels
 changed by more than 5 intensity units, the component is labeled target; otherwise source.
+Cases without an authentic pair are reserved for later analysis rather than used in the
+initial source/target training loop.
 This provides three-class ground truth (background / target / source) for training,
 without requiring any additional annotation.
 

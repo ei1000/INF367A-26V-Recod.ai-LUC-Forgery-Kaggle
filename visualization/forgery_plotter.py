@@ -390,11 +390,13 @@ class ForgeryDataPlotter:
         if target_mask.any() or component_scores.empty:
             return source_mask, target_mask, component_scores
 
-        candidates = component_scores[~component_scores["is_tiny"] & (component_scores["changed_pixels"] > 0)]
+        candidates = component_scores[~component_scores["is_tiny"]]
         if candidates.empty:
             return source_mask, target_mask, component_scores
 
-        fallback_component = int(candidates.sort_values(["changed_fraction", "mean_diff"], ascending=False).iloc[0]["component"])
+        fallback_component = int(
+            candidates.sort_values(["changed_fraction", "mean_diff", "max_diff", "area"], ascending=False).iloc[0]["component"]
+        )
         fallback_mask = labels == fallback_component
         target_mask |= fallback_mask
         source_mask &= ~fallback_mask
