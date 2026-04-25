@@ -68,3 +68,32 @@ The raw absolute difference can be speckled, especially over source components t
 faint gray/noisy changes. The clean output masks should come from the original Kaggle GT
 components. The authentic-vs-forged difference is only used to classify whole GT
 components as source or target.
+
+## Binary Fusion Ablation Added
+
+Initial BusterNet training kept the native 3-class output
+`{background, target, source}` and collapsed it to a binary union only for validation.
+This is closest to the BusterNet source/target localization design, but validation
+showed a tradeoff: low background weight created authentic false positives, while higher
+background weight made the model predict mostly target-like regions and miss much of the
+union.
+
+We added a separate `fusion_mode="binary_union"` ablation. It keeps Mani-Det target
+supervision and Simi-Det union supervision, but lets the final fusion head predict only
+the union forgery mask with binary BCE. The competition only scores the union, so this is
+a reasonable problem-specific variant. The 3-class model remains available as
+`fusion_mode="three_class"`.
+
+## Fuse Decoder Features, Not Auxiliary Branch Logits
+
+The BusterNet paper feeds Mani-Det and Simi-Det mask-decoder feature maps into Fusion.
+The auxiliary binary classifiers are only used for branch pretraining.
+
+We updated the model to match that flow:
+
+- Mani decoder outputs a feature map; a separate one-channel classifier predicts target.
+- Simi decoder outputs a feature map; a separate one-channel classifier predicts union.
+- Fusion consumes the concatenated decoder feature maps and predicts the 3-class mask.
+
+This is an architecture-breaking change for old checkpoints. Retrain before evaluating
+new results with this model definition.

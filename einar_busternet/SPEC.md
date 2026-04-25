@@ -46,16 +46,18 @@ Mani-Det branch              Simi-Det branch
 ───────────────              ───────────────
 3 conv blocks                SelfCorrelPercPooling
 768→384→192→96               (B,768,32,32) → cosine similarity
-→ Conv2d(96,3,1)             (B,1024,1024) → percentile pool
-→ (B,3,32,32)                → (B,100,32,32)
+→ (B,96,32,32)               (B,1024,1024) → percentile pool
+→ aux Conv2d(96,1,3)         → (B,100,32,32)
+→ target logits              3 conv blocks
                              3 conv blocks
                              100→128→64
-                             → Conv2d(64,3,1)
-                             → (B,3,32,32)
+                             → (B,64,32,32)
+                             → aux Conv2d(64,1,3)
+                             → copy-move union logits
        ↘                         ↙
-       Fusion: concat → (B,6,32,32)
-       BN-Inception (simplified: Conv2d(6,3,1) + BN + ReLU)
-       → Conv2d(3,3,3,padding=1)
+       Fusion: concat decoder features → (B,160,32,32)
+       BN-Inception (simplified: Conv2d(160,64,1) + BN + ReLU)
+       → Conv2d(64,3,3,padding=1)
        bilinear upsample → (B,3,448,448)
        raw 3-class logits: [background, target, source]
 ```
@@ -119,20 +121,23 @@ Memory: (1024×1024) × 4B × B ≈ 16MB per batch of 4 — fine.
 
 ## Fusion Module
 
-Paper uses `BN-Inception 3@[1,3,5]` (three parallel Conv2d branches with kernel sizes
-1, 3, 5, concatenated, then BN) followed by `Conv2d(1 filter, 3×3) + softmax`.
+Paper fuses the two branch mask-decoder feature maps, not the auxiliary binary
+classifier masks. It uses `BN-Inception 3@[1,3,5]` (three parallel Conv2d branches with
+kernel sizes 1, 3, 5, concatenated, then BN) followed by `Conv2d(..., 3×3) + softmax`.
 
 Our simplified but faithful adaptation:
 ```
-concat(mani_out, simi_out)  →  (B, 6, 32, 32)
-Conv2d(6, 3, 1) + BN + ReLU                  ← simplified BN-Inception
-Conv2d(3, 3, 3, padding=1)                   ← final classifier
+concat(mani_features, simi_features) → (B, 160, 32, 32)
+Conv2d(160, 64, 1) + BN + ReLU               ← simplified BN-Inception
+Conv2d(64, 3, 3, padding=1)                  ← final classifier
 raw logits
 bilinear upsample to (B, 3, 448, 448)
 ```
 
 The simplification reduces the multi-kernel Inception block to a single 1×1 conv,
 which is acceptable given that DINOv2 features are already richer than VGG-16.
+Branch classifiers are explicit one-channel auxiliary heads:
+`Conv2d(96,1,3,padding=1)` for Mani-Det and `Conv2d(64,1,3,padding=1)` for Simi-Det.
 Softmax is applied by losses/evaluation, not inside the training forward pass.
 
 ## Training Objective and Multi-Stage Curriculum
@@ -151,17 +156,19 @@ which matters for the official oF1 score.
 
 - **Mani-Det**: supervised on derived **target mask** — pasted region has visual artifacts.
   `L_mani = BCEWithLogitsLoss(mani_binary_logit, target_mask_float)`
-- **Simi-Det**: supervised on derived **source mask** — copy origin is self-similar to target.
-  `L_simi = BCEWithLogitsLoss(simi_binary_logit, source_mask_float)`
+- **Simi-Det**: supervised on derived **source+target union mask** — self-similarity is
+  symmetric and should detect both duplicated regions, not decide which one was pasted.
+  `L_simi = BCEWithLogitsLoss(simi_foreground_logit, union_mask_float)`
 
-Use raw branch logits with `BCEWithLogitsLoss`: `mani_logits[:, 1]` for target
-supervision and `simi_logits[:, 2]` for source supervision. Do not apply sigmoid before
-the loss. LR: `1e-2` (paper).
+Use raw one-channel auxiliary branch logits with `BCEWithLogitsLoss`:
+`mani_logits[:, 0]` for target supervision and `simi_logits[:, 0]` for source+target
+union supervision. Do not apply sigmoid before the loss. LR: `1e-2` (paper).
 
 ### Stage 2 — Freeze branches, train Fusion only
 
 Freeze all Mani-Det and Simi-Det parameters. Train only the Fusion module.
-Loss: `CrossEntropyLoss(weight=[0.1, 1.0, 1.0])` on 3-class labels.
+Default loss: `CrossEntropyLoss(weight=[0.3, 1.0, 1.0])` on 3-class labels.
+Binary-fusion ablation: `BCEWithLogitsLoss` on `(label_map > 0).float()`.
 LR: `1e-2` (paper). Initial training uses only paired forged cases with reliable
 source/target labels plus their authentic counterparts as all-background negatives.
 
@@ -172,13 +179,13 @@ labels ∈ {0=background, 1=target, 2=source}  per pixel  (B, H, W) long tensor
 ### Stage 3 — Unfreeze branches, end-to-end fine-tuning
 
 Unfreeze Mani-Det + Simi-Det + Fusion (DINOv2 remains frozen).
-Same CrossEntropyLoss. LR: `1e-5` (paper). LR reduction: halve when validation loss
+Same fusion loss as Stage 2. LR: `1e-5` (paper). LR reduction: halve when validation loss
 plateaus, stop when no improvement for a patience window.
 
-At inference/evaluation, wrap the 3-class model as a binary foreground model:
-`forgery_prob = softmax(logits)[:, 1] + softmax(logits)[:, 2]`. This wrapper lets us
-reuse the baseline validation and oF1 scoring path while still training native
-source/target/background logits.
+At inference/evaluation, wrap the model as a binary foreground model. For the 3-class
+model: `forgery_prob = softmax(logits)[:, 1] + softmax(logits)[:, 2]`. For the binary
+fusion ablation, the wrapper passes the one-channel logits through. This lets us reuse
+the baseline validation and oF1 scoring path.
 
 Conceptually:
 
@@ -189,7 +196,10 @@ class BusterNetUnionWrapper(nn.Module):
         self.model = model
 
     def forward(self, x):
-        probs = self.model(x).softmax(dim=1)
+        logits = self.model(x)
+        if logits.shape[1] == 1:
+            return logits
+        probs = logits.softmax(dim=1)
         forgery_prob = probs[:, 1:2] + probs[:, 2:3]
         return torch.logit(forgery_prob.clamp(1e-6, 1 - 1e-6))
 ```
@@ -213,16 +223,18 @@ and nearest-neighbor label resize. Always emits `(image, label_map)` where:
   are limited to case IDs that have a paired `derived_from_pair` forged sample
 - forged label construction follows the class convention:
   `label_map[target_mask > 0] = 1`, then `label_map[source_mask > 0] = 2`
-- Stage 1 losses derive binary masks on the fly: `(label_map == 1).float()` for target,
-  `(label_map == 2).float()` for source
-- Stage 2+3: `label_map` used directly with CrossEntropyLoss
+- Stage 1 losses derive binary masks on the fly: `(label_map == 1).float()` for Mani
+  target supervision, `(label_map > 0).float()` for Simi union supervision
+- Stage 2+3: `label_map` used directly with CrossEntropyLoss for 3-class fusion, or
+  converted to `(label_map > 0).float()` for binary fusion
 
 ## Constraints
 
 - DINOv2 encoder is **always frozen** (trains in minutes, same as baseline).
 - Everything stays on GPU: no numpy/CPU operations during forward/backward pass.
 - Input size: 448×448 (same as baseline) → 32×32 DINO feature grid (1024 locations).
-- Output is always `(B, 3, H, W)` logits before softmax.
+- Default output is `(B, 3, H, W)` logits before softmax. The binary fusion ablation
+  outputs `(B, 1, H, W)` raw binary logits.
 - Checkpoints and results live entirely within `einar_busternet/artifacts/`.
 
 ## Adaptations from Paper (summary)
@@ -239,12 +251,12 @@ by VGG-16 constraints, we apply the modern equivalent for DINOv2.
 | Correlation matrix | 256×256 | 1024×1024 | Larger grid, still GPU-tractable on 4080 Super (~16MB/batch) |
 | Percentile pooling | K=100 | K=100 | Faithful to paper |
 | Decoder | 4-stage BN-Inception + BilinearUpPool | 3 conv blocks + bilinear upsample | VGG needed 4× upsampling stages; DINOv2 grid needs only one upsample; lighter is sufficient |
-| Fusion module | BN-Inception 3@[1,3,5] + Conv2d | Conv2d(6,3,1)+BN+ReLU + Conv2d(3,3,3) | DINOv2 features are already rich; multi-scale Inception fusion is over-engineered |
+| Fusion module | Decoder-feature fusion with BN-Inception 3@[1,3,5] + Conv2d | Decoder-feature fusion with Conv2d(160,64,1)+BN+ReLU + Conv2d(64,3,3 or 1) | Fuse branch evidence before auxiliary classifier bottlenecks; simplify only the multi-kernel Inception block |
 | Training data | 100K synthetic COCO samples | 2377 real scientific image pairs initially; 374 no-pair cases reserved | Real domain-specific data; avoid target-only labels corrupting source learning |
 | External mani data | IFS-TC + Wild Web datasets | None | Time constraint; noted as a limitation |
 | Image size | 256×256 | 448×448 | Matches project baseline and pipeline |
 | LR scheduling | Halve on plateau, patience=20 | ReduceLROnPlateau, tighter patience | Training runs in minutes, not days; aggressive patience is meaningless at our scale |
-| Class weighting | None needed (balanced synthetic data) | `[0.1, 1.0, 1.0]` | Real data is severely imbalanced (~95% background pixels) |
+| Class weighting | None needed (balanced synthetic data) | `[0.3, 1.0, 1.0]` or binary union BCE | Real data is severely imbalanced; competition scores union masks |
 
 ## Comparison with Baseline
 
@@ -253,9 +265,9 @@ by VGG-16 constraints, we apply the modern equivalent for DINOv2.
 | Backbone | DINOv2 ViT-B/14 (frozen) | DINOv2 ViT-B/14 (frozen) |
 | Branches | 1 (mani-det only) | 2 (mani-det + simi-det) |
 | Self-similarity | No | Yes (cosine SelfCorrelPercPooling) |
-| Output channels | 1 (binary) | 3 (bg/target/source) |
+| Output channels | 1 (binary) | 3 (bg/target/source) or binary union ablation |
 | GT labels | Union mask | Derived source/target (3-class) |
-| Training signal | BCE | Stage-wise BCE → CrossEntropy |
+| Training signal | BCE | Stage-wise BCE → CE or binary union BCE |
 
 Scientific question: does explicit copy-move similarity modeling improve over
 single-branch DINO segmentation for this task?

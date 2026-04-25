@@ -13,7 +13,8 @@ class BusterNetConfigTests(unittest.TestCase):
         self.assertEqual(config.stage2_lr, 1e-2)
         self.assertEqual(config.stage3_lr, 1e-5)
         self.assertEqual(config.nb_pools, 100)
-        self.assertEqual(config.ce_class_weights, (0.1, 1.0, 1.0))
+        self.assertEqual(config.ce_class_weights, (0.3, 1.0, 1.0))
+        self.assertEqual(config.fusion_mode, "three_class")
         self.assertEqual(config.union_wrapper_eps, 1e-6)
         self.assertEqual(config.total_stage_epochs, 20)
 

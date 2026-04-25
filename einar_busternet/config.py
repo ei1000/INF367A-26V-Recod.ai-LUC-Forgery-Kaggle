@@ -60,7 +60,8 @@ class BusterNetConfig:
     stage2_lr: float = 1e-2
     stage3_lr: float = 1e-5
     nb_pools: int = 100
-    ce_class_weights: tuple[float, float, float] = (0.1, 1.0, 1.0)
+    ce_class_weights: tuple[float, float, float] = (0.3, 1.0, 1.0)
+    fusion_mode: str = "three_class"
     union_wrapper_eps: float = 1e-6
 
     metadata_path: str = "data/train_masks_source_target_metadata.csv"

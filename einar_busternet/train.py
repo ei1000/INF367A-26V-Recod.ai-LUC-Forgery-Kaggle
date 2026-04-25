@@ -16,7 +16,7 @@ from datasets.forgery_dataset import ForgeryDataset
 from datasets.splits import count_samples_by_split_and_label, make_grouped_stratified_splits
 from einar_busternet.config import BusterNetConfig, seed_worker, set_seed
 from einar_busternet.dataset import BusterNetDataset
-from einar_busternet.model import BusterNetUnionWrapper, DinoBusterNet
+from einar_busternet.model import BinaryFusionDinoBusterNet, BusterNetUnionWrapper, DinoBusterNet
 from engine.checkpointing import (
     build_checkpoint_payload,
     load_checkpoint,
@@ -38,6 +38,7 @@ def build_config_from_args(argv: Sequence[str] | None = None) -> BusterNetConfig
     parser.add_argument("--stage1-epochs", type=int, default=None)
     parser.add_argument("--stage2-epochs", type=int, default=None)
     parser.add_argument("--stage3-epochs", type=int, default=None)
+    parser.add_argument("--fusion-mode", choices=("three_class", "binary_union"), default=None)
     parser.add_argument("--resume-checkpoint-path", type=str, default=None)
     parser.add_argument(
         "--validation-transfer-mode",
@@ -55,6 +56,7 @@ def build_config_from_args(argv: Sequence[str] | None = None) -> BusterNetConfig
         ("stage1_epochs", "stage1_epochs"),
         ("stage2_epochs", "stage2_epochs"),
         ("stage3_epochs", "stage3_epochs"),
+        ("fusion_mode", "fusion_mode"),
         ("resume_checkpoint_path", "resume_checkpoint_path"),
         ("validation_transfer_mode", "validation_transfer_mode"),
     ):
@@ -86,15 +88,21 @@ def _set_requires_grad(module: nn.Module, enabled: bool) -> None:
 def configure_trainable_parts(model: DinoBusterNet, stage: int) -> None:
     if stage == 1:
         _set_requires_grad(model.mani_decoder, True)
+        _set_requires_grad(model.mani_classifier, True)
         _set_requires_grad(model.simi_decoder, True)
+        _set_requires_grad(model.simi_classifier, True)
         _set_requires_grad(model.fusion, False)
     elif stage == 2:
         _set_requires_grad(model.mani_decoder, False)
+        _set_requires_grad(model.mani_classifier, False)
         _set_requires_grad(model.simi_decoder, False)
+        _set_requires_grad(model.simi_classifier, False)
         _set_requires_grad(model.fusion, True)
     elif stage == 3:
         _set_requires_grad(model.mani_decoder, True)
+        _set_requires_grad(model.mani_classifier, True)
         _set_requires_grad(model.simi_decoder, True)
+        _set_requires_grad(model.simi_classifier, True)
         _set_requires_grad(model.fusion, True)
     else:
         raise ValueError(f"stage must be 1, 2, or 3, got {stage}")
@@ -104,6 +112,48 @@ def configure_trainable_parts(model: DinoBusterNet, stage: int) -> None:
 
 def _trainable_params(modules: Iterable[nn.Module]) -> list[nn.Parameter]:
     return [param for module in modules for param in module.parameters() if param.requires_grad]
+
+
+def foreground_logit_from_three_class(logits: torch.Tensor) -> torch.Tensor:
+    if logits.ndim != 4 or logits.shape[1] != 3:
+        raise ValueError(f"Expected logits with shape (B,3,H,W), got {tuple(logits.shape)}")
+    return torch.logsumexp(logits[:, 1:3], dim=1) - logits[:, 0]
+
+
+class BinaryUnionBCEWithLogitsLoss(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.loss = nn.BCEWithLogitsLoss()
+
+    def forward(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        if logits.ndim != 4 or logits.shape[1] != 1:
+            raise ValueError(f"Expected binary logits with shape (B,1,H,W), got {tuple(logits.shape)}")
+        union_mask = (labels > 0).float()
+        return self.loss(logits[:, 0], union_mask)
+
+
+def build_model(config: BusterNetConfig) -> DinoBusterNet:
+    model_cls = {
+        "three_class": DinoBusterNet,
+        "binary_union": BinaryFusionDinoBusterNet,
+    }.get(config.fusion_mode)
+    if model_cls is None:
+        raise ValueError(f"Unknown fusion_mode: {config.fusion_mode}")
+    return model_cls.from_official(
+        model_name=config.dino_model_name,
+        embed_dim=config.dino_embed_dim,
+        nb_pools=config.nb_pools,
+        freeze_encoder=config.freeze_dino_encoder,
+    )
+
+
+def build_fusion_loss(config: BusterNetConfig, device: torch.device) -> nn.Module:
+    if config.fusion_mode == "three_class":
+        ce_weights = torch.tensor(config.ce_class_weights, dtype=torch.float32, device=device)
+        return nn.CrossEntropyLoss(weight=ce_weights)
+    if config.fusion_mode == "binary_union":
+        return BinaryUnionBCEWithLogitsLoss()
+    raise ValueError(f"Unknown fusion_mode: {config.fusion_mode}")
 
 
 def train_stage1_epoch(
@@ -124,20 +174,20 @@ def train_stage1_epoch(
     total_mani_loss = torch.zeros((), device=device)
     total_simi_loss = torch.zeros((), device=device)
 
-    branch_params = _trainable_params((model.mani_decoder, model.simi_decoder))
+    branch_params = _trainable_params((model.mani_decoder, model.mani_classifier, model.simi_decoder, model.simi_classifier))
     progress = tqdm(train_loader, desc=f"stage 1 epoch {epoch_idx + 1} train")
     for imgs, labels in progress:
         imgs = imgs.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
         target_mask = (labels == 1).float()
-        source_mask = (labels == 2).float()
+        union_mask = (labels > 0).float()
 
         mani_optimizer.zero_grad(set_to_none=True)
         simi_optimizer.zero_grad(set_to_none=True)
         with torch.amp.autocast(device_type=device.type, enabled=use_amp):
             mani_logits, simi_logits = model.forward_branches(imgs)
-            mani_loss = loss_fn(mani_logits[:, 1], target_mask)
-            simi_loss = loss_fn(simi_logits[:, 2], source_mask)
+            mani_loss = loss_fn(mani_logits[:, 0], target_mask)
+            simi_loss = loss_fn(simi_logits[:, 0], union_mask)
             loss = mani_loss + simi_loss
 
         if scaler is not None and use_amp:
@@ -367,12 +417,7 @@ def main(config: BusterNetConfig | None = None) -> None:
         f"val={len(val_samples)}, test={len(test_samples)} (held out)"
     )
 
-    model = DinoBusterNet.from_official(
-        model_name=config.dino_model_name,
-        embed_dim=config.dino_embed_dim,
-        nb_pools=config.nb_pools,
-        freeze_encoder=config.freeze_dino_encoder,
-    ).to(device)
+    model = build_model(config).to(device)
     if config.resume_checkpoint_path:
         checkpoint = load_checkpoint(config.resume_checkpoint_path, map_location=device, trusted=True)
         model.load_state_dict(checkpoint["model_state_dict"])
@@ -385,8 +430,8 @@ def main(config: BusterNetConfig | None = None) -> None:
     global_epoch = 0
 
     configure_trainable_parts(model, stage=1)
-    mani_optimizer = torch.optim.Adam(_trainable_params((model.mani_decoder,)), lr=config.stage1_lr)
-    simi_optimizer = torch.optim.Adam(_trainable_params((model.simi_decoder,)), lr=config.stage1_lr)
+    mani_optimizer = torch.optim.Adam(_trainable_params((model.mani_decoder, model.mani_classifier)), lr=config.stage1_lr)
+    simi_optimizer = torch.optim.Adam(_trainable_params((model.simi_decoder, model.simi_classifier)), lr=config.stage1_lr)
     bce_loss = nn.BCEWithLogitsLoss()
     for epoch in range(config.stage1_epochs):
         metrics = train_stage1_epoch(
@@ -425,8 +470,7 @@ def main(config: BusterNetConfig | None = None) -> None:
                 val_loader_generator=val_loader_generator,
             )
 
-    ce_weights = torch.tensor(config.ce_class_weights, dtype=torch.float32, device=device)
-    ce_loss = nn.CrossEntropyLoss(weight=ce_weights)
+    fusion_loss = build_fusion_loss(config, device)
 
     configure_trainable_parts(model, stage=2)
     fusion_optimizer = torch.optim.Adam(_trainable_params((model.fusion,)), lr=config.stage2_lr)
@@ -435,7 +479,7 @@ def main(config: BusterNetConfig | None = None) -> None:
             model=model,
             train_loader=train_loader,
             optimizer=fusion_optimizer,
-            loss_fn=ce_loss,
+            loss_fn=fusion_loss,
             device=device,
             grad_clip_max_norm=config.grad_clip_max_norm,
             epoch_idx=epoch,
@@ -496,7 +540,7 @@ def main(config: BusterNetConfig | None = None) -> None:
 
     configure_trainable_parts(model, stage=3)
     stage3_optimizer = torch.optim.Adam(
-        _trainable_params((model.mani_decoder, model.simi_decoder, model.fusion)),
+        _trainable_params((model.mani_decoder, model.mani_classifier, model.simi_decoder, model.simi_classifier, model.fusion)),
         lr=config.stage3_lr,
     )
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -512,7 +556,7 @@ def main(config: BusterNetConfig | None = None) -> None:
             model=model,
             train_loader=train_loader,
             optimizer=stage3_optimizer,
-            loss_fn=ce_loss,
+            loss_fn=fusion_loss,
             device=device,
             grad_clip_max_norm=config.grad_clip_max_norm,
             epoch_idx=epoch,

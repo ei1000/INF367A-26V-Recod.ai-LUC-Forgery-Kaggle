@@ -121,6 +121,22 @@ class ForgeryDataPlotterTests(unittest.TestCase):
             self.assertGreaterEqual(len(axes), 3)
             fig.clear()
 
+    def test_plot_prediction_accepts_probability_map(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_png(root / "train_images" / "forged" / "40.png", np.full((6, 8), 120, dtype=np.uint8))
+            mask = np.zeros((6, 8), dtype=np.uint8)
+            mask[1:3, 2:4] = 1
+            _write_mask(root / "train_masks" / "40.npy", mask)
+
+            plotter = ForgeryDataPlotter(root)
+            probability = np.zeros((12, 16), dtype=np.float32)
+            probability[2:6, 4:8] = 0.9
+            fig, axes = plotter.plot_prediction("40", probability, threshold=0.5)
+
+            self.assertEqual(len(axes), 5)
+            fig.clear()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,7 +2,7 @@ import unittest
 
 import torch
 
-from einar_busternet.model import BusterNetUnionWrapper, DinoBusterNet, SelfCorrelPercPooling
+from einar_busternet.model import BinaryFusionDinoBusterNet, BusterNetUnionWrapper, DinoBusterNet, SelfCorrelPercPooling
 
 
 class FakeDinoEncoder(torch.nn.Module):
@@ -67,8 +67,24 @@ class BusterNetModelTests(unittest.TestCase):
 
         mani_logits, simi_logits = model.forward_branches(x)
 
-        self.assertEqual(tuple(mani_logits.shape), (1, 3, 16, 16))
-        self.assertEqual(tuple(simi_logits.shape), (1, 3, 16, 16))
+        self.assertEqual(tuple(mani_logits.shape), (1, 1, 16, 16))
+        self.assertEqual(tuple(simi_logits.shape), (1, 1, 16, 16))
+
+    def test_fusion_uses_decoder_features_not_branch_logits(self) -> None:
+        model = DinoBusterNet(FakeDinoEncoder(), embed_dim=8, nb_pools=4)
+
+        self.assertEqual(model.mani_classifier.out_channels, 1)
+        self.assertEqual(model.simi_classifier.out_channels, 1)
+        self.assertEqual(model.fusion[0].in_channels, 160)
+
+    def test_binary_fusion_model_returns_one_channel_logits(self) -> None:
+        model = BinaryFusionDinoBusterNet(FakeDinoEncoder(), embed_dim=8, nb_pools=4)
+        x = torch.randn(2, 3, 16, 16)
+
+        logits = model(x)
+
+        self.assertEqual(tuple(logits.shape), (2, 1, 16, 16))
+        self.assertEqual(model.fusion[-1].out_channels, 1)
 
     def test_frozen_encoder_stays_eval_when_model_train_is_called(self) -> None:
         encoder = FakeDinoEncoder()
@@ -91,6 +107,18 @@ class BusterNetModelTests(unittest.TestCase):
             wrapped_prob = torch.sigmoid(wrapper(x))
 
         self.assertTrue(torch.allclose(wrapped_prob, expected, atol=1e-6))
+
+    def test_union_wrapper_passes_binary_fusion_logits_through(self) -> None:
+        model = BinaryFusionDinoBusterNet(FakeDinoEncoder(), embed_dim=8, nb_pools=4)
+        model.eval()
+        wrapper = BusterNetUnionWrapper(model)
+        x = torch.randn(1, 3, 16, 16)
+
+        with torch.no_grad():
+            expected = model(x)
+            wrapped = wrapper(x)
+
+        torch.testing.assert_close(wrapped, expected)
 
 
 if __name__ == "__main__":

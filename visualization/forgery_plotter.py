@@ -404,6 +404,46 @@ class ForgeryDataPlotter:
         fig.tight_layout()
         return fig, axes
 
+    def plot_prediction(
+        self,
+        case: str | ForgeryCase | SampleRecord,
+        probability: np.ndarray,
+        *,
+        pred_mask: np.ndarray | None = None,
+        threshold: float = 0.5,
+        figsize: tuple[float, float] | None = None,
+    ) -> tuple[Figure, np.ndarray]:
+        """Plot validation probability, binary prediction, GT, and FP/FN error."""
+        resolved = self._resolve_case(case)
+        probability = np.asarray(probability, dtype=np.float32)
+        if probability.ndim != 2:
+            raise ValueError(f"probability must have shape (H,W), got {probability.shape}")
+        pred_mask = (probability >= threshold).astype(np.uint8) if pred_mask is None else (np.asarray(pred_mask) > 0).astype(np.uint8)
+
+        image = self._resize_for_plot(self.load_image(resolved.forged_path), probability.shape)
+        gt_mask = self.load_mask(resolved) if resolved.mask_paths else np.zeros_like(probability, dtype=np.uint8)
+        gt_mask = self._resize_mask_for_plot(gt_mask, probability.shape)
+        error_mask = pred_mask.astype(np.int8) - (gt_mask > 0).astype(np.int8)
+
+        figsize = figsize or (20, 4.5)
+        fig, axes = plt.subplots(1, 5, figsize=figsize)
+        axes = np.asarray(axes).reshape(-1)
+
+        self._show_image(axes[0], image, f"{resolved.case_id} ({'forged' if resolved.mask_paths else 'authentic'})")
+        self._show_image(axes[1], image, "GT union")
+        self._show_mask_overlay(axes[1], gt_mask)
+        axes[2].imshow(probability, cmap="magma", vmin=0.0, vmax=1.0, interpolation="nearest")
+        axes[2].set_title("Pred probability")
+        axes[2].axis("off")
+        self._show_image(axes[3], image, "Pred mask")
+        self._show_mask_overlay(axes[3], pred_mask)
+        axes[4].imshow(error_mask, cmap="bwr", vmin=-1, vmax=1, interpolation="nearest")
+        axes[4].set_title("Error: blue FN, red FP")
+        axes[4].axis("off")
+
+        fig.tight_layout()
+        return fig, axes
+
     def plot_random_cases(
         self,
         n: int = 6,
@@ -457,6 +497,14 @@ class ForgeryDataPlotter:
     def _show_mask_overlay(self, ax: Axes, mask: np.ndarray, alpha: float | None = None) -> None:
         masked = np.ma.masked_where(mask <= 0, mask)
         ax.imshow(masked, cmap=self.cmap, alpha=self.mask_alpha if alpha is None else alpha, interpolation="nearest")
+
+    def _resize_for_plot(self, image: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+        pil_image = Image.fromarray(image.astype(np.uint8))
+        return np.asarray(pil_image.resize((shape[1], shape[0]), resample=Image.BILINEAR))
+
+    def _resize_mask_for_plot(self, mask: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+        pil_mask = Image.fromarray((mask > 0).astype(np.uint8))
+        return np.asarray(pil_mask.resize((shape[1], shape[0]), resample=Image.NEAREST), dtype=np.uint8)
 
     def _split_union_components_by_diff(
         self,

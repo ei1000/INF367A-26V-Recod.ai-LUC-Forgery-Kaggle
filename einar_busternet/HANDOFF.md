@@ -1,7 +1,8 @@
 # Handoff: BusterNet-DINO
 
 This directory contains Einar's BusterNet-inspired individual project plan. The current
-state is ready for the first Step 4 training run or Step 5 evaluation script.
+state is ready to evaluate the current best checkpoint or rerun training with the updated
+Stage 1 Simi union supervision.
 
 ## Current State
 
@@ -41,11 +42,14 @@ Key decisions:
 - Use cosine similarity for DINOv2 features, not Pearson correlation.
 - Use image difference only to classify clean GT connected components; do not use raw
   thresholded difference as the mask geometry.
-- Model output is 3-channel logits `[background, target, source]`.
+- Default model output is 3-channel logits `[background, target, source]`.
+- Binary fusion ablation is available with `fusion_mode="binary_union"` and outputs
+  one-channel union logits.
 - Dataset label map should be `(H, W)` long tensor with classes
   `{0=background, 1=target, 2=source}`, batched as `(B, H, W)`.
-- Evaluation wraps the 3-class model with `BusterNetUnionWrapper`, so the baseline
-  validation path sees binary logits whose sigmoid is `P(target) + P(source)`.
+- Evaluation wraps the model with `BusterNetUnionWrapper`, so the baseline validation
+  path sees binary logits. The wrapper collapses 3-class output or passes binary-fusion
+  logits through.
 
 ## Files Added So Far
 
@@ -73,7 +77,11 @@ Key decisions:
 - `einar_busternet/model.py`
   - `SelfCorrelPercPooling`.
   - `DinoBusterNet`.
+  - `BinaryFusionDinoBusterNet`.
   - `BusterNetUnionWrapper`.
+- Fusion consumes Mani/Simi decoder features, not auxiliary branch logits.
+- Branch auxiliary classifiers are explicit one-channel heads.
+  - Old checkpoints from the fused-logit architecture will not load into this model.
 - `tests/test_busternet_model.py`
   - Unit tests for correlation pooling, model shapes, branch outputs, frozen encoder
     behavior, and evaluation wrapper probabilities.
@@ -82,18 +90,32 @@ Key decisions:
   - Baseline-compatible training/validation fields plus BusterNet stage, loss, dataset,
     and artifact settings.
   - Current stage schedule is `5 + 5 + 10` epochs.
+  - Default `fusion_mode="three_class"`; use `"binary_union"` for the union-head ablation.
   - BusterNet validation defaults to `accumulate_gpu` transfer mode.
 - `tests/test_busternet_config.py`
   - Unit tests for defaults, dataset policy, artifact paths, and baseline seed helpers.
 - `einar_busternet/train.py`
   - Three-stage training entrypoint.
-  - Stage 1 custom branch pretraining with two optimizers and raw BCE logits.
-  - Stage 2/3 reuse baseline `train_one_epoch`.
-  - Validation wraps the 3-class model with `BusterNetUnionWrapper`.
+  - Stage 1 custom branch pretraining with two optimizers and raw BCE logits: Mani
+    target mask, Simi source+target union mask.
+  - Stage 1 trains decoder + auxiliary classifier for each branch.
+  - Stage 2/3 reuse baseline `train_one_epoch` with 3-class CE or binary union BCE.
+  - Validation wraps the model with `BusterNetUnionWrapper`.
   - Training loss logging syncs once per epoch, not once per batch.
   - Supports `--smoke` and small CLI overrides for first-run safety.
 - `tests/test_busternet_train.py`
   - Unit tests for stage trainability and Stage 1 branch updates.
+- `einar_busternet/evaluate.py`
+  - Validation evaluation entrypoint for BusterNet checkpoints.
+  - Uses `BusterNetUnionWrapper` and the shared validation scoring path.
+  - Writes `einar_busternet/artifacts/results/eval_summary.json`.
+- `tests/test_busternet_evaluate.py`
+  - Unit tests for evaluation CLI guards and checkpoint config reconstruction.
+- `einar_busternet/evaluate_validation_diagnostics.ipynb`
+  - Notebook for validation diagnostics, forged/authentic breakdowns, and prediction
+    plots.
+- `tests/test_busternet_evaluate_notebook.py`
+  - Unit test for the notebook diagnostics hooks.
 - `einar_busternet/explore_source_target_masks.ipynb`
   - Lightweight visual audit notebook for paired and no-pair masks.
 
@@ -149,6 +171,19 @@ Ran 39 tests
 OK
 ```
 
+Step 5 focused verification:
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache MPLCONFIGDIR=/tmp/mpl uv run python -m unittest tests.test_busternet_evaluate tests.test_busternet_train tests.test_busternet_config tests.test_busternet_model tests.test_busternet_dataset
+```
+
+Result:
+
+```text
+Ran 26 tests
+OK
+```
+
 Post-generation invariants checked:
 
 - source mask file count: `2751`
@@ -159,8 +194,13 @@ Post-generation invariants checked:
 
 ## Recommended Next Step
 
-Run the first BusterNet training job, or implement Step 5 `evaluate.py` if we want the
-evaluation wrapper script before spending GPU time.
+Evaluate the current best checkpoint:
+
+```bash
+uv run python -m einar_busternet.evaluate --allow-torch-hub
+```
+
+This writes `einar_busternet/artifacts/results/eval_summary.json`.
 
 ## Caution
 

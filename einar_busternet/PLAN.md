@@ -118,16 +118,19 @@ Implemented classes:
 - `forward(x)`: returns raw logits `(B, 3, H, W)`.
 - Reuse the baseline DINO padding and `forward_features` logic so non-448 or
   sliding-window inputs still work.
-- Mani decoder: same channel pattern as `DinoTinyDecoder` (`embed_dim→384→192→96→3`)
+- Mani decoder: same channel pattern as `DinoTinyDecoder` (`embed_dim→384→192→96`)
   but operates on the DINO feature grid; do not upsample inside the branch.
+- Mani auxiliary classifier: `Conv2d(96,1,3,padding=1)` for Stage 1 target-mask BCE.
 - Copy decoder: lightweight 3-conv-block CNN on top of `SelfCorrelPercPooling`
-  (`nb_pools→128→64→3`) on the same feature grid.
-- Fusion: concatenate Mani and Simi logits/features into `(B, 6, h, w)`, then apply the
-  simplified fusion head from the spec before upsampling.
+  (`nb_pools→128→64`) on the same feature grid.
+- Simi auxiliary classifier: `Conv2d(64,1,3,padding=1)` for Stage 1 union-mask BCE.
+- Fusion: concatenate Mani and Simi decoder features into `(B, 160, h, w)`, then apply
+  the simplified fusion head from the spec before upsampling. Fusion does not consume
+  auxiliary branch classifier logits.
 - Final output is bilinearly upsampled once to the padded image size, then cropped back
   to the original input size, matching `DinoSegmenter`.
-- Exposes `forward_branches(x)` returning full-resolution `mani_logits` and `simi_logits`
-  for Stage 1 auxiliary losses.
+- Exposes `forward_branches(x)` returning full-resolution one-channel `mani_logits` and
+  `simi_logits` for Stage 1 auxiliary losses.
 
 **`BusterNetUnionWrapper`**: evaluation adapter.
 - Wraps a trained `DinoBusterNet`.
@@ -159,8 +162,10 @@ Fields:
   settings, split ratios, checkpoint cadence, etc.
 - Stage schedule: `stage1_epochs`, `stage2_epochs`, `stage3_epochs`.
 - Stage learning rates: `stage1_lr=1e-2`, `stage2_lr=1e-2`, `stage3_lr=1e-5`.
-- Loss settings: `ce_class_weights=(0.1, 1.0, 1.0)`, `union_wrapper_eps=1e-6`.
-- BusterNet/model fields: `nb_pools=100`, `freeze_dino_encoder=True`.
+- Loss settings: `ce_class_weights=(0.3, 1.0, 1.0)`, `union_wrapper_eps=1e-6`.
+- BusterNet/model fields: `nb_pools=100`, `freeze_dino_encoder=True`,
+  `fusion_mode="three_class"` by default. `fusion_mode="binary_union"` selects the
+  binary fusion ablation.
 - Dataset fields: `metadata_path`, `allowed_forged_statuses=("derived_from_pair",)`,
   `include_authentic=True`, `authentic_policy="paired_derived_only"`.
 - Step 0 audit fields: `diff_threshold`, `component_change_fraction` for reporting only;
@@ -184,20 +189,20 @@ training/validation stack and make small generic extensions only when needed. Re
 project root:
 - Stage 1 needs a BusterNet-specific training loop because it uses `forward_branches`
   and two optimizers.
-- Stage 2/3 can reuse `engine/train_loop.py` → `train_one_epoch` with
-  `CrossEntropyLoss`.
+- Stage 2/3 can reuse `engine/train_loop.py` → `train_one_epoch` with the selected
+  fusion loss.
 - `engine/validate_loop.py` → `validate_one_epoch` with `BusterNetUnionWrapper(model)`.
 - `engine/checkpointing.py` → save/load checkpoints
 - `datasets/splits.py` → `make_grouped_stratified_splits`
 - `dataset_utils.py` → `list_labeled_samples`
 
 **Stage 1** — independent branch pre-training (auxiliary binary tasks, LR=1e-2):
-- Mani optimizer: `Adam(mani_decoder.parameters(), lr=1e-2)`
-- Simi optimizer: `Adam(simi_decoder.parameters(), lr=1e-2)` because
+- Mani optimizer: `Adam(mani_decoder + mani_classifier, lr=1e-2)`
+- Simi optimizer: `Adam(simi_decoder + simi_classifier, lr=1e-2)` because
   `SelfCorrelPercPooling` has no learnable parameters.
-- Loss: `BCEWithLogitsLoss` — `mani_logits[:, 1]` on target mask,
-  `simi_logits[:, 2]` on source mask. These are raw logits; do not apply sigmoid before
-  the loss.
+- Loss: `BCEWithLogitsLoss` — `mani_logits[:, 0]` on target mask, and
+  `simi_logits[:, 0]` on source+target union mask. These are raw one-channel auxiliary
+  logits; do not apply sigmoid before the loss.
 - Only the 2377 forged cases with authentic pairs and derived source/target labels, plus
   their authentic counterparts as all-background negatives
 - Runs for `config.stage1_epochs` epochs
@@ -205,7 +210,8 @@ project root:
 **Stage 2** — freeze branches, train Fusion only (LR=1e-2):
 - Freeze all Mani-Det and Simi-Det parameters. DINO remains frozen.
 - Optimizer: `Adam(fusion.parameters(), lr=1e-2)`
-- Loss: `CrossEntropyLoss(weight=[0.1, 1.0, 1.0])`
+- Loss: `CrossEntropyLoss(weight=[0.3, 1.0, 1.0])` for `three_class`, or
+  `BCEWithLogitsLoss` on source+target union for `binary_union`.
 - Only the 2377 paired forged cases plus their authentic counterparts for the initial
   run. The 374 no-pair cases are excluded because target-only labels would teach the
   model that source regions are background.
@@ -214,7 +220,7 @@ project root:
 **Stage 3** — unfreeze branches + Fusion, end-to-end fine-tuning (LR=1e-5):
 - Unfreeze Mani-Det + Simi-Det + Fusion (DINOv2 stays frozen)
 - Optimizer: `Adam(all_trainable_params, lr=1e-5)`
-- Same CrossEntropyLoss; LR halved on plateau, early stop on patience
+- Same fusion loss as Stage 2; LR halved on plateau, early stop on patience
 - Same paired-only data policy as Stage 2 for the initial run.
 - Runs for `config.stage3_epochs` epochs
 
@@ -226,10 +232,14 @@ Implemented:
 - `configure_trainable_parts(model, stage)` keeps DINO frozen and switches branch/fusion
   trainability for stages 1/2/3.
 - `train_stage1_epoch(...)` uses `forward_branches`, two optimizers, raw logits, and
-  `BCEWithLogitsLoss` without sigmoid.
-- Stage 2/3 use baseline `train_one_epoch` with `CrossEntropyLoss`.
+  `BCEWithLogitsLoss` without sigmoid. Mani learns target; Simi learns source+target
+  union because similarity detection is symmetric.
+- Fusion now consumes branch decoder features rather than auxiliary branch logits,
+  matching the paper's data flow more closely.
+- Stage 2/3 use baseline `train_one_epoch` with the selected fusion loss.
 - Validation uses baseline `ForgeryDataset` plus `BusterNetUnionWrapper`, so the score is
-  binary union on the normal validation split while training still uses 3-class labels.
+  binary union on the normal validation split. The wrapper collapses 3-class output or
+  passes binary-fusion logits through.
 - Training transfers each batch to GPU once with non-blocking copies when pinned memory is
   enabled, and loss logging syncs once per epoch.
 - Validation defaults to `validation_transfer_mode="accumulate_gpu"` to avoid per-batch
@@ -240,14 +250,14 @@ Implemented:
 
 Implemented tests: `tests/test_busternet_train.py`.
 
-## Step 5 — Evaluation  `evaluate.py`
+## Step 5 — Evaluation  `evaluate.py` — done
 
 Wraps existing `collect_validation_predictions` and `score_validation_predictions`,
 matching the baseline evaluation flow.
 
-Training uses the native 3-channel BusterNet model. Evaluation uses a tiny
-`BusterNetUnionWrapper` whose `forward` converts the 3-class logits into one-channel
-binary foreground logits:
+Training uses either the native 3-channel BusterNet model or the binary-fusion ablation.
+Evaluation uses a tiny `BusterNetUnionWrapper` whose `forward` converts 3-class logits
+into one-channel binary foreground logits:
 
 ```python
 probs = busternet(x).softmax(dim=1)          # (B, 3, H, W)
@@ -255,9 +265,24 @@ forgery_prob = probs[:, 1:2] + probs[:, 2:3] # target + source
 binary_logits = torch.logit(forgery_prob.clamp(1e-6, 1 - 1e-6))
 ```
 
-The existing baseline validation code can then apply `sigmoid(binary_logits)` and receive
-the correct union probability. Post-processing and oF1 scoring stay unchanged. Results
-saved to `artifacts/results/eval_summary.json`.
+For `fusion_mode="binary_union"`, the wrapper returns the model's one-channel logits
+directly. The existing baseline validation code can then apply `sigmoid(binary_logits)`
+and receive the correct union probability. Post-processing and oF1 scoring stay
+unchanged. Results saved to `artifacts/results/eval_summary.json`.
+
+Implemented:
+- Loads trusted local BusterNet checkpoints from
+  `einar_busternet/artifacts/checkpoints/best.pt` by default.
+- Reconstructs `BusterNetConfig` from the checkpoint and supports small CLI overrides.
+- Evaluates the validation split, not the reserved local holdout split.
+- Requires `--allow-torch-hub` before reconstructing DINO-BusterNet via torch hub.
+- Saves a JSON summary under `einar_busternet/artifacts/results/eval_summary.json`.
+- Adds `evaluate_validation_diagnostics.ipynb` for validation split diagnostics:
+  forged/authentic breakdowns, false-positive/false-negative tables, probability
+  distributions, prediction plots, and CSV exports.
+
+Implemented tests: `tests/test_busternet_evaluate.py`,
+`tests/test_busternet_evaluate_notebook.py`.
 
 ## Step 6 — README  `README.md`
 
@@ -281,7 +306,7 @@ einar_busternet/
 ├── model.py              ← Step 2 done
 ├── config.py             ← Step 3 done
 ├── train.py              ← Step 4 code done
-├── evaluate.py           ← Step 5
+├── evaluate.py           ← Step 5 done
 └── artifacts/
     ├── checkpoints/
     └── results/

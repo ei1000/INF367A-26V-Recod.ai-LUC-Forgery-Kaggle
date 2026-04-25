@@ -42,7 +42,7 @@ class SelfCorrelPercPooling(nn.Module):
 
 
 class ManiGridDecoder(nn.Module):
-    def __init__(self, in_ch: int = 768, out_ch: int = 3) -> None:
+    def __init__(self, in_ch: int = 768, out_ch: int = 96) -> None:
         super().__init__()
         self.net = nn.Sequential(
             nn.Conv2d(in_ch, 384, 3, 1, 1),
@@ -54,6 +54,7 @@ class ManiGridDecoder(nn.Module):
             nn.Conv2d(192, 96, 3, 1, 1),
             nn.ReLU(inplace=True),
             nn.Conv2d(96, out_ch, 1),
+            nn.ReLU(inplace=True),
         )
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
@@ -61,7 +62,7 @@ class ManiGridDecoder(nn.Module):
 
 
 class SimiGridDecoder(nn.Module):
-    def __init__(self, in_ch: int = 100, out_ch: int = 3) -> None:
+    def __init__(self, in_ch: int = 100, out_ch: int = 64) -> None:
         super().__init__()
         self.net = nn.Sequential(
             nn.Conv2d(in_ch, 128, 3, 1, 1),
@@ -70,10 +71,20 @@ class SimiGridDecoder(nn.Module):
             nn.Conv2d(128, 64, 3, 1, 1),
             nn.ReLU(inplace=True),
             nn.Conv2d(64, out_ch, 1),
+            nn.ReLU(inplace=True),
         )
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         return self.net(features)
+
+
+def _fusion_head(out_channels: int) -> nn.Sequential:
+    return nn.Sequential(
+        nn.Conv2d(160, 64, 1),
+        nn.BatchNorm2d(64),
+        nn.ReLU(inplace=True),
+        nn.Conv2d(64, out_channels, 3, padding=1),
+    )
 
 
 class DinoBusterNet(nn.Module):
@@ -86,15 +97,12 @@ class DinoBusterNet(nn.Module):
     ) -> None:
         super().__init__()
         self.encoder = encoder
-        self.mani_decoder = ManiGridDecoder(in_ch=embed_dim, out_ch=3)
+        self.mani_decoder = ManiGridDecoder(in_ch=embed_dim, out_ch=96)
+        self.mani_classifier = nn.Conv2d(96, 1, 3, padding=1)
         self.corr_pooling = SelfCorrelPercPooling(nb_pools=nb_pools)
-        self.simi_decoder = SimiGridDecoder(in_ch=nb_pools, out_ch=3)
-        self.fusion = nn.Sequential(
-            nn.Conv2d(6, 3, 1),
-            nn.BatchNorm2d(3),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(3, 3, 3, padding=1),
-        )
+        self.simi_decoder = SimiGridDecoder(in_ch=nb_pools, out_ch=64)
+        self.simi_classifier = nn.Conv2d(64, 1, 3, padding=1)
+        self.fusion = _fusion_head(out_channels=3)
         self._encoder_frozen = False
         if freeze_encoder:
             self.freeze_encoder()
@@ -186,11 +194,18 @@ class DinoBusterNet(nn.Module):
 
         return grid_tokens.permute(0, 2, 1).reshape(x.shape[0], grid_tokens.shape[2], side, side)
 
-    def _branch_grid_logits(self, features: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        mani_logits = self.mani_decoder(features)
+    def _branch_grid_features(self, features: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        mani_features = self.mani_decoder(features)
         simi_features = self.corr_pooling(features)
-        simi_logits = self.simi_decoder(simi_features)
-        return mani_logits, simi_logits
+        simi_features = self.simi_decoder(simi_features)
+        return mani_features, simi_features
+
+    def _branch_grid_logits_from_features(
+        self,
+        mani_features: torch.Tensor,
+        simi_features: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.mani_classifier(mani_features), self.simi_classifier(simi_features)
 
     def _upsample_and_crop(self, logits: torch.Tensor, padded_size: tuple[int, int], original_size: tuple[int, int]) -> torch.Tensor:
         logits = F.interpolate(logits, size=padded_size, mode="bilinear", align_corners=False)
@@ -201,7 +216,8 @@ class DinoBusterNet(nn.Module):
         orig_size = (x.shape[-2], x.shape[-1])
         x_pad, _ = self._pad_to_patch_multiple(x)
         features = self.forward_features(x_pad)
-        mani_grid, simi_grid = self._branch_grid_logits(features)
+        mani_features, simi_features = self._branch_grid_features(features)
+        mani_grid, simi_grid = self._branch_grid_logits_from_features(mani_features, simi_features)
         padded_size = (x_pad.shape[-2], x_pad.shape[-1])
         return (
             self._upsample_and_crop(mani_grid, padded_size, orig_size),
@@ -212,10 +228,51 @@ class DinoBusterNet(nn.Module):
         orig_size = (x.shape[-2], x.shape[-1])
         x_pad, _ = self._pad_to_patch_multiple(x)
         features = self.forward_features(x_pad)
-        mani_grid, simi_grid = self._branch_grid_logits(features)
-        fused_grid = self.fusion(torch.cat([mani_grid, simi_grid], dim=1))
+        mani_features, simi_features = self._branch_grid_features(features)
+        fused_grid = self.fusion(torch.cat([mani_features, simi_features], dim=1))
         padded_size = (x_pad.shape[-2], x_pad.shape[-1])
         return self._upsample_and_crop(fused_grid, padded_size, orig_size)
+
+
+class BinaryFusionDinoBusterNet(DinoBusterNet):
+    """BusterNet variant whose fusion head predicts the binary union mask."""
+
+    def __init__(
+        self,
+        encoder: nn.Module,
+        embed_dim: int = 768,
+        nb_pools: int = 100,
+        freeze_encoder: bool = True,
+    ) -> None:
+        super().__init__(
+            encoder=encoder,
+            embed_dim=embed_dim,
+            nb_pools=nb_pools,
+            freeze_encoder=freeze_encoder,
+        )
+        self.fusion = _fusion_head(out_channels=1)
+
+    @classmethod
+    def from_official(
+        cls,
+        model_name: str = "dinov2_vitb14",
+        embed_dim: int = 768,
+        nb_pools: int = 100,
+        freeze_encoder: bool = True,
+        repo: str = "facebookresearch/dinov2",
+    ) -> "BinaryFusionDinoBusterNet":
+        warnings.filterwarnings(
+            "ignore",
+            message="xFormers is not available.*",
+            category=UserWarning,
+        )
+        encoder = torch.hub.load(repo_or_dir=repo, model=model_name)
+        return cls(
+            encoder=encoder,
+            embed_dim=embed_dim,
+            nb_pools=nb_pools,
+            freeze_encoder=freeze_encoder,
+        )
 
 
 class BusterNetUnionWrapper(nn.Module):
@@ -227,6 +284,11 @@ class BusterNetUnionWrapper(nn.Module):
         self.eps = float(eps)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        probs = self.model(x).softmax(dim=1)
+        logits = self.model(x)
+        if logits.shape[1] == 1:
+            return logits
+        if logits.shape[1] != 3:
+            raise ValueError(f"Expected 1 or 3 output channels, got {logits.shape[1]}")
+        probs = logits.softmax(dim=1)
         forgery_prob = probs[:, 1:2] + probs[:, 2:3]
         return torch.logit(forgery_prob.clamp(self.eps, 1.0 - self.eps))
