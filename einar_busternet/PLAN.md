@@ -54,11 +54,46 @@ Differences from `ForgeryDataset`:
 - Read precomputed masks from `data/train_masks_target/` and `data/train_masks_source/`.
 - Initial training dataset filters forged samples to `status == "derived_from_pair"` in
   `data/train_masks_source_target_metadata.csv`; the 374 target-only cases are excluded.
+- Include authentic samples as all-background labels for oF1 false-positive control.
+  For the initial run, keep only authentic samples whose case ID belongs to a
+  `derived_from_pair` forged sample. Later experiments can decide whether to add all
+  authentic samples.
 - If derived masks are missing for a forged case: fail clearly and ask to run Step 0.
+- Forged label map construction:
+  `label_map[target_mask > 0] = 1`, then `label_map[source_mask > 0] = 2`.
+  This follows the spec's `{0=background, 1=target, 2=source}` convention.
 - Authentic images: all pixels → class 0.
-- Mask resize uses nearest-neighbor interpolation.
+- Follow the baseline preprocessing: image resize with bilinear interpolation, mask/label
+  resize with nearest-neighbor interpolation, RGB image tensor `(3, H, W)`, optional
+  DINO/ImageNet normalisation, label tensor `(H, W)` with dtype `torch.long`.
+
+Suggested constructor:
+
+```python
+BusterNetDataset(
+    samples,
+    data_root="data",
+    target_size=448,
+    use_rgb=True,
+    normalize_rgb=True,
+    rgb_mean=(0.485, 0.456, 0.406),
+    rgb_std=(0.229, 0.224, 0.225),
+    metadata_path=None,
+    allowed_forged_statuses=("derived_from_pair",),
+    include_authentic=True,
+    authentic_policy="paired_derived_only",
+)
+```
 
 Key inputs: `SampleRecord`, `data_root`, `target_size`.
+
+Focused tests:
+- paired forged sample returns an image tensor and a long label map containing
+  background/target/source classes
+- authentic sample returns an all-zero long label map
+- no-pair forged sample is excluded by default
+- missing Step 0 masks raise a clear error
+- resized label maps still contain only integer class IDs `{0, 1, 2}`
 
 ## Step 2 — Model  `model.py`
 
@@ -68,14 +103,40 @@ Two classes:
 - Input: `(B, C, H, W)` — DINO features
 - Output: `(B, nb_pools, H, W)` — top-k similarity percentile features
 - No learnable parameters.
+- Validate `nb_pools > 0`.
+- Use `F.normalize(..., eps=1e-6)` before `bmm` so zero/near-zero feature vectors stay
+  finite.
+- Sort similarity scores descending and gather `nb_pools` evenly spaced percentile
+  positions with `torch.linspace(0, L - 1, nb_pools).round().long()`.
+- Keep the diagonal self-similarity term for now. It is constant evidence at each
+  location; removing it is a later ablation, not the initial implementation.
 
 **`DinoBusterNet`**: the full model.
 - `__init__`: takes `encoder`, `embed_dim`, `nb_pools`, `freeze_encoder`.
 - `from_official(...)`: classmethod mirroring `DinoSegmenter.from_official`.
 - `forward(x)`: returns raw logits `(B, 3, H, W)`.
-- Mani decoder: mirrors `DinoTinyDecoder` but outputs 3 channels.
-- Copy decoder: lightweight 3-conv-block CNN on top of `SelfCorrelPercPooling`.
-- Fusion: element-wise sum of branch outputs before upsample.
+- Reuse the baseline DINO padding and `forward_features` logic so non-448 or
+  sliding-window inputs still work.
+- Mani decoder: same channel pattern as `DinoTinyDecoder` (`embed_dim→384→192→96→3`)
+  but operates on the DINO feature grid; do not upsample inside the branch.
+- Copy decoder: lightweight 3-conv-block CNN on top of `SelfCorrelPercPooling`
+  (`nb_pools→128→64→3`) on the same feature grid.
+- Fusion: concatenate Mani and Simi logits/features into `(B, 6, h, w)`, then apply the
+  simplified fusion head from the spec before upsampling.
+- Final output is bilinearly upsampled once to the padded image size, then cropped back
+  to the original input size, matching `DinoSegmenter`.
+- Expose branch outputs for Stage 1, e.g. `forward_branches(x)` returning full-resolution
+  `mani_logits` and `simi_logits`, or `forward(x, return_branches=True)` returning a
+  small dict. Stage 1 needs these auxiliary logits without going through fusion.
+
+Focused tests:
+- `SelfCorrelPercPooling` returns `(B, nb_pools, H, W)` and finite values for normal and
+  all-zero features
+- percentile pooling works for `nb_pools=1` and `nb_pools>1`
+- `DinoBusterNet` forward returns `(B, 3, H, W)` for an input whose size is divisible by
+  14 and for one that requires padding/cropping
+- branch output API returns two `(B, 3, H, W)` tensors for Stage 1
+- frozen encoder stays in eval mode when `model.train()` is called
 
 ## Step 3 — Config  `config.py`
 
@@ -91,7 +152,9 @@ Fields:
 
 ## Step 4 — Training script  `train.py`
 
-Three-stage training following the BusterNet paper curriculum. Reuses from project root:
+Three-stage training following the BusterNet paper curriculum. Continue from the baseline
+training/validation stack and make small generic extensions only when needed. Reuses from
+project root:
 - `engine/train_loop.py` → `train_one_epoch` (pass custom loss via argument)
 - `engine/validate_loop.py` → `validate_one_epoch`
 - `engine/checkpointing.py` → save/load checkpoints
@@ -102,15 +165,17 @@ Three-stage training following the BusterNet paper curriculum. Reuses from proje
 - Mani optimizer: `Adam(mani_decoder.parameters(), lr=1e-2)`
 - Simi optimizer: `Adam(simi_decoder.parameters() + corr_pooling.parameters(), lr=1e-2)`
 - Loss: `BCEWithLogitsLoss` — mani on target mask, simi on source mask
-- Only the 2377 cases with authentic pairs and derived source/target labels
+- Only the 2377 forged cases with authentic pairs and derived source/target labels, plus
+  their authentic counterparts as all-background negatives
 - Runs for `config.stage1_epochs` epochs
 
 **Stage 2** — freeze branches, train Fusion only (LR=1e-2):
 - Freeze all Mani-Det and Simi-Det parameters
 - Optimizer: `Adam(fusion.parameters(), lr=1e-2)`
 - Loss: `CrossEntropyLoss(weight=[0.1, 1.0, 1.0])`
-- Only the 2377 paired cases for the initial run. The 374 no-pair cases are excluded
-  because target-only labels would teach the model that source regions are background.
+- Only the 2377 paired forged cases plus their authentic counterparts for the initial
+  run. The 374 no-pair cases are excluded because target-only labels would teach the
+  model that source regions are background.
 - Runs for `config.stage2_epochs` epochs
 
 **Stage 3** — unfreeze branches + Fusion, end-to-end fine-tuning (LR=1e-5):
@@ -125,18 +190,22 @@ Save to `artifacts/checkpoints/best.pt`.
 
 ## Step 5 — Evaluation  `evaluate.py`
 
-Wraps existing `collect_validation_predictions` and `score_validation_predictions`.
+Wraps existing `collect_validation_predictions` and `score_validation_predictions`,
+matching the baseline evaluation flow.
 
-The model forward returns 3-channel logits. Before passing to the scoring pipeline
-(which expects single-channel binary probabilities), combine:
+Training uses the native 3-channel BusterNet model. Evaluation uses a tiny
+`BusterNetUnionWrapper` whose `forward` converts the 3-class logits into one-channel
+binary foreground logits:
 
 ```python
-probs = logits.softmax(dim=1)          # (B, 3, H, W)
-forgery_prob = probs[:, 1, :, :] + probs[:, 2, :, :]  # target + source
+probs = busternet(x).softmax(dim=1)          # (B, 3, H, W)
+forgery_prob = probs[:, 1:2] + probs[:, 2:3] # target + source
+binary_logits = torch.logit(forgery_prob.clamp(1e-6, 1 - 1e-6))
 ```
 
-Then pass `forgery_prob` as the probability map through existing post-processing
-and scoring. Results saved to `artifacts/results/eval_summary.json`.
+The existing baseline validation code can then apply `sigmoid(binary_logits)` and receive
+the correct union probability. Post-processing and oF1 scoring stay unchanged. Results
+saved to `artifacts/results/eval_summary.json`.
 
 ## Step 6 — README  `README.md`
 

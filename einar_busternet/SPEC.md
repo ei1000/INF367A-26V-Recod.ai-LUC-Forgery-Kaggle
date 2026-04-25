@@ -55,9 +55,9 @@ Mani-Det branch              Simi-Det branch
        ↘                         ↙
        Fusion: concat → (B,6,32,32)
        BN-Inception (simplified: Conv2d(6,3,1) + BN + ReLU)
-       → Conv2d(3,3,3,padding=1) + softmax
+       → Conv2d(3,3,3,padding=1)
        bilinear upsample → (B,3,448,448)
-       3-class output: [background, target, source]
+       raw 3-class logits: [background, target, source]
 ```
 
 At inference for evaluation: `P(target) + P(source)` → forgery probability → binary mask.
@@ -112,7 +112,10 @@ A copy-move location shows a sharp drop in similarity after the matching patch;
 the percentile curve makes this pattern detectable regardless of input size.
 Result: `(B, 1024, 100)` → permute → `(B, 100, 1024)` → reshape → `(B, 100, 32, 32)`
 
-All operations GPU-native. Memory: (1024×1024) × 4B × B ≈ 16MB per batch of 4 — fine.
+All operations GPU-native. Use a small normalisation epsilon so degenerate feature vectors
+stay finite. For the initial implementation, keep the diagonal self-similarity term; it
+can be removed later as an ablation if it appears to waste one percentile slot.
+Memory: (1024×1024) × 4B × B ≈ 16MB per batch of 4 — fine.
 
 ## Fusion Module
 
@@ -124,12 +127,13 @@ Our simplified but faithful adaptation:
 concat(mani_out, simi_out)  →  (B, 6, 32, 32)
 Conv2d(6, 3, 1) + BN + ReLU                  ← simplified BN-Inception
 Conv2d(3, 3, 3, padding=1)                   ← final classifier
-softmax(dim=1)
+raw logits
 bilinear upsample to (B, 3, 448, 448)
 ```
 
 The simplification reduces the multi-kernel Inception block to a single 1×1 conv,
 which is acceptable given that DINOv2 features are already richer than VGG-16.
+Softmax is applied by losses/evaluation, not inside the training forward pass.
 
 ## Training Objective and Multi-Stage Curriculum
 
@@ -140,7 +144,10 @@ Three stages, DINOv2 always frozen:
 ### Stage 1 — Independent branch pre-training (auxiliary tasks)
 
 Train each branch separately with binary BCE. Separate optimizers, no cross-branch
-gradients. Only cases with authentic pairs used (source/target labels available).
+gradients. Initial training uses clean paired cases plus their authentic counterparts.
+Forged samples use only `status == "derived_from_pair"` source/target labels; authentic
+samples are all-background labels so the model also learns to suppress false positives,
+which matters for the official oF1 score.
 
 - **Mani-Det**: supervised on derived **target mask** — pasted region has visual artifacts.
   `L_mani = BCEWithLogitsLoss(mani_binary_logit, target_mask_float)`
@@ -154,8 +161,8 @@ keeping the auxiliary task simple. LR: `1e-2` (paper).
 
 Freeze all Mani-Det and Simi-Det parameters. Train only the Fusion module.
 Loss: `CrossEntropyLoss(weight=[0.1, 1.0, 1.0])` on 3-class labels.
-LR: `1e-2` (paper). Initial training uses only paired cases with reliable source/target
-labels.
+LR: `1e-2` (paper). Initial training uses only paired forged cases with reliable
+source/target labels plus their authentic counterparts as all-background negatives.
 
 ```
 labels ∈ {0=background, 1=target, 2=source}  per pixel  (B, H, W) long tensor
@@ -167,18 +174,44 @@ Unfreeze Mani-Det + Simi-Det + Fusion (DINOv2 remains frozen).
 Same CrossEntropyLoss. LR: `1e-5` (paper). LR reduction: halve when validation loss
 plateaus, stop when no improvement for a patience window.
 
-At inference: `forgery_prob = softmax(logits)[:, 1] + softmax(logits)[:, 2]`
+At inference/evaluation, wrap the 3-class model as a binary foreground model:
+`forgery_prob = softmax(logits)[:, 1] + softmax(logits)[:, 2]`. This wrapper lets us
+reuse the baseline validation and oF1 scoring path while still training native
+source/target/background logits.
+
+Conceptually:
+
+```python
+class BusterNetUnionWrapper(nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, x):
+        probs = self.model(x).softmax(dim=1)
+        forgery_prob = probs[:, 1:2] + probs[:, 2:3]
+        return torch.logit(forgery_prob.clamp(1e-6, 1 - 1e-6))
+```
+
+The wrapper returns one-channel binary logits because the existing baseline evaluator
+applies `sigmoid` internally.
 
 ## Dataset Label Format
 
-One dataset class for all stages. Always emits `(image, label_map)` where:
+One dataset class for all stages. It follows the baseline `ForgeryDataset` preprocessing
+style: RGB images by default, optional DINO/ImageNet normalisation, bilinear image resize,
+and nearest-neighbor label resize. Always emits `(image, label_map)` where:
 - `label_map`: `(H, W)` long tensor with values `{0, 1, 2}`; batched shape is
   `(B, H, W)`, not one-hot encoded
 - target/source masks are read from precomputed `data/train_masks_target/` and
   `data/train_masks_source/`
-- initial BusterNet training filters forged samples to metadata
+- initial BusterNet training keeps forged samples only when metadata has
   `status == "derived_from_pair"` so target-only no-pair cases do not corrupt the
   source/target objective
+- authentic samples are included as all-background labels, but for the initial run they
+  are limited to case IDs that have a paired `derived_from_pair` forged sample
+- forged label construction follows the class convention:
+  `label_map[target_mask > 0] = 1`, then `label_map[source_mask > 0] = 2`
 - Stage 1 losses derive binary masks on the fly: `(label_map == 1).float()` for target,
   `(label_map == 2).float()` for source
 - Stage 2+3: `label_map` used directly with CrossEntropyLoss

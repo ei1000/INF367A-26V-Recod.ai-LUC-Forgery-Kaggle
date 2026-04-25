@@ -92,6 +92,35 @@ class ForgeryDataPlotterTests(unittest.TestCase):
             self.assertEqual(int(masks.target_mask.sum()), 5)
             self.assertEqual(int(masks.source_mask.sum()), 3)
 
+    def test_plots_precomputed_target_only_no_pair_case(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            forged = np.zeros((6, 8), dtype=np.uint8)
+            forged[1:4, 2:6] = 120
+            union_mask = np.zeros((6, 8), dtype=np.uint8)
+            union_mask[1:3, 2:4] = 1
+            union_mask[3:5, 5:7] = 1
+
+            _write_png(root / "train_images" / "forged" / "30.png", forged)
+            _write_mask(root / "train_masks" / "30.npy", union_mask)
+            _write_mask(root / "train_masks_target" / "30.npy", union_mask)
+            _write_mask(root / "train_masks_source" / "30.npy", np.zeros_like(union_mask))
+
+            plotter = ForgeryDataPlotter(root)
+            masks = plotter.load_precomputed_source_target_masks("30")
+
+            self.assertIsNone(masks.diff)
+            self.assertEqual(int(masks.target_mask.sum()), 8)
+            self.assertEqual(int(masks.source_mask.sum()), 0)
+
+            fig, axes = plotter.plot_precomputed_source_target_split("30")
+            self.assertEqual(len(axes), 5)
+            fig.clear()
+
+            fig, axes = plotter.plot_no_pair_exercise("30")
+            self.assertGreaterEqual(len(axes), 3)
+            fig.clear()
+
 
 if __name__ == "__main__":
     unittest.main()

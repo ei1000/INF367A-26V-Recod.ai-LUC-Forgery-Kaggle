@@ -22,9 +22,38 @@ the exact BusterNet behavior we are trying to exploit.
 
 The `374` no-pair cases are still generated into `data/train_masks_target/` with empty
 source masks and recorded in `data/train_masks_source_target_metadata.csv` as
-`target_only_no_authentic`. They are reserved for later experiments, such as using a
-trained model to infer likely source/target assignments or using them only for binary
-union-mask fine-tuning after the source/target model is stable.
+`target_only_no_authentic`. They are reserved for later experiments, not Stage 1.
+
+## Treat No-Pair Cases as Unknown-Order Pairs Later
+
+Inspection of the no-authentic cases suggests that many mask instances already contain
+both sides of a duplicated copy-move pair. In those cases, the historical direction is
+ambiguous: either region could be called the source and the other the target without
+changing the final competition objective, because evaluation uses the union
+`source ∪ target`.
+
+This does not recover true source/target history. Instead, it creates an
+unknown-order source/target split that may provide more real copy-move supervision for
+later training stages.
+
+Planned policy:
+
+- Stage 1 branch pretraining uses only clean paired data.
+- No-pair cases may be considered after a first model is trained and inspected.
+- If used, split each suitable no-pair mask instance into the two duplicated regions.
+- Assign the two regions to source/target with a fixed random seed or use a
+  permutation-invariant loss that accepts either assignment.
+- Do not train on the current target-only fallback labels as if they were real
+  source/target labels.
+
+Reason: BusterNet's final prediction only needs `P(source) + P(target)`, so the exact
+historical source/target direction is less important than learning that two related
+foreground regions should both be localized. The risk is that arbitrary labels may weaken
+branch semantics: the target branch may stop specializing in pasted artifacts or small
+copy-move edits, while the source branch may stop specializing in stable donor regions.
+For that reason, no-pair unknown-order supervision should be a controlled later
+experiment, ideally after checking what the clean paired model already infers on these
+cases.
 
 ## Use Cosine Similarity Instead of Pearson for DINOv2
 

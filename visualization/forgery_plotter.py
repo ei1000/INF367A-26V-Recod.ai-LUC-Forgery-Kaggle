@@ -30,8 +30,8 @@ class SourceTargetMasks:
     union_mask: np.ndarray
     source_mask: np.ndarray
     target_mask: np.ndarray
-    diff: np.ndarray
-    diff_mask: np.ndarray
+    diff: np.ndarray | None
+    diff_mask: np.ndarray | None
     component_scores: pd.DataFrame
 
 
@@ -54,6 +54,14 @@ class ForgeryDataPlotter:
     @property
     def mask_dir(self) -> Path:
         return self.data_root / "train_masks"
+
+    @property
+    def source_mask_dir(self) -> Path:
+        return self.data_root / "train_masks_source"
+
+    @property
+    def target_mask_dir(self) -> Path:
+        return self.data_root / "train_masks_target"
 
     def list_case_ids(self, require_authentic: bool = False, require_mask: bool = True) -> list[str]:
         """Return sorted forged case ids that are available for visualization."""
@@ -109,6 +117,39 @@ class ForgeryDataPlotter:
         if not resolved.mask_paths:
             return []
         return load_instance_masks(resolved.mask_paths)
+
+    def load_precomputed_source_target_masks(self, case: str | ForgeryCase | SampleRecord) -> SourceTargetMasks:
+        """Load materialized BusterNet source/target masks from Step 0."""
+        resolved = self._resolve_case(case)
+        source_path = self.source_mask_dir / f"{resolved.case_id}.npy"
+        target_path = self.target_mask_dir / f"{resolved.case_id}.npy"
+        if not source_path.exists() or not target_path.exists():
+            raise FileNotFoundError(
+                f"Precomputed source/target masks not found for case_id={resolved.case_id}. "
+                "Run einar_busternet.generate_source_target_masks first."
+            )
+
+        source_mask = np.load(source_path).astype(np.uint8)
+        target_mask = np.load(target_path).astype(np.uint8)
+        if resolved.mask_paths:
+            union_mask = self.load_mask(resolved).astype(np.uint8)
+        else:
+            union_mask = ((source_mask > 0) | (target_mask > 0)).astype(np.uint8)
+
+        diff = None
+        diff_mask = None
+        if resolved.authentic_path is not None:
+            diff = self._abs_difference(self.load_image(resolved.authentic_path), self.load_image(resolved.forged_path))
+            diff_mask = (diff > 5.0).astype(np.uint8)
+
+        return SourceTargetMasks(
+            union_mask=union_mask,
+            source_mask=source_mask,
+            target_mask=target_mask,
+            diff=diff,
+            diff_mask=diff_mask,
+            component_scores=pd.DataFrame(),
+        )
 
     def summarize_cases(self, case_ids: Iterable[str] | None = None) -> pd.DataFrame:
         """Build a small table with image sizes and mask coverage for quick EDA."""
@@ -257,6 +298,81 @@ class ForgeryDataPlotter:
         self._show_mask(axes[4], masks.source_mask, "Source components")
 
         fig.suptitle(f"Source/target split for case {resolved.case_id}", y=1.02)
+        fig.tight_layout()
+        return fig, axes
+
+    def plot_precomputed_source_target_split(
+        self,
+        case: str | ForgeryCase | SampleRecord,
+        *,
+        figsize: tuple[float, float] | None = None,
+    ) -> tuple[Figure, np.ndarray]:
+        """Plot Step 0 masks, including target-only no-authentic fallbacks."""
+        resolved = self._resolve_case(case)
+        masks = self.load_precomputed_source_target_masks(resolved)
+        forged = self.load_image(resolved.forged_path)
+        authentic = self.load_image(resolved.authentic_path) if resolved.authentic_path else None
+
+        panel_count = 6 if authentic is not None else 5
+        figsize = figsize or (4.6 * panel_count, 4.6)
+        fig, axes = plt.subplots(1, panel_count, figsize=figsize)
+        axes = np.asarray(axes).reshape(-1)
+
+        idx = 0
+        if authentic is not None:
+            self._show_image(axes[idx], authentic, "Authentic")
+            idx += 1
+
+        self._show_image(axes[idx], forged, "Forged")
+        idx += 1
+        self._show_image(axes[idx], forged, "Forged + union")
+        self._show_mask_overlay(axes[idx], masks.union_mask)
+        idx += 1
+        self._show_mask(axes[idx], masks.union_mask, "GT union")
+        idx += 1
+        self._show_mask(axes[idx], masks.target_mask, "Target mask")
+        idx += 1
+        self._show_mask(axes[idx], masks.source_mask, "Source mask")
+
+        pair_note = "with authentic pair" if authentic is not None else "no authentic pair"
+        fig.suptitle(f"Precomputed source/target masks for case {resolved.case_id} ({pair_note})", y=1.02)
+        fig.tight_layout()
+        return fig, axes
+
+    def plot_no_pair_exercise(
+        self,
+        case: str | ForgeryCase | SampleRecord,
+        *,
+        cols: int = 4,
+        figsize: tuple[float, float] | None = None,
+    ) -> tuple[Figure, np.ndarray]:
+        """Show a no-authentic-pair case as a source/target ambiguity exercise."""
+        resolved = self._resolve_case(case)
+        if resolved.authentic_path is not None:
+            raise ValueError(f"Case {resolved.case_id} has an authentic pair; choose a target_only_no_authentic case.")
+
+        forged = self.load_image(resolved.forged_path)
+        union_mask = self.load_mask(resolved)
+        instances = self.load_instances(resolved)
+        panel_count = 2 + len(instances)
+        cols = max(2, min(cols, panel_count))
+        rows = math.ceil(panel_count / cols)
+        figsize = figsize or (4.2 * cols, 4.2 * rows)
+        fig, axes = plt.subplots(rows, cols, figsize=figsize)
+        axes = np.asarray(axes).reshape(-1)
+
+        self._show_image(axes[0], forged, "Forged")
+        self._show_image(axes[1], forged, "Forged + union mask")
+        self._show_mask_overlay(axes[1], union_mask)
+
+        for idx, instance in enumerate(instances, start=2):
+            self._show_image(axes[idx], forged, f"Masked component {idx - 1}")
+            self._show_mask_overlay(axes[idx], instance)
+
+        for ax in axes[panel_count:]:
+            ax.axis("off")
+
+        fig.suptitle(f"Source/target ambiguity exercise for no-pair case {resolved.case_id}", y=1.02)
         fig.tight_layout()
         return fig, axes
 
