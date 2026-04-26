@@ -53,8 +53,8 @@ class BusterNetConfig:
     save_last_checkpoint: bool = True
     save_last_every_epochs: int = 1
 
-    stage1_epochs: int = 5
-    stage2_epochs: int = 5
+    stage1_epochs: int = 15
+    stage2_epochs: int = 10
     stage3_epochs: int = 10
     stage1_lr: float = 1e-3
     stage2_lr: float = 1e-2

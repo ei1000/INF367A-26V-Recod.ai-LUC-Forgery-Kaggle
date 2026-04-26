@@ -260,6 +260,33 @@ Why this is cheap:
 - We can add capacity without changing baseline preprocessing or validation.
 - The latest diagnostics showed small/tiny forged masks remain the weakest buckets.
 
+## Next Architecture Recommendation: Progressive Decoders
+
+The current wider decoder is still mostly a low-resolution token-grid head. The next
+architecture change should make the branch decoders progressive:
+
+```text
+32x32 DINO/SelfCorr features
+-> branch conv refinement
+-> upsample to 64x64
+-> branch conv refinement
+-> upsample to 128x128
+-> branch conv refinement + auxiliary logits
+-> fuse Mani/Simi features + auxiliary logits at 128x128
+-> final binary union logits
+```
+
+Reason:
+
+- Original BusterNet decodes branch features before classifier/fusion.
+- Modern transformer segmentation often reassembles/fuses features before prediction.
+- Medical/small-mask segmentation benefits from spatial refinement before the final
+  classifier.
+- Final-only upsampling from 32x32 can make tiny copied regions too coarse to recover.
+
+Keep this as the next architecture ablation after the longer epoch run. Do not change
+DINO first.
+
 Why auxiliary logits may help:
 
 - Mani aux logit gives direct target evidence.

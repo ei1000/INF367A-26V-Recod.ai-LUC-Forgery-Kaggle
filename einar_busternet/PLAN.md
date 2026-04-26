@@ -292,6 +292,88 @@ Method description for grading. Cover:
 - How it integrates with the group project
 - Results (fill after eval)
 
+## Step 7 — Progressive Mani/Simi decoding and higher-resolution fusion — planned
+
+Current decoder/fusion is useful but still too grid-like:
+- DINO produces a low-resolution token grid.
+- Mani and Simi decoders operate on that grid.
+- Fusion also operates on that grid.
+- Only the final logits are bilinearly upsampled to image size.
+
+This is efficient, but it may be holding back small/tiny forged masks. The auxiliary
+branch classifiers and fusion head are forced to decide boundaries and weak copied-source
+regions before any spatial refinement has happened. Original BusterNet did the opposite:
+it repeatedly decoded/upsampled branch features before classification and fusion.
+
+Planned ablation: keep DINO frozen, but replace the current grid-only branch decoders
+with progressive decoders.
+
+Recommended first version:
+
+```text
+DINO grid features: 32x32 for 448 input
+
+Mani progressive decoder:
+  32x32: 768 -> 512 -> 256
+  upsample to 64x64
+  64x64: 256 -> 192
+  upsample to 128x128
+  128x128: 192 -> 128
+  mani_aux_logit: 128 -> 1
+
+Simi progressive decoder:
+  32x32: nb_pools -> 256 -> 192
+  upsample to 64x64
+  64x64: 192 -> 128
+  upsample to 128x128
+  128x128: 128 -> 96
+  simi_aux_logit: 96 -> 1
+
+Higher-resolution fusion:
+  concat at 128x128:
+    mani_features 128
+    simi_features 96
+    mani_aux_logit 1
+    simi_aux_logit 1
+    = 226 channels
+
+  fusion:
+    Conv 226 -> 160
+    BN/ReLU
+    Conv 160 -> 128
+    BN/ReLU
+    Conv 128 -> 64
+    BN/ReLU
+    Conv 64 -> output
+
+Final:
+  upsample logits from 128x128 to image size and crop padded borders.
+```
+
+Why this is more principled:
+- Closer to BusterNet's repeated mask-decoder upsampling before classification/fusion.
+- Matches modern dense-prediction patterns such as DPT/SegFormer-style feature
+  reassembly/fusion better than only widening low-res convs.
+- Better suited to medical/small-object segmentation, where coarse grids can erase thin
+  structures and small duplicated regions.
+- Still keeps the DINO backbone and training/evaluation pipeline unchanged.
+
+Implementation notes:
+- Start with bilinear upsampling + Conv/BN/ReLU blocks. Avoid transposed conv first.
+- Keep auxiliary heads at the fusion resolution so Stage 1 trains spatially refined
+  Mani/Simi maps, not only coarse token-grid maps.
+- Keep binary union fusion as the main competition path.
+- Add shape tests for 448 and non-divisible input sizes.
+- Existing checkpoints will not load after this architecture change.
+
+Later, if time allows, use DINO intermediate layers:
+- collect several transformer block outputs,
+- project each to a common channel width,
+- reassemble/fuse them in DPT/SegFormer style.
+
+This is more principled but touches the encoder feature path more, so progressive branch
+decoding is the safer first ablation.
+
 ## File Map
 
 ```

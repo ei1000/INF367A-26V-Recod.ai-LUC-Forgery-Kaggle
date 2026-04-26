@@ -172,3 +172,33 @@ Reason: if the Simi branch under-represents weak copied-source evidence, fusion 
 recover it later. Wider branch decoders add capacity where the current failure mode
 appears, while keeping the frozen DINO backbone and the training/evaluation pipeline
 unchanged. This is another architecture-breaking ablation.
+
+## Plan Progressive Branch Decoders Before More Blind Width
+
+The current wider model still performs most reasoning on the low-resolution DINO token
+grid and upsamples logits only at the end. This is efficient, but it is not very close to
+the original BusterNet decoder, which repeatedly upsamples branch feature maps before
+classification and fusion.
+
+Decision: the next architecture ablation should be progressive Mani/Simi decoding and
+higher-resolution fusion, not only wider grid-level convs.
+
+Planned shape:
+
+```text
+DINO grid: 32x32 for 448 input
+branch decode: 32x32 -> 64x64 -> 128x128
+auxiliary heads: predict at 128x128
+fusion: concatenate Mani features, Simi features, Mani aux logit, Simi aux logit at 128x128
+final logits: upsample from 128x128 to image size
+```
+
+Reason: small/tiny forged regions and thin medical structures can be weakened when all
+branch supervision and fusion happen on the coarse token grid. Progressive decoding gives
+the branch losses a spatially refined feature map to train, while keeping DINO frozen and
+the binary union objective unchanged.
+
+We are not fully abandoning final bilinear upsampling. The final output can still be
+upsampled at the end, but it should come from a refined 128x128 feature map rather than
+directly from the 32x32 DINO grid. That is a better compromise between BusterNet-style
+decoding and DINO runtime.
