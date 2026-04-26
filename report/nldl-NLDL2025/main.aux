@@ -115,31 +115,33 @@
 \@writefile{toc}{\contentsline {paragraph}{Dataset.}{5}{section*.9}\protected@file@percent }
 \def\@LN@column{1}
 \def\@LN@column{2}
+\abx@aux@cite{0}{implementation}
+\abx@aux@segm{0}{0}{implementation}
 \def\@LN@column{1}
-\@writefile{toc}{\contentsline {section}{\numberline {A}BusterDino Diagnostics}{7}{appendix.A}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {A.1}{\ignorespaces BusterDino validation distributions. Left to right: maximum predicted probability per image (authentic vs.\ forged), 99th-percentile probability, total predicted pixels, and pixel F1 by ground-truth mask size bucket. Forged images show bimodal behaviour — the model either fires confidently or produces an empty prediction. F1 degrades for smaller forgeries, consistent with the size-bucket summary in the main text.}}{7}{figure.caption.11}\protected@file@percent }
-\newlabel{fig:busternet_boxplot}{{A.1}{7}{BusterDino validation distributions. Left to right: maximum predicted probability per image (authentic vs.\ forged), 99th-percentile probability, total predicted pixels, and pixel F1 by ground-truth mask size bucket. Forged images show bimodal behaviour — the model either fires confidently or produces an empty prediction. F1 degrades for smaller forgeries, consistent with the size-bucket summary in the main text}{figure.caption.11}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {A.2}{\ignorespaces BusterDino successful prediction on a microscopy image (case 49131, F1=0.899). From left: forged image, ground-truth union mask, predicted probability map, predicted binary mask, and error overlay (blue = false negative, red = false positive). The model correctly localises both the source and target regions with minimal error.}}{7}{figure.caption.12}\protected@file@percent }
-\newlabel{fig:busternet_success_1}{{A.2}{7}{BusterDino successful prediction on a microscopy image (case 49131, F1=0.899). From left: forged image, ground-truth union mask, predicted probability map, predicted binary mask, and error overlay (blue = false negative, red = false positive). The model correctly localises both the source and target regions with minimal error}{figure.caption.12}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {A}Implementation}{7}{appendix.A}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {B}BusterDino Diagnostics}{7}{appendix.B}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {B.1}{\ignorespaces BusterDino validation distributions. Left to right: maximum predicted probability per image (authentic vs.\ forged), 99th-percentile probability, total predicted pixels, and pixel F1 by ground-truth mask size bucket. Forged images show bimodal behaviour — the model either fires confidently or produces an empty prediction. F1 degrades for smaller forgeries, consistent with the size-bucket summary in the main text.}}{7}{figure.caption.11}\protected@file@percent }
+\newlabel{fig:busternet_boxplot}{{B.1}{7}{BusterDino validation distributions. Left to right: maximum predicted probability per image (authentic vs.\ forged), 99th-percentile probability, total predicted pixels, and pixel F1 by ground-truth mask size bucket. Forged images show bimodal behaviour — the model either fires confidently or produces an empty prediction. F1 degrades for smaller forgeries, consistent with the size-bucket summary in the main text}{figure.caption.11}{}}
 \def\@LN@column{2}
-\@writefile{lof}{\contentsline {figure}{\numberline {A.3}{\ignorespaces BusterDino prediction on a nanoparticle image (case 22821, F1=0.526). The model identifies the copied rectangular region; residual errors at the edges are visible in the error overlay. This example illustrates the challenge of precise boundary localisation on high-contrast scientific images.}}{7}{figure.caption.13}\protected@file@percent }
-\newlabel{fig:busternet_success_2}{{A.3}{7}{BusterDino prediction on a nanoparticle image (case 22821, F1=0.526). The model identifies the copied rectangular region; residual errors at the edges are visible in the error overlay. This example illustrates the challenge of precise boundary localisation on high-contrast scientific images}{figure.caption.13}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {B}Deep Dino Cross Scale PatchMatch Post-Processing Performance Gap}{7}{appendix.B}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {B.1}{\ignorespaces Deep Dino Cross-Scale PatchMatch on an image using no post-processing, achieving oF1=0.063. The model detects the copied object but also generates many small components. This affects the oF1 penalty $P$, leading to an overall low oF1 score, even though per-pixel precision is quite strong.}}{7}{figure.caption.14}\protected@file@percent }
-\newlabel{fig:no_postprocess}{{B.1}{7}{Deep Dino Cross-Scale PatchMatch on an image using no post-processing, achieving oF1=0.063. The model detects the copied object but also generates many small components. This affects the oF1 penalty $P$, leading to an overall low oF1 score, even though per-pixel precision is quite strong}{figure.caption.14}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {B.2}{\ignorespaces Deep Dino Cross-Scale PatchMatch on the same figure using post-processing, achieving oF1=0.948}}{7}{figure.caption.15}\protected@file@percent }
-\newlabel{fig:patchmatch_good_case}{{B.2}{7}{Deep Dino Cross-Scale PatchMatch on the same figure using post-processing, achieving oF1=0.948}{figure.caption.15}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {C}Dataset examples}{7}{appendix.C}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {C.1}{\ignorespaces An authentic image containing very similar objects, causing false positives in the Deep Dino Cross-Scale PatchMatch prediction.}}{7}{figure.caption.16}\protected@file@percent }
-\newlabel{fig:false_positive_auth}{{C.1}{7}{An authentic image containing very similar objects, causing false positives in the Deep Dino Cross-Scale PatchMatch prediction}{figure.caption.16}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {B.2}{\ignorespaces BusterDino successful prediction on a microscopy image (case 49131, F1=0.899). From left: forged image, ground-truth union mask, predicted probability map, predicted binary mask, and error overlay (blue = false negative, red = false positive). The model correctly localises both the source and target regions with minimal error.}}{7}{figure.caption.12}\protected@file@percent }
+\newlabel{fig:busternet_success_1}{{B.2}{7}{BusterDino successful prediction on a microscopy image (case 49131, F1=0.899). From left: forged image, ground-truth union mask, predicted probability map, predicted binary mask, and error overlay (blue = false negative, red = false positive). The model correctly localises both the source and target regions with minimal error}{figure.caption.12}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {B.3}{\ignorespaces BusterDino prediction on a nanoparticle image (case 22821, F1=0.526). The model identifies the copied rectangular region; residual errors at the edges are visible in the error overlay. This example illustrates the challenge of precise boundary localisation on high-contrast scientific images.}}{7}{figure.caption.13}\protected@file@percent }
+\newlabel{fig:busternet_success_2}{{B.3}{7}{BusterDino prediction on a nanoparticle image (case 22821, F1=0.526). The model identifies the copied rectangular region; residual errors at the edges are visible in the error overlay. This example illustrates the challenge of precise boundary localisation on high-contrast scientific images}{figure.caption.13}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {C}Deep Dino Cross Scale PatchMatch Post-Processing Performance Gap}{7}{appendix.C}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {C.1}{\ignorespaces Deep Dino Cross-Scale PatchMatch on an image using no post-processing, achieving oF1=0.063. The model detects the copied object but also generates many small components. This affects the oF1 penalty $P$, leading to an overall low oF1 score, even though per-pixel precision is quite strong.}}{7}{figure.caption.14}\protected@file@percent }
+\newlabel{fig:no_postprocess}{{C.1}{7}{Deep Dino Cross-Scale PatchMatch on an image using no post-processing, achieving oF1=0.063. The model detects the copied object but also generates many small components. This affects the oF1 penalty $P$, leading to an overall low oF1 score, even though per-pixel precision is quite strong}{figure.caption.14}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {C.2}{\ignorespaces Deep Dino Cross-Scale PatchMatch on the same figure using post-processing, achieving oF1=0.948}}{7}{figure.caption.15}\protected@file@percent }
+\newlabel{fig:patchmatch_good_case}{{C.2}{7}{Deep Dino Cross-Scale PatchMatch on the same figure using post-processing, achieving oF1=0.948}{figure.caption.15}{}}
 \def\@LN@column{1}
-\@writefile{lof}{\contentsline {figure}{\numberline {C.2}{\ignorespaces A forged image with the source being hard to predict due to size. The aggressive minimum component size post-processing performed by some of the models examined in this paper, such as Deep Dino Cross-Scale PatchMatch, mean that they would be unable to detect this forgery.}}{8}{figure.caption.17}\protected@file@percent }
-\newlabel{fig:hard_prediction_case}{{C.2}{8}{A forged image with the source being hard to predict due to size. The aggressive minimum component size post-processing performed by some of the models examined in this paper, such as Deep Dino Cross-Scale PatchMatch, mean that they would be unable to detect this forgery}{figure.caption.17}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {C.3}{\ignorespaces A scientific image where mask post-processing combines components too aggressively. In addition, this highlights some challenges due to dataset characteristics - the text ("MutEPOR") is predicted as a forgery because it appears in the exact same form twice.}}{8}{figure.caption.18}\protected@file@percent }
-\newlabel{fig:patchmatch_bad_case}{{C.3}{8}{A scientific image where mask post-processing combines components too aggressively. In addition, this highlights some challenges due to dataset characteristics - the text ("MutEPOR") is predicted as a forgery because it appears in the exact same form twice}{figure.caption.18}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {D}Dataset examples}{8}{appendix.D}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {D.1}{\ignorespaces An authentic image containing very similar objects, causing false positives in the Deep Dino Cross-Scale PatchMatch prediction.}}{8}{figure.caption.16}\protected@file@percent }
+\newlabel{fig:false_positive_auth}{{D.1}{8}{An authentic image containing very similar objects, causing false positives in the Deep Dino Cross-Scale PatchMatch prediction}{figure.caption.16}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {D.2}{\ignorespaces A forged image with the source being hard to predict due to size. The aggressive minimum component size post-processing performed by some of the models examined in this paper, such as Deep Dino Cross-Scale PatchMatch, mean that they would be unable to detect this forgery.}}{8}{figure.caption.17}\protected@file@percent }
+\newlabel{fig:hard_prediction_case}{{D.2}{8}{A forged image with the source being hard to predict due to size. The aggressive minimum component size post-processing performed by some of the models examined in this paper, such as Deep Dino Cross-Scale PatchMatch, mean that they would be unable to detect this forgery}{figure.caption.17}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {D.3}{\ignorespaces A scientific image where mask post-processing combines components too aggressively. In addition, this highlights some challenges due to dataset characteristics - the text ("MutEPOR") is predicted as a forgery because it appears in the exact same form twice.}}{8}{figure.caption.18}\protected@file@percent }
+\newlabel{fig:patchmatch_bad_case}{{D.3}{8}{A scientific image where mask post-processing combines components too aggressively. In addition, this highlights some challenges due to dataset characteristics - the text ("MutEPOR") is predicted as a forgery because it appears in the exact same form twice}{figure.caption.18}{}}
 \def\@LN@column{2}
-\abx@aux@read@bbl@mdfivesum{2233B1A19EAD277C369E38F30286AAE0}
-\abx@aux@read@bblrerun
+\abx@aux@read@bbl@mdfivesum{2D864307D8124F0B37497740EB4ADECF}
 \abx@aux@defaultrefcontext{0}{kaggle}{noneyear/global//global/global}
 \abx@aux@defaultrefcontext{0}{fridrich2003copymove}{noneyear/global//global/global}
 \abx@aux@defaultrefcontext{0}{christlein2012evaluation}{noneyear/global//global/global}
@@ -155,13 +157,13 @@
 \abx@aux@defaultrefcontext{0}{notebook2}{noneyear/global//global/global}
 \abx@aux@defaultrefcontext{0}{einar_busternet}{noneyear/global//global/global}
 \abx@aux@defaultrefcontext{0}{barnes2009patchmatch}{noneyear/global//global/global}
-\abx@aux@defaultrefcontext{0}{simonyan2014vgg16}{noneyear/global//global/global}
 \abx@aux@defaultrefcontext{0}{he2016deep}{noneyear/global//global/global}
 \abx@aux@defaultrefcontext{0}{max_crosscale_patchmatch}{noneyear/global//global/global}
 \abx@aux@defaultrefcontext{0}{segnext}{noneyear/global//global/global}
 \abx@aux@defaultrefcontext{0}{emre_segnext}{noneyear/global//global/global}
-\abx@aux@defaultrefcontext{0}{lin2014coco}{noneyear/global//global/global}
 \abx@aux@defaultrefcontext{0}{dong2013casia}{noneyear/global//global/global}
 \abx@aux@defaultrefcontext{0}{tralic2013comofo}{noneyear/global//global/global}
+\abx@aux@defaultrefcontext{0}{lin2014coco}{noneyear/global//global/global}
 \abx@aux@defaultrefcontext{0}{silva2015copy}{noneyear/global//global/global}
+\abx@aux@defaultrefcontext{0}{implementation}{noneyear/global//global/global}
 \gdef \@abspage@last{8}

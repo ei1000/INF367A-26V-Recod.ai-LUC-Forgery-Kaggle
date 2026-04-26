@@ -640,39 +640,6 @@
       \verb https://dl.acm.org/doi/10.1145/1531326.1531330
       \endverb
     \endentry
-    \entry{simonyan2014vgg16}{article}{}
-      \name{author}{2}{}{%
-        {{hash=9d16b7284df92c9adaee86c37ab992df}{%
-           family={Simonyan},
-           familyi={S\bibinitperiod},
-           given={Karen},
-           giveni={K\bibinitperiod}}}%
-        {{hash=c72fc39e94030f67717052309266a44d}{%
-           family={Zisserman},
-           familyi={Z\bibinitperiod},
-           given={Andrew},
-           giveni={A\bibinitperiod}}}%
-      }
-      \strng{namehash}{25d2f3c4577a6632d37f0126cc781232}
-      \strng{fullhash}{25d2f3c4577a6632d37f0126cc781232}
-      \strng{bibnamehash}{25d2f3c4577a6632d37f0126cc781232}
-      \strng{authorbibnamehash}{25d2f3c4577a6632d37f0126cc781232}
-      \strng{authornamehash}{25d2f3c4577a6632d37f0126cc781232}
-      \strng{authorfullhash}{25d2f3c4577a6632d37f0126cc781232}
-      \field{sortinit}{2}
-      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
-      \field{labelnamesource}{author}
-      \field{labeltitlesource}{title}
-      \field{journaltitle}{arXiv preprint arXiv:1409.1556}
-      \field{title}{Very Deep Convolutional Networks for Large-Scale Image Recognition}
-      \field{year}{2014}
-      \verb{urlraw}
-      \verb https://arxiv.org/abs/1409.1556
-      \endverb
-      \verb{url}
-      \verb https://arxiv.org/abs/1409.1556
-      \endverb
-    \endentry
     \entry{he2016deep}{article}{}
       \name{author}{4}{}{%
         {{hash=6b4b60e909e78633945f3f9c9dc83e01}{%
@@ -809,65 +776,6 @@
       \field{title}{{SegNext Segmentation} Implementation}
       \field{year}{2026}
     \endentry
-    \entry{lin2014coco}{inproceedings}{}
-      \name{author}{8}{}{%
-        {{hash=08f925fe4692d130a1d7cb7d94483351}{%
-           family={Lin},
-           familyi={L\bibinitperiod},
-           given={Tsung-Yi},
-           giveni={T\bibinithyphendelim Y\bibinitperiod}}}%
-        {{hash=d980bc6930f008a0fb5fa667785f2309}{%
-           family={Maire},
-           familyi={M\bibinitperiod},
-           given={Michael},
-           giveni={M\bibinitperiod}}}%
-        {{hash=044d1db5259b74e4975282f599d8e767}{%
-           family={Belongie},
-           familyi={B\bibinitperiod},
-           given={Serge},
-           giveni={S\bibinitperiod}}}%
-        {{hash=797fc3624ba315db58eef7279ace5bf3}{%
-           family={Hays},
-           familyi={H\bibinitperiod},
-           given={James},
-           giveni={J\bibinitperiod}}}%
-        {{hash=e52876f830a8a20786ff3e4d7dd6f083}{%
-           family={Perona},
-           familyi={P\bibinitperiod},
-           given={Pietro},
-           giveni={P\bibinitperiod}}}%
-        {{hash=aedcd3831845183e070aef16857d83ea}{%
-           family={Ramanan},
-           familyi={R\bibinitperiod},
-           given={Deva},
-           giveni={D\bibinitperiod}}}%
-        {{hash=ecd149fdcb3e0503881d49e545744c3d}{%
-           family={Dollár},
-           familyi={D\bibinitperiod},
-           given={Piotr},
-           giveni={P\bibinitperiod}}}%
-        {{hash=0eae2d56a9cbb037c64028d6573877a7}{%
-           family={Zitnick},
-           familyi={Z\bibinitperiod},
-           given={C.\bibnamedelimi Lawrence},
-           giveni={C\bibinitperiod\bibinitdelim L\bibinitperiod}}}%
-      }
-      \strng{namehash}{3b7e00bc88d7aca4d4d5ddb8c252e36c}
-      \strng{fullhash}{efa664e154982dfbb2d86b95a77d1448}
-      \strng{bibnamehash}{efa664e154982dfbb2d86b95a77d1448}
-      \strng{authorbibnamehash}{efa664e154982dfbb2d86b95a77d1448}
-      \strng{authornamehash}{3b7e00bc88d7aca4d4d5ddb8c252e36c}
-      \strng{authorfullhash}{efa664e154982dfbb2d86b95a77d1448}
-      \field{sortinit}{2}
-      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
-      \field{labelnamesource}{author}
-      \field{labeltitlesource}{title}
-      \field{booktitle}{European Conference on Computer Vision (ECCV)}
-      \field{title}{Microsoft COCO: Common Objects in Context}
-      \field{year}{2014}
-      \field{pages}{740\bibrangedash 755}
-      \range{pages}{16}
-    \endentry
     \entry{dong2013casia}{inproceedings}{}
       \name{author}{3}{}{%
         {{hash=db5ca4c0a459acddb82c55e74668dbd9}{%
@@ -941,6 +849,65 @@
       \field{pages}{49\bibrangedash 54}
       \range{pages}{6}
     \endentry
+    \entry{lin2014coco}{inproceedings}{}
+      \name{author}{8}{}{%
+        {{hash=08f925fe4692d130a1d7cb7d94483351}{%
+           family={Lin},
+           familyi={L\bibinitperiod},
+           given={Tsung-Yi},
+           giveni={T\bibinithyphendelim Y\bibinitperiod}}}%
+        {{hash=d980bc6930f008a0fb5fa667785f2309}{%
+           family={Maire},
+           familyi={M\bibinitperiod},
+           given={Michael},
+           giveni={M\bibinitperiod}}}%
+        {{hash=044d1db5259b74e4975282f599d8e767}{%
+           family={Belongie},
+           familyi={B\bibinitperiod},
+           given={Serge},
+           giveni={S\bibinitperiod}}}%
+        {{hash=797fc3624ba315db58eef7279ace5bf3}{%
+           family={Hays},
+           familyi={H\bibinitperiod},
+           given={James},
+           giveni={J\bibinitperiod}}}%
+        {{hash=e52876f830a8a20786ff3e4d7dd6f083}{%
+           family={Perona},
+           familyi={P\bibinitperiod},
+           given={Pietro},
+           giveni={P\bibinitperiod}}}%
+        {{hash=aedcd3831845183e070aef16857d83ea}{%
+           family={Ramanan},
+           familyi={R\bibinitperiod},
+           given={Deva},
+           giveni={D\bibinitperiod}}}%
+        {{hash=ecd149fdcb3e0503881d49e545744c3d}{%
+           family={Dollár},
+           familyi={D\bibinitperiod},
+           given={Piotr},
+           giveni={P\bibinitperiod}}}%
+        {{hash=0eae2d56a9cbb037c64028d6573877a7}{%
+           family={Zitnick},
+           familyi={Z\bibinitperiod},
+           given={C.\bibnamedelimi Lawrence},
+           giveni={C\bibinitperiod\bibinitdelim L\bibinitperiod}}}%
+      }
+      \strng{namehash}{3b7e00bc88d7aca4d4d5ddb8c252e36c}
+      \strng{fullhash}{efa664e154982dfbb2d86b95a77d1448}
+      \strng{bibnamehash}{efa664e154982dfbb2d86b95a77d1448}
+      \strng{authorbibnamehash}{efa664e154982dfbb2d86b95a77d1448}
+      \strng{authornamehash}{3b7e00bc88d7aca4d4d5ddb8c252e36c}
+      \strng{authorfullhash}{efa664e154982dfbb2d86b95a77d1448}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{booktitle}{European Conference on Computer Vision (ECCV)}
+      \field{title}{Microsoft COCO: Common Objects in Context}
+      \field{year}{2014}
+      \field{pages}{740\bibrangedash 755}
+      \range{pages}{16}
+    \endentry
     \entry{silva2015copy}{article}{}
       \name{author}{4}{}{%
         {{hash=a4bb3e61980d9b52d3f12ee8cbb73f3b}{%
@@ -980,6 +947,39 @@
       \field{year}{2015}
       \field{pages}{16\bibrangedash 32}
       \range{pages}{17}
+    \endentry
+    \entry{implementation}{misc}{}
+      \name{author}{3}{}{%
+        {{hash=28df2216780a3fc82cc4d25e4c27df57}{%
+           family={Bernsen},
+           familyi={B\bibinitperiod},
+           given={Einar\bibnamedelimb Martin\bibnamedelima S{ø}vik},
+           giveni={E\bibinitperiod\bibinitdelim M\bibinitperiod\bibinitdelim S\bibinitperiod}}}%
+        {{hash=9fbab02dfcb303e618aed12d266f659e}{%
+           family={Seymour},
+           familyi={S\bibinitperiod},
+           given={Max\bibnamedelima Bakke},
+           giveni={M\bibinitperiod\bibinitdelim B\bibinitperiod}}}%
+        {{hash=d70144d27c7341f0d11e52640099778c}{%
+           family={Balci},
+           familyi={B\bibinitperiod},
+           given={Emre},
+           giveni={E\bibinitperiod}}}%
+      }
+      \strng{namehash}{c2eaaf7eb466d8b27d8d07aa9f71e8f6}
+      \strng{fullhash}{12b626a16b6415d7617c6d1e0dc203f9}
+      \strng{bibnamehash}{12b626a16b6415d7617c6d1e0dc203f9}
+      \strng{authorbibnamehash}{12b626a16b6415d7617c6d1e0dc203f9}
+      \strng{authornamehash}{c2eaaf7eb466d8b27d8d07aa9f71e8f6}
+      \strng{authorfullhash}{12b626a16b6415d7617c6d1e0dc203f9}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{howpublished}{\url{https://github.com/ei1000/INF367A-26V-Recod.ai-LUC-Forgery-Kaggle/tree/main}}
+      \field{note}{[Online; accessed April-2026]}
+      \field{title}{Project Implementation}
+      \field{year}{2026}
     \endentry
   \enddatalist
 \endrefsection

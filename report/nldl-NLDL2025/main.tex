@@ -166,11 +166,11 @@ BusterDino achieved the strongest holdout oF1 among the three architectures. Res
 		Metric & Value \\
 		\midrule
 		Holdout oF1 & 0.5138 \\
-		Authentic mean oF1 & 0.8361 \\
-		Forged mean oF1 & 0.3292 \\
+		Authentic mean pixel f1 & 0.8361 \\
+		Forged mean pixel f1 & 0.3292 \\
 		Forged empty rate & 31.6\% \\
 		Forged precision (non-empty)$^*$ & 0.719 \\
-		Forged oF1 (non-empty)$^*$ & 0.495 \\
+		Forged mean pixel f1 (non-empty)$^*$ & 0.495 \\
 		\bottomrule
 	\end{tabular}
 	\caption{BusterDino results. $^*$Non-empty metrics computed on validation forged images with a non-empty prediction.}
@@ -218,11 +218,14 @@ We also attempted using a custom SegNeXt-inspired model without pretraining, but
 \paragraph{Failure modes.}
 A major failure mode observed across all models was false positive predictions on authentic images. Due to the strict evaluation metric, even a small predicted region results in an oF1 score of zero. This makes the task highly sensitive to small prediction artifacts.
 \paragraph{Dataset.} We attribute part of the difficulty to dataset characteristics. Authentic scientific images often contain repeated or visually similar structures, increasing the risk of false positives. This is especially challenging for PatchMatch, which relies on finding regions with high feature similarity.
-
+\\\\
 Li \etal train on synthetic MS COCO copy-move data and evaluate on photo-realistic datasets such as CASIA CMFD, CoMoFoD and CMH \cite{lin2014coco,dong2013casia,tralic2013comofo,silva2015copy}. These datasets generally contain varied objects and backgrounds, unlike many scientific images, which may have dark or uniform regions. As a result, pixel-wise similarities can produce false positives. Our PatchMatch architecture performed better when the copy-move operation was direct and not heavily post-processed.
 
 \printbibliography
 \appendix
+\section{Implementation}
+Our implementation is available on GitHub \cite{implementation}.
+
 \section{BusterDino Diagnostics}
 
 \begin{figure}[H]

@@ -1,15 +1,17 @@
 [0] Config.pm:307> INFO - This is Biber 2.19
 [0] Config.pm:310> INFO - Logfile is 'main.blg'
-[114] biber-MSWIN64:340> INFO - === 
-[187] Biber.pm:419> INFO - Reading 'main.bcf'
-[292] Biber.pm:979> INFO - Found 24 citekeys in bib section 0
-[307] Biber.pm:4419> INFO - Processing section 0
-[319] Biber.pm:4610> INFO - Looking for bibtex file 'references.bib' for section 0
-[447] bibtex.pm:1713> INFO - LaTeX decoding ...
-[481] bibtex.pm:1519> INFO - Found BibTeX data source 'references.bib'
-[626] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'variable = shifted' with 'variable = non-ignorable'
-[627] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'normalization = NFD' with 'normalization = prenormalized'
-[627] Biber.pm:4239> INFO - Sorting list 'noneyear/global//global/global' of type 'entry' with template 'noneyear' and locale 'en-US'
-[628] Biber.pm:4245> INFO - No sort tailoring available for locale 'en-US'
-[651] bbl.pm:660> INFO - Writing 'main.bbl' with encoding 'UTF-8'
-[673] bbl.pm:763> INFO - Output to main.bbl
+[95] biber-MSWIN64:340> INFO - === 
+[163] Biber.pm:419> INFO - Reading 'main.bcf'
+[263] Biber.pm:979> INFO - Found 24 citekeys in bib section 0
+[276] Biber.pm:4419> INFO - Processing section 0
+[286] Biber.pm:4610> INFO - Looking for bibtex file 'references.bib' for section 0
+[383] bibtex.pm:1713> INFO - LaTeX decoding ...
+[411] bibtex.pm:1519> INFO - Found BibTeX data source 'references.bib'
+[552] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'variable = shifted' with 'variable = non-ignorable'
+[553] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'normalization = NFD' with 'normalization = prenormalized'
+[553] Biber.pm:4239> INFO - Sorting list 'noneyear/global//global/global' of type 'entry' with template 'noneyear' and locale 'en-US'
+[553] Biber.pm:4245> INFO - No sort tailoring available for locale 'en-US'
+[575] bbl.pm:660> INFO - Writing 'main.bbl' with encoding 'UTF-8'
+[596] bbl.pm:763> INFO - Output to main.bbl
+[597] Biber.pm:131> WARN - BibTeX subsystem: C:\Users\maxba\AppData\Local\Temp\biber_tmp_llR8\33e59b5ca9ec342068223d604c3f8d55_33052.utf8, line 205, warning: 75 characters of junk seen at toplevel
+[597] Biber.pm:133> INFO - WARNINGS: 1
