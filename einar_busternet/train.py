@@ -79,6 +79,7 @@ def build_config_from_args(argv: Sequence[str] | None = None) -> BusterNetConfig
             overrides[field_name] = value
 
     if args.smoke:
+        # Smoke mode should finish fast and never start a real training run by accident.
         overrides.update(
             {
                 "train_subset": min(overrides.get("train_subset", 8), 8),
@@ -141,6 +142,7 @@ class SoftDiceLoss(nn.Module):
         targets_f = targets.float()
         intersection = (probs * targets_f).sum(dim=(-2, -1))
         denominator = probs.sum(dim=(-2, -1)) + targets_f.sum(dim=(-2, -1))
+        # Per-sample Dice keeps tiny masks from disappearing inside large-batch sums.
         dice_per_sample = (2.0 * intersection + self.smooth) / (denominator + self.smooth)
         return 1.0 - dice_per_sample.mean()
 
@@ -227,6 +229,7 @@ def train_stage1_epoch(
         with torch.amp.autocast(device_type=device.type, enabled=use_amp):
             mani_logits, simi_logits = model.forward_branches(imgs)
             mani_loss = loss_fn(mani_logits[:, 0], target_mask)
+            # Self-similarity is symmetric, so Simi learns both copied regions.
             simi_loss = loss_fn(simi_logits[:, 0], union_mask)
             loss = mani_loss + simi_loss
         if scaler is not None and use_amp:
@@ -292,6 +295,7 @@ def train_stage3_aux_epoch(
             fusion_loss = fusion_loss_fn(fusion_logits, labels)
             mani_loss = branch_loss_fn(mani_logits[:, 0], target_mask)
             simi_loss = branch_loss_fn(simi_logits[:, 0], union_mask)
+            # Small aux loss keeps branch semantics alive while fusion fine-tunes.
             loss = fusion_loss + aux_loss_weight * (mani_loss + simi_loss)
 
         if scaler is not None and use_amp:
@@ -488,6 +492,7 @@ def _compute_balanced_validation_metrics(*, validation_result: dict, pixel_util)
     if predictions is None:
         return {}
 
+    # Official oF1 can prefer empty authentic predictions; this is only a second view.
     authentic_f1s: list[float] = []
     forged_f1s: list[float] = []
     authentic_fp_pixels = 0
@@ -586,6 +591,7 @@ def _add_balanced_metrics(validation_result: dict, pixel_util) -> dict:
         pixel_util=pixel_util,
     )
     validation_result.update(balanced_metrics)
+    # Predictions are needed for the metric pass, but are too large for checkpoints.
     validation_result.pop("predictions", None)
     return validation_result
 
@@ -619,6 +625,7 @@ def main(config: BusterNetConfig | None = None) -> None:
 
     model = build_model(config).to(device)
     if config.resume_checkpoint_path:
+        # Resume is weight-only; optimizers are rebuilt for the selected stage schedule.
         checkpoint = load_checkpoint(config.resume_checkpoint_path, map_location=device, trusted=True)
         model.load_state_dict(checkpoint["model_state_dict"])
         print(f"Loaded model weights from {config.resume_checkpoint_path}")

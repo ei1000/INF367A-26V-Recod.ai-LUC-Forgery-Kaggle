@@ -84,6 +84,7 @@ def _resolve_device(device_arg: str) -> torch.device:
 def validate_model_loading_allowed(allow_torch_hub: bool) -> None:
     if allow_torch_hub:
         return
+    # Avoid surprising network/cache side effects unless evaluation explicitly allows it.
     raise RuntimeError(
         "Model reconstruction is disabled unless --allow-torch-hub is set. "
         "This rebuilds BusterNet through torch.hub, which may initialize or download "

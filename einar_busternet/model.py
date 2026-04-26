@@ -26,6 +26,7 @@ class SelfCorrelPercPooling(nn.Module):
         b, c, h, w = features.shape
         locations = h * w
         flat = features.reshape(b, c, locations)
+        # Stay GPU-native; eps keeps all-zero/near-zero feature vectors finite.
         norm = F.normalize(flat, dim=1, eps=self.eps)
         similarity = torch.bmm(norm.transpose(1, 2), norm)
         sorted_similarity = similarity.sort(dim=-1, descending=True).values
@@ -180,6 +181,7 @@ class DinoBusterNet(nn.Module):
     def train(self, mode: bool = True):
         super().train(mode)
         if self._encoder_frozen:
+            # BatchNorm/dropout-freezing intent: DINO is a fixed feature extractor here.
             self.encoder.eval()
         return self
 
@@ -250,9 +252,11 @@ class DinoBusterNet(nn.Module):
         simi_features: torch.Tensor,
     ) -> torch.Tensor:
         mani_grid, simi_grid = self._branch_grid_logits_from_features(mani_features, simi_features)
+        # Aux logits give direct Mani/Simi evidence; feature maps keep richer context.
         return self.fusion(torch.cat([mani_features, simi_features, mani_grid, simi_grid], dim=1))
 
     def _upsample_and_crop(self, logits: torch.Tensor, padded_size: tuple[int, int], original_size: tuple[int, int]) -> torch.Tensor:
+        # DINO needs patch-multiple padding; crop it away so masks match input size.
         logits = F.interpolate(logits, size=padded_size, mode="bilinear", align_corners=False)
         orig_h, orig_w = original_size
         return logits[:, :, :orig_h, :orig_w]
@@ -350,4 +354,5 @@ class BusterNetUnionWrapper(nn.Module):
             raise ValueError(f"Expected 1 or 3 output channels, got {logits.shape[1]}")
         probs = logits.softmax(dim=1)
         forgery_prob = probs[:, 1:2] + probs[:, 2:3]
+        # Baseline evaluator expects logits and applies sigmoid itself.
         return torch.logit(forgery_prob.clamp(self.eps, 1.0 - self.eps))

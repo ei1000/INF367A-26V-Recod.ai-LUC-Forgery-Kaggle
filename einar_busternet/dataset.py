@@ -94,6 +94,7 @@ class BusterNetDataset(Dataset):
         for sample in samples:
             case_id = str(sample.case_id)
             if sample.label == "forged":
+                # Only paired forged cases have trustworthy source/target labels.
                 if case_id in self._allowed_case_ids:
                     filtered.append(sample)
             elif sample.label == "authentic" and self.include_authentic:
@@ -142,6 +143,7 @@ class BusterNetDataset(Dataset):
             )
 
         label_map = np.zeros(source_mask.shape, dtype=np.uint8)
+        # Training keeps source/target separate; evaluation later collapses both.
         label_map[target_mask] = 1
         label_map[source_mask] = 2
         return label_map

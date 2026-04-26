@@ -30,6 +30,7 @@ def derive_source_target_masks_from_arrays(
     union_bool = np.asarray(union_mask) > 0
 
     if authentic is None:
+        # No authentic pair means source/target order is unknown; keep as audit-only.
         target_mask = union_bool.astype(np.uint8)
         source_mask = np.zeros_like(target_mask, dtype=np.uint8)
         return DerivedSourceTargetMasks(
@@ -110,6 +111,7 @@ def _split_union_components_by_diff(
     if target_mask.any() or component_scores.empty:
         return source_mask, target_mask, component_scores
 
+    # Keep at least one target component so Mani-Det always has positive supervision.
     candidates = component_scores[~component_scores["is_tiny"]]
     if candidates.empty:
         return source_mask, target_mask, component_scores
