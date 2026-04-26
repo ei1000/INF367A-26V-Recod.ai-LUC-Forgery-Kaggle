@@ -1,12 +1,12 @@
 # Fdb version 4
-["biber main"] 1777223747.89322 "main.bcf" "main.bbl" "main" 1777223751.40379 0
-  "main.bcf" 1777223751.31428 109439 d1fd566dae746f8029c6b92808b4dd04 "pdflatex"
-  "references.bib" 1777222225.19817 7753 7dd36ad0e0cbf95462c0dafe9d98725d ""
+["biber main"] 1777223747.89322 "main.bcf" "main.bbl" "main" 1777224787.61543 0
+  "main.bcf" 1777224787.52253 109439 d1fd566dae746f8029c6b92808b4dd04 "pdflatex"
+  "references.bib" 1777224765.02293 7753 7dd36ad0e0cbf95462c0dafe9d98725d ""
   (generated)
   "main.bbl"
   "main.blg"
   (rewritten before read)
-["pdflatex"] 1777223749.9079 "main.tex" "main.pdf" "main" 1777223751.40397 0
+["pdflatex"] 1777224786.12308 "main.tex" "main.pdf" "main" 1777224787.61563 0
   "/etc/texmf/web2c/texmf.cnf" 1777206271.90876 475 c0e671620eb5563b2130f56340a5fde8 ""
   "/usr/share/texlive/texmf-dist/fonts/map/fontname/texfonts.map" 1577235249 3524 cb3e574dea2d1052e39280babc910dc8 ""
   "/usr/share/texlive/texmf-dist/fonts/tfm/public/amsfonts/symbols/msam10.tfm" 1246382020 916 f87d7c45f9c908e672703b83b72241a3 ""
@@ -295,15 +295,15 @@
   "/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map" 1777206558.11993 5349216 bf3a80e68d946c7acd95ff030fd9bb63 ""
   "/var/lib/texmf/web2c/pdftex/pdflatex.fmt" 1777206301 6831174 8c81e0278a9e14bc82ad6f720e4d1d50 ""
   "baseline_vs_segnext_results.png" 1776940259.32037 45392 bee43bfc33cc1344f4d4702b7341777f ""
-  "busternet_boxplot.png" 1777223513.57052 45926 d42bc2f1007d556ded33140022d14f40 ""
-  "busternet_success_1.png" 1777223513.57052 110319 3094df48b61d49ccac438c134f13b078 ""
-  "busternet_success_2.png" 1777223513.57435 327258 8187a2c56d6be9de6261bdec3a62bc5f ""
+  "busternet_boxplot.png" 1777224765.01146 45926 d42bc2f1007d556ded33140022d14f40 ""
+  "busternet_success_1.png" 1777224765.01529 110319 3094df48b61d49ccac438c134f13b078 ""
+  "busternet_success_2.png" 1777224765.01529 327258 8187a2c56d6be9de6261bdec3a62bc5f ""
   "hard_prediction.png" 1776600253.32922 129146 acd1bb9eabd4a2f3ae61342fee0404e9 ""
-  "main.aux" 1777223751.31428 14119 7d0347815db9dd0bd37e4fc38602dcba "pdflatex"
-  "main.bbl" 1777223748.39122 37835 70e0e80a64e7aa3002825ea7554fd7f2 "biber main"
-  "main.out" 1777223751.31428 3725 3210fae985324668632b4c0e6544a1cc "pdflatex"
-  "main.run.xml" 1777223751.31811 2380 c8fb578e0d2f70fe7061ddcf6aed38ac "pdflatex"
-  "main.tex" 1777223585.85497 28053 4e9e42c996798bcdd8bac0fb1d0b8c93 ""
+  "main.aux" 1777224787.52253 14119 3be5c9491075172ad5a9f54d9f2e1558 "pdflatex"
+  "main.bbl" 1777224765.01529 37835 70e0e80a64e7aa3002825ea7554fd7f2 "biber main"
+  "main.out" 1777224787.52253 3725 95b83f5016545e352f2a568f0a0267a9 "pdflatex"
+  "main.run.xml" 1777224787.52253 2380 c8fb578e0d2f70fe7061ddcf6aed38ac "pdflatex"
+  "main.tex" 1777224765.02293 28077 88319867a5687b9136d43242f000de49 ""
   "nldl.cls" 1776502514.89732 8184 07d3d48686160dbd45683a807f24a8a1 ""
   "patchmatch_bad_dataset_example.png" 1776600253.34073 133541 9874b59e68c864be478af83ed19febf8 ""
   "patchmatch_good_example.png" 1776600253.34275 348183 78bd2264d050074d6d2feebd2ae77f58 ""
