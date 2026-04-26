@@ -1,8 +1,8 @@
 {
-  "checkpoint_path": "/home/maxba/projects/INF367A-26V-Recod.ai-LUC-Forgery-Kaggle/max_individual_project/artifacts/final_ver_run/checkpoints/best.pt",
-  "run_dir": "/home/maxba/projects/INF367A-26V-Recod.ai-LUC-Forgery-Kaggle/max_individual_project/artifacts/final_ver_run",
-  "samples_file": "/home/maxba/projects/INF367A-26V-Recod.ai-LUC-Forgery-Kaggle/max_individual_project/artifacts/final_ver_run/heldout_test_samples.txt",
-  "split_manifest": "/home/maxba/projects/INF367A-26V-Recod.ai-LUC-Forgery-Kaggle/max_individual_project/artifacts/final_ver_run/split_manifest.json",
+  "checkpoint_path": "/home/maxba/projects/INF367A-26V-Recod.ai-LUC-Forgery-Kaggle/max_crosscale_patchmatch/artifacts/final_ver_run/checkpoints/best.pt",
+  "run_dir": "/home/maxba/projects/INF367A-26V-Recod.ai-LUC-Forgery-Kaggle/max_crosscale_patchmatch/artifacts/final_ver_run",
+  "samples_file": "/home/maxba/projects/INF367A-26V-Recod.ai-LUC-Forgery-Kaggle/max_crosscale_patchmatch/artifacts/final_ver_run/heldout_test_samples.txt",
+  "split_manifest": "/home/maxba/projects/INF367A-26V-Recod.ai-LUC-Forgery-Kaggle/max_crosscale_patchmatch/artifacts/final_ver_run/split_manifest.json",
   "sample_counts": {
     "total": 518,
     "authentic": 238,

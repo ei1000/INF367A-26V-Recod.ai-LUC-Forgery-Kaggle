@@ -218,9 +218,9 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 
-# Max cache
+# Project files
 /artifacts
-/max_individual_project/artifacts
+/max_crosscale_patchmatch/artifacts
 docs/DINO_IMPLEMENTATION_PLAN.md
 docs/REFACTOR_PLAN.md
 docs/implementation_note_2.md
