@@ -2382,20 +2382,21 @@
     <bcf:citekey order="14" intorder="1">notebook1</bcf:citekey>
     <bcf:citekey order="14" intorder="2">notebook2</bcf:citekey>
     <bcf:citekey order="15" intorder="1">oquab2023dinov2</bcf:citekey>
-    <bcf:citekey order="16" intorder="1">li2024deeppatchmatch</bcf:citekey>
-    <bcf:citekey order="17" intorder="1">barnes2009patchmatch</bcf:citekey>
-    <bcf:citekey order="18" intorder="1">simonyan2014vgg16</bcf:citekey>
-    <bcf:citekey order="18" intorder="2">he2016deep</bcf:citekey>
-    <bcf:citekey order="19" intorder="1">wu2018busternet</bcf:citekey>
-    <bcf:citekey order="20" intorder="1">einar_busternet</bcf:citekey>
-    <bcf:citekey order="21" intorder="1">segnext</bcf:citekey>
+    <bcf:citekey order="16" intorder="1">wu2018busternet</bcf:citekey>
+    <bcf:citekey order="17" intorder="1">einar_busternet</bcf:citekey>
+    <bcf:citekey order="18" intorder="1">li2024deeppatchmatch</bcf:citekey>
+    <bcf:citekey order="19" intorder="1">barnes2009patchmatch</bcf:citekey>
+    <bcf:citekey order="20" intorder="1">he2016deep</bcf:citekey>
+    <bcf:citekey order="21" intorder="1">max_crosscale_patchmatch</bcf:citekey>
     <bcf:citekey order="22" intorder="1">segnext</bcf:citekey>
-    <bcf:citekey order="23" intorder="1">kaggle</bcf:citekey>
-    <bcf:citekey order="24" intorder="1">li2024deeppatchmatch</bcf:citekey>
-    <bcf:citekey order="25" intorder="1">lin2014coco</bcf:citekey>
-    <bcf:citekey order="26" intorder="1">dong2013casia</bcf:citekey>
-    <bcf:citekey order="26" intorder="2">tralic2013comofo</bcf:citekey>
-    <bcf:citekey order="26" intorder="3">silva2015copy</bcf:citekey>
+    <bcf:citekey order="23" intorder="1">segnext</bcf:citekey>
+    <bcf:citekey order="24" intorder="1">emre_segnext</bcf:citekey>
+    <bcf:citekey order="25" intorder="1">kaggle</bcf:citekey>
+    <bcf:citekey order="26" intorder="1">li2024deeppatchmatch</bcf:citekey>
+    <bcf:citekey order="27" intorder="1">lin2014coco</bcf:citekey>
+    <bcf:citekey order="28" intorder="1">dong2013casia</bcf:citekey>
+    <bcf:citekey order="28" intorder="2">tralic2013comofo</bcf:citekey>
+    <bcf:citekey order="28" intorder="3">silva2015copy</bcf:citekey>
   </bcf:section>
   <!-- SORTING TEMPLATES -->
   <bcf:sortingtemplate name="noneyear">

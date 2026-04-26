@@ -453,52 +453,6 @@
       \field{title}{RecodAI F1}
       \field{year}{2025}
     \endentry
-    \entry{notebook1}{misc}{}
-      \name{author}{1}{}{%
-        {{hash=6282df62bc027d3cb2e954927ba1fec1}{%
-           family={Parkhedkar},
-           familyi={P\bibinitperiod},
-           given={Gaurav},
-           giveni={G\bibinitperiod}}}%
-      }
-      \strng{namehash}{6282df62bc027d3cb2e954927ba1fec1}
-      \strng{fullhash}{6282df62bc027d3cb2e954927ba1fec1}
-      \strng{bibnamehash}{6282df62bc027d3cb2e954927ba1fec1}
-      \strng{authorbibnamehash}{6282df62bc027d3cb2e954927ba1fec1}
-      \strng{authornamehash}{6282df62bc027d3cb2e954927ba1fec1}
-      \strng{authorfullhash}{6282df62bc027d3cb2e954927ba1fec1}
-      \field{sortinit}{1}
-      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
-      \field{labelnamesource}{author}
-      \field{labeltitlesource}{title}
-      \field{howpublished}{\url{https://www.kaggle.com/code/gauravparkhedkar/dinov2-base-0-332-high-res-4500px-robust-inf}}
-      \field{note}{[Online; accessed January-2026]}
-      \field{title}{DINOv2 Base [0.332] | High-Res 4500px | Robust Inf}
-      \field{year}{2026}
-    \endentry
-    \entry{notebook2}{misc}{}
-      \name{author}{1}{}{%
-        {{hash=1ab8899369cc893b181adcc5709b8ece}{%
-           family={Ravaghi},
-           familyi={R\bibinitperiod},
-           given={Mahdi},
-           giveni={M\bibinitperiod}}}%
-      }
-      \strng{namehash}{1ab8899369cc893b181adcc5709b8ece}
-      \strng{fullhash}{1ab8899369cc893b181adcc5709b8ece}
-      \strng{bibnamehash}{1ab8899369cc893b181adcc5709b8ece}
-      \strng{authorbibnamehash}{1ab8899369cc893b181adcc5709b8ece}
-      \strng{authornamehash}{1ab8899369cc893b181adcc5709b8ece}
-      \strng{authorfullhash}{1ab8899369cc893b181adcc5709b8ece}
-      \field{sortinit}{1}
-      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
-      \field{labelnamesource}{author}
-      \field{labeltitlesource}{title}
-      \field{howpublished}{\url{https://www.kaggle.com/code/ravaghi/scientific-image-forgery-detection-dinov2}}
-      \field{note}{[Online; accessed January-2026]}
-      \field{title}{Scientific Image Forgery Detection | DINOv2}
-      \field{year}{2026}
-    \endentry
     \entry{oquab2023dinov2}{article}{}
       \true{moreauthor}
       \true{morelabelname}
@@ -575,6 +529,75 @@
       \verb https://arxiv.org/abs/2304.07193
       \endverb
     \endentry
+    \entry{notebook1}{misc}{}
+      \name{author}{1}{}{%
+        {{hash=6282df62bc027d3cb2e954927ba1fec1}{%
+           family={Parkhedkar},
+           familyi={P\bibinitperiod},
+           given={Gaurav},
+           giveni={G\bibinitperiod}}}%
+      }
+      \strng{namehash}{6282df62bc027d3cb2e954927ba1fec1}
+      \strng{fullhash}{6282df62bc027d3cb2e954927ba1fec1}
+      \strng{bibnamehash}{6282df62bc027d3cb2e954927ba1fec1}
+      \strng{authorbibnamehash}{6282df62bc027d3cb2e954927ba1fec1}
+      \strng{authornamehash}{6282df62bc027d3cb2e954927ba1fec1}
+      \strng{authorfullhash}{6282df62bc027d3cb2e954927ba1fec1}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{howpublished}{\url{https://www.kaggle.com/code/gauravparkhedkar/dinov2-base-0-332-high-res-4500px-robust-inf}}
+      \field{note}{[Online; accessed January-2026]}
+      \field{title}{DINOv2 Base [0.332] | High-Res 4500px | Robust Inf}
+      \field{year}{2026}
+    \endentry
+    \entry{notebook2}{misc}{}
+      \name{author}{1}{}{%
+        {{hash=1ab8899369cc893b181adcc5709b8ece}{%
+           family={Ravaghi},
+           familyi={R\bibinitperiod},
+           given={Mahdi},
+           giveni={M\bibinitperiod}}}%
+      }
+      \strng{namehash}{1ab8899369cc893b181adcc5709b8ece}
+      \strng{fullhash}{1ab8899369cc893b181adcc5709b8ece}
+      \strng{bibnamehash}{1ab8899369cc893b181adcc5709b8ece}
+      \strng{authorbibnamehash}{1ab8899369cc893b181adcc5709b8ece}
+      \strng{authornamehash}{1ab8899369cc893b181adcc5709b8ece}
+      \strng{authorfullhash}{1ab8899369cc893b181adcc5709b8ece}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{howpublished}{\url{https://www.kaggle.com/code/ravaghi/scientific-image-forgery-detection-dinov2}}
+      \field{note}{[Online; accessed January-2026]}
+      \field{title}{Scientific Image Forgery Detection | DINOv2}
+      \field{year}{2026}
+    \endentry
+    \entry{einar_busternet}{misc}{}
+      \name{author}{1}{}{%
+        {{hash=28df2216780a3fc82cc4d25e4c27df57}{%
+           family={Bernsen},
+           familyi={B\bibinitperiod},
+           given={Einar\bibnamedelimb Martin\bibnamedelima S{ø}vik},
+           giveni={E\bibinitperiod\bibinitdelim M\bibinitperiod\bibinitdelim S\bibinitperiod}}}%
+      }
+      \strng{namehash}{28df2216780a3fc82cc4d25e4c27df57}
+      \strng{fullhash}{28df2216780a3fc82cc4d25e4c27df57}
+      \strng{bibnamehash}{28df2216780a3fc82cc4d25e4c27df57}
+      \strng{authorbibnamehash}{28df2216780a3fc82cc4d25e4c27df57}
+      \strng{authornamehash}{28df2216780a3fc82cc4d25e4c27df57}
+      \strng{authorfullhash}{28df2216780a3fc82cc4d25e4c27df57}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{howpublished}{\url{https://github.com/ei1000/INF367A-26V-Recod.ai-LUC-Forgery-Kaggle/tree/main/einar_busternet}}
+      \field{note}{[Online; accessed April-2026]}
+      \field{title}{{BusterNet-DINO} Implementation}
+      \field{year}{2026}
+    \endentry
     \entry{barnes2009patchmatch}{article}{}
       \name{author}{4}{}{%
         {{hash=4e74e92ac258a7344d22dd0661d08dd2}{%
@@ -636,8 +659,8 @@
       \strng{authorbibnamehash}{25d2f3c4577a6632d37f0126cc781232}
       \strng{authornamehash}{25d2f3c4577a6632d37f0126cc781232}
       \strng{authorfullhash}{25d2f3c4577a6632d37f0126cc781232}
-      \field{sortinit}{1}
-      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{journaltitle}{arXiv preprint arXiv:1409.1556}
@@ -679,8 +702,8 @@
       \strng{authorbibnamehash}{42c4b52dc3a62cebabbc11c73e1afb53}
       \strng{authornamehash}{6edb98fe38401d2fe4a026f5ce6e8451}
       \strng{authorfullhash}{42c4b52dc3a62cebabbc11c73e1afb53}
-      \field{sortinit}{1}
-      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{journaltitle}{arXiv preprint arXiv:1512.03385}
@@ -692,6 +715,29 @@
       \verb{url}
       \verb https://arxiv.org/abs/1512.03385
       \endverb
+    \endentry
+    \entry{max_crosscale_patchmatch}{misc}{}
+      \name{author}{1}{}{%
+        {{hash=9fbab02dfcb303e618aed12d266f659e}{%
+           family={Seymour},
+           familyi={S\bibinitperiod},
+           given={Max\bibnamedelima Bakke},
+           giveni={M\bibinitperiod\bibinitdelim B\bibinitperiod}}}%
+      }
+      \strng{namehash}{9fbab02dfcb303e618aed12d266f659e}
+      \strng{fullhash}{9fbab02dfcb303e618aed12d266f659e}
+      \strng{bibnamehash}{9fbab02dfcb303e618aed12d266f659e}
+      \strng{authorbibnamehash}{9fbab02dfcb303e618aed12d266f659e}
+      \strng{authornamehash}{9fbab02dfcb303e618aed12d266f659e}
+      \strng{authorfullhash}{9fbab02dfcb303e618aed12d266f659e}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{howpublished}{\url{https://github.com/ei1000/INF367A-26V-Recod.ai-LUC-Forgery-Kaggle/tree/main/max_crosscale_patchmatch}}
+      \field{note}{[Online; accessed April-2026]}
+      \field{title}{{Deep Dino Cross-Scale PatchMatch} Implementation}
+      \field{year}{2026}
     \endentry
     \entry{segnext}{article}{}
       \name{author}{6}{}{%
@@ -732,35 +778,35 @@
       \strng{authorbibnamehash}{d69b0a8de6052a6207bae973aaf7496f}
       \strng{authornamehash}{fb54b869bb1acb37aff1e2c22d532774}
       \strng{authorfullhash}{d69b0a8de6052a6207bae973aaf7496f}
-      \field{sortinit}{1}
-      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{journaltitle}{arXiv preprint arXiv:2209.08575}
       \field{title}{SegNeXt: Rethinking Convolutional Attention Design for Semantic Segmentation}
       \field{year}{2022}
     \endentry
-    \entry{einar_busternet}{misc}{}
+    \entry{emre_segnext}{misc}{}
       \name{author}{1}{}{%
-        {{hash=28df2216780a3fc82cc4d25e4c27df57}{%
-           family={Bernsen},
+        {{hash=d70144d27c7341f0d11e52640099778c}{%
+           family={Balci},
            familyi={B\bibinitperiod},
-           given={Einar\bibnamedelimb Martin\bibnamedelima S{ø}vik},
-           giveni={E\bibinitperiod\bibinitdelim M\bibinitperiod\bibinitdelim S\bibinitperiod}}}%
+           given={Emre},
+           giveni={E\bibinitperiod}}}%
       }
-      \strng{namehash}{28df2216780a3fc82cc4d25e4c27df57}
-      \strng{fullhash}{28df2216780a3fc82cc4d25e4c27df57}
-      \strng{bibnamehash}{28df2216780a3fc82cc4d25e4c27df57}
-      \strng{authorbibnamehash}{28df2216780a3fc82cc4d25e4c27df57}
-      \strng{authornamehash}{28df2216780a3fc82cc4d25e4c27df57}
-      \strng{authorfullhash}{28df2216780a3fc82cc4d25e4c27df57}
+      \strng{namehash}{d70144d27c7341f0d11e52640099778c}
+      \strng{fullhash}{d70144d27c7341f0d11e52640099778c}
+      \strng{bibnamehash}{d70144d27c7341f0d11e52640099778c}
+      \strng{authorbibnamehash}{d70144d27c7341f0d11e52640099778c}
+      \strng{authornamehash}{d70144d27c7341f0d11e52640099778c}
+      \strng{authorfullhash}{d70144d27c7341f0d11e52640099778c}
       \field{sortinit}{2}
       \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
-      \field{howpublished}{\url{https://github.com/ei1000/INF367A-26V-Recod.ai-LUC-Forgery-Kaggle/tree/main/einar_busternet}}
+      \field{howpublished}{\url{https://github.com/ei1000/INF367A-26V-Recod.ai-LUC-Forgery-Kaggle/tree/main/emre_segnext}}
       \field{note}{[Online; accessed April-2026]}
-      \field{title}{{BusterNet-DINO} Implementation}
+      \field{title}{{SegNext Segmentation} Implementation}
       \field{year}{2026}
     \endentry
     \entry{lin2014coco}{inproceedings}{}
