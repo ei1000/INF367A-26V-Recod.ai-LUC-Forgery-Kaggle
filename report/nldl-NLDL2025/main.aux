@@ -39,6 +39,8 @@
 \abx@aux@segm{0}{0}{oquab2023dinov2}
 \abx@aux@cite{0}{li2024deeppatchmatch}
 \abx@aux@segm{0}{0}{li2024deeppatchmatch}
+\abx@aux@cite{0}{wu2018busternet}
+\abx@aux@segm{0}{0}{wu2018busternet}
 \abx@aux@cite{0}{kaggle}
 \abx@aux@segm{0}{0}{kaggle}
 \abx@aux@cite{0}{oquab2023dinov2}
@@ -65,28 +67,33 @@
 \abx@aux@segm{0}{0}{segnext}
 \abx@aux@cite{0}{segnext}
 \abx@aux@segm{0}{0}{segnext}
+\abx@aux@cite{0}{wu2018busternet}
+\abx@aux@segm{0}{0}{wu2018busternet}
+\abx@aux@cite{0}{einar_busternet}
+\abx@aux@segm{0}{0}{einar_busternet}
 \abx@aux@cite{0}{kaggle}
 \abx@aux@segm{0}{0}{kaggle}
-\abx@aux@cite{0}{li2024deeppatchmatch}
-\abx@aux@segm{0}{0}{li2024deeppatchmatch}
 \@LN@col{1}
 \@writefile{toc}{\contentsline {subsection}{\numberline {2.5}SegNeXt-inspired implementation}{3}{subsection.2.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.6}Mask post-processing}{3}{subsection.2.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.6}Modernised Busternet implementation}{3}{subsection.2.6}\protected@file@percent }
 \@LN@col{2}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.7}Mask post-processing}{3}{subsection.2.7}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {3}Results}{3}{section.3}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Main results}{3}{subsection.3.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {3.1.1}Main model results}{3}{subsubsection.3.1.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.1.2}Deep Cross-Scale PatchMatch results}{3}{subsubsection.3.1.2}\protected@file@percent }
+\abx@aux@cite{0}{li2024deeppatchmatch}
+\abx@aux@segm{0}{0}{li2024deeppatchmatch}
 \@LN@col{1}
 \@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces PatchMatch on an image using no post-processing, achieving OF1=0.063. The model detects the copied object but also generates many small components, leading to an overall low OF1 score, even though per-pixel precision is quite strong.}}{4}{figure.caption.2}\protected@file@percent }
 \providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
 \newlabel{fig:no_postprocess}{{1}{4}{PatchMatch on an image using no post-processing, achieving OF1=0.063. The model detects the copied object but also generates many small components, leading to an overall low OF1 score, even though per-pixel precision is quite strong}{figure.caption.2}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces PatchMatch on the same image as in Figure 1 using post-processing, achieving OF1=0.948}}{4}{figure.caption.3}\protected@file@percent }
-\newlabel{fig:patchmatch_good_case}{{2}{4}{PatchMatch on the same image as in Figure 1 using post-processing, achieving OF1=0.948}{figure.caption.3}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.1.2}Deep Cross-Scale PatchMatch results}{4}{subsubsection.3.1.2}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {3.1.3}BusterNet results}{4}{subsubsection.3.1.3}\protected@file@percent }
 \@LN@col{2}
-\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Best configurations for the compared model families}}{4}{table.caption.4}\protected@file@percent }
-\newlabel{tab:baseline_comparison_transposed}{{1}{4}{Best configurations for the compared model families}{table.caption.4}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces PatchMatch on the same image as in Figure 1 using post-processing, achieving OF1=0.948}}{4}{figure.caption.3}\protected@file@percent }
+\newlabel{fig:patchmatch_good_case}{{2}{4}{PatchMatch on the same image as in Figure 1 using post-processing, achieving OF1=0.948}{figure.caption.3}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces BusterNet-DINO results. $^*$Non-empty metrics computed on validation forged images with a non-empty prediction.}}{4}{table.caption.4}\protected@file@percent }
+\newlabel{tab:busternet_results}{{1}{4}{BusterNet-DINO results. $^*$Non-empty metrics computed on validation forged images with a non-empty prediction}{table.caption.4}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Comparison Between DINO and SegNeXt-inspired Models}{4}{subsection.3.2}\protected@file@percent }
 \abx@aux@cite{0}{lin2014coco}
 \abx@aux@segm{0}{0}{lin2014coco}
@@ -97,27 +104,35 @@
 \abx@aux@cite{0}{silva2015copy}
 \abx@aux@segm{0}{0}{silva2015copy}
 \@LN@col{1}
-\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Validation F1 versus dataset size. The DINO baseline performs better at small dataset sizes, while the pretrained SegNeXt-family variant approaches it at the largest setting.}}{5}{figure.caption.5}\protected@file@percent }
-\newlabel{fig:baseline_compare}{{3}{5}{Validation F1 versus dataset size. The DINO baseline performs better at small dataset sizes, while the pretrained SegNeXt-family variant approaches it at the largest setting}{figure.caption.5}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Best configurations for the compared model families}}{5}{table.caption.5}\protected@file@percent }
+\newlabel{tab:baseline_comparison_transposed}{{2}{5}{Best configurations for the compared model families}{table.caption.5}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Validation F1 versus dataset size. The DINO baseline performs better at small dataset sizes, while the pretrained SegNeXt-family variant approaches it at the largest setting.}}{5}{figure.caption.6}\protected@file@percent }
+\newlabel{fig:baseline_compare}{{3}{5}{Validation F1 versus dataset size. The DINO baseline performs better at small dataset sizes, while the pretrained SegNeXt-family variant approaches it at the largest setting}{figure.caption.6}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {4}Discussion}{5}{section.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Transfer learning.}{5}{section*.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Loss function misalignment.}{5}{section*.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Post-processing.}{5}{section*.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Transfer learning.}{5}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Loss function misalignment.}{5}{section*.8}\protected@file@percent }
 \@LN@col{2}
-\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces A scientific image mask-post-processing combines components too aggressively. In addition, this highlights some challenges due to dataset characteristics - the text ("MutEPOR") is predicted as a forgery because it appears in the exact same form twice}}{5}{figure.caption.9}\protected@file@percent }
-\newlabel{fig:patchmatch_bad_case}{{4}{5}{A scientific image mask-post-processing combines components too aggressively. In addition, this highlights some challenges due to dataset characteristics - the text ("MutEPOR") is predicted as a forgery because it appears in the exact same form twice}{figure.caption.9}{}}
-\@writefile{toc}{\contentsline {paragraph}{Failure modes.}{5}{section*.10}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Dataset.}{5}{section*.11}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces A scientific image mask-post-processing combines components too aggressively. In addition, this highlights some challenges due to dataset characteristics - the text ("MutEPOR") is predicted as a forgery because it appears in the exact same form twice}}{5}{figure.caption.10}\protected@file@percent }
+\newlabel{fig:patchmatch_bad_case}{{4}{5}{A scientific image mask-post-processing combines components too aggressively. In addition, this highlights some challenges due to dataset characteristics - the text ("MutEPOR") is predicted as a forgery because it appears in the exact same form twice}{figure.caption.10}{}}
+\@writefile{toc}{\contentsline {paragraph}{Post-processing.}{5}{section*.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Failure modes.}{5}{section*.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Dataset.}{5}{section*.12}\protected@file@percent }
 \@LN@col{1}
-\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces An authentic image containing very similar objects, causing false positives.}}{6}{figure.caption.12}\protected@file@percent }
-\newlabel{fig:false_positive_auth}{{5}{6}{An authentic image containing very similar objects, causing false positives}{figure.caption.12}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces A forged image with the source being hard to predict due to size}}{6}{figure.caption.13}\protected@file@percent }
-\newlabel{fig:hard_prediction_case}{{6}{6}{A forged image with the source being hard to predict due to size}{figure.caption.13}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces An authentic image containing very similar objects, causing false positives.}}{6}{figure.caption.13}\protected@file@percent }
+\newlabel{fig:false_positive_auth}{{5}{6}{An authentic image containing very similar objects, causing false positives}{figure.caption.13}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces A forged image with the source being hard to predict due to size}}{6}{figure.caption.14}\protected@file@percent }
+\newlabel{fig:hard_prediction_case}{{6}{6}{A forged image with the source being hard to predict due to size}{figure.caption.14}{}}
 \@LN@col{2}
 \@LN@col{1}
-\@writefile{toc}{\contentsline {section}{\numberline {A}Appendix Example}{7}{appendix.A}\protected@file@percent }
 \@LN@col{2}
-\abx@aux@read@bbl@mdfivesum{61587489A9C6A91843854D8EE0809BAA}
+\@writefile{toc}{\contentsline {section}{\numberline {A}BusterNet-DINO Diagnostics}{7}{appendix.A}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {A.1}{\ignorespaces BusterNet-DINO validation distributions. Left to right: maximum predicted probability per image (authentic vs.\ forged), 99th-percentile probability, total predicted pixels, and pixel F1 by ground-truth mask size bucket. Forged images show bimodal behaviour — the model either fires confidently or produces an empty prediction. F1 degrades for smaller forgeries, consistent with the size-bucket summary in the main text.}}{7}{figure.caption.16}\protected@file@percent }
+\newlabel{fig:busternet_boxplot}{{A.1}{7}{BusterNet-DINO validation distributions. Left to right: maximum predicted probability per image (authentic vs.\ forged), 99th-percentile probability, total predicted pixels, and pixel F1 by ground-truth mask size bucket. Forged images show bimodal behaviour — the model either fires confidently or produces an empty prediction. F1 degrades for smaller forgeries, consistent with the size-bucket summary in the main text}{figure.caption.16}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {A.2}{\ignorespaces BusterNet-DINO successful prediction on a microscopy image (case 49131, F1=0.899). From left: forged image, ground-truth union mask, predicted probability map, predicted binary mask, and error overlay (blue = false negative, red = false positive). The model correctly localises both the source and target regions with minimal error.}}{7}{figure.caption.17}\protected@file@percent }
+\newlabel{fig:busternet_success_1}{{A.2}{7}{BusterNet-DINO successful prediction on a microscopy image (case 49131, F1=0.899). From left: forged image, ground-truth union mask, predicted probability map, predicted binary mask, and error overlay (blue = false negative, red = false positive). The model correctly localises both the source and target regions with minimal error}{figure.caption.17}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {A.3}{\ignorespaces BusterNet-DINO prediction on a nanoparticle image (case 22821, F1=0.526). The model identifies the copied rectangular region; residual errors at the edges are visible in the error overlay. This example illustrates the challenge of precise boundary localisation on high-contrast scientific images.}}{7}{figure.caption.18}\protected@file@percent }
+\newlabel{fig:busternet_success_2}{{A.3}{7}{BusterNet-DINO prediction on a nanoparticle image (case 22821, F1=0.526). The model identifies the copied rectangular region; residual errors at the edges are visible in the error overlay. This example illustrates the challenge of precise boundary localisation on high-contrast scientific images}{figure.caption.18}{}}
+\abx@aux@read@bbl@mdfivesum{70E0E80A64E7AA3002825EA7554FD7F2}
 \abx@aux@defaultrefcontext{0}{kaggle}{noneyear/global//global/global}
 \abx@aux@defaultrefcontext{0}{fridrich2003copymove}{noneyear/global//global/global}
 \abx@aux@defaultrefcontext{0}{christlein2012evaluation}{noneyear/global//global/global}
@@ -135,6 +150,7 @@
 \abx@aux@defaultrefcontext{0}{simonyan2014vgg16}{noneyear/global//global/global}
 \abx@aux@defaultrefcontext{0}{he2016deep}{noneyear/global//global/global}
 \abx@aux@defaultrefcontext{0}{segnext}{noneyear/global//global/global}
+\abx@aux@defaultrefcontext{0}{einar_busternet}{noneyear/global//global/global}
 \abx@aux@defaultrefcontext{0}{lin2014coco}{noneyear/global//global/global}
 \abx@aux@defaultrefcontext{0}{dong2013casia}{noneyear/global//global/global}
 \abx@aux@defaultrefcontext{0}{tralic2013comofo}{noneyear/global//global/global}

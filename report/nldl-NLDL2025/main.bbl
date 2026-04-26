@@ -740,6 +740,29 @@
       \field{title}{SegNeXt: Rethinking Convolutional Attention Design for Semantic Segmentation}
       \field{year}{2022}
     \endentry
+    \entry{einar_busternet}{misc}{}
+      \name{author}{1}{}{%
+        {{hash=28df2216780a3fc82cc4d25e4c27df57}{%
+           family={Bernsen},
+           familyi={B\bibinitperiod},
+           given={Einar\bibnamedelimb Martin\bibnamedelima S{ø}vik},
+           giveni={E\bibinitperiod\bibinitdelim M\bibinitperiod\bibinitdelim S\bibinitperiod}}}%
+      }
+      \strng{namehash}{28df2216780a3fc82cc4d25e4c27df57}
+      \strng{fullhash}{28df2216780a3fc82cc4d25e4c27df57}
+      \strng{bibnamehash}{28df2216780a3fc82cc4d25e4c27df57}
+      \strng{authorbibnamehash}{28df2216780a3fc82cc4d25e4c27df57}
+      \strng{authornamehash}{28df2216780a3fc82cc4d25e4c27df57}
+      \strng{authorfullhash}{28df2216780a3fc82cc4d25e4c27df57}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{howpublished}{\url{https://github.com/ei1000/INF367A-26V-Recod.ai-LUC-Forgery-Kaggle/tree/main/einar_busternet}}
+      \field{note}{[Online; accessed April-2026]}
+      \field{title}{{BusterNet-DINO} Implementation}
+      \field{year}{2026}
+    \endentry
     \entry{lin2014coco}{inproceedings}{}
       \name{author}{8}{}{%
         {{hash=08f925fe4692d130a1d7cb7d94483351}{%

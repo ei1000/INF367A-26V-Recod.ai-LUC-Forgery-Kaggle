@@ -37,6 +37,7 @@ def validate_one_epoch(
     post_process_apply_opening: bool = True,
     post_process_apply_closing: bool = True,
     post_process_keep_confident_seeded_components: bool = False,
+    return_predictions: bool = False,
 ) -> dict:
     if isinstance(getattr(val_loader, "sampler", None), RandomSampler):
         raise ValueError(
@@ -79,6 +80,8 @@ def validate_one_epoch(
     result["validation_inference_mode"] = inference_mode
     result["probability_dtype"] = probability_dtype
     result["validation_transfer_mode"] = validation_transfer_mode
+    if return_predictions:
+        result["predictions"] = predictions
 
     if compute_pixel_f1:
         print(f"[non-official] pixel F1 (epoch {epoch_idx + 1}): {result['pixel_f1']:.4f}")

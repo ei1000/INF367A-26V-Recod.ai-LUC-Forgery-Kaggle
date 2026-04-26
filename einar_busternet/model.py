@@ -1,0 +1,358 @@
+from __future__ import annotations
+
+import math
+import warnings
+from typing import Any
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+class SelfCorrelPercPooling(nn.Module):
+    """Cosine self-correlation with percentile pooling on a spatial feature grid."""
+
+    def __init__(self, nb_pools: int = 100, eps: float = 1e-6) -> None:
+        super().__init__()
+        if nb_pools <= 0:
+            raise ValueError(f"nb_pools must be positive, got {nb_pools}")
+        self.nb_pools = int(nb_pools)
+        self.eps = float(eps)
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        if features.ndim != 4:
+            raise ValueError(f"Expected features with shape (B,C,H,W), got {tuple(features.shape)}")
+
+        b, c, h, w = features.shape
+        locations = h * w
+        flat = features.reshape(b, c, locations)
+        # Stay GPU-native; eps keeps all-zero/near-zero feature vectors finite.
+        norm = F.normalize(flat, dim=1, eps=self.eps)
+        similarity = torch.bmm(norm.transpose(1, 2), norm)
+        sorted_similarity = similarity.sort(dim=-1, descending=True).values
+
+        pool_positions = torch.linspace(
+            0,
+            locations - 1,
+            self.nb_pools,
+            device=features.device,
+        ).round().long()
+        gather_index = pool_positions.view(1, 1, self.nb_pools).expand(b, locations, self.nb_pools)
+        pooled = sorted_similarity.gather(dim=-1, index=gather_index)
+        return pooled.permute(0, 2, 1).reshape(b, self.nb_pools, h, w)
+
+
+class ConvBNReLU(nn.Sequential):
+    def __init__(self, in_ch: int, out_ch: int, kernel_size: int = 3) -> None:
+        padding = kernel_size // 2
+        super().__init__(
+            nn.Conv2d(in_ch, out_ch, kernel_size, padding=padding, bias=False),
+            nn.BatchNorm2d(out_ch),
+            nn.ReLU(inplace=True),
+        )
+
+
+class ProgressiveManiDecoder(nn.Module):
+    """BusterNet-style branch decoder: refine, upsample, refine."""
+
+    def __init__(self, in_ch: int = 768, out_ch: int = 128) -> None:
+        super().__init__()
+        self.grid_refine = nn.Sequential(
+            ConvBNReLU(in_ch, 512),
+            ConvBNReLU(512, 256),
+        )
+        self.up64_refine = ConvBNReLU(256, 192)
+        self.up128_refine = nn.Sequential(
+            ConvBNReLU(192, 128),
+            ConvBNReLU(128, out_ch, kernel_size=1),
+        )
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        x = self.grid_refine(features)
+        x = F.interpolate(x, scale_factor=2, mode="bilinear", align_corners=False)
+        x = self.up64_refine(x)
+        x = F.interpolate(x, scale_factor=2, mode="bilinear", align_corners=False)
+        return self.up128_refine(x)
+
+
+class ProgressiveSimiDecoder(nn.Module):
+    """Progressively decode self-correlation evidence before fusion."""
+
+    def __init__(self, in_ch: int = 100, out_ch: int = 96) -> None:
+        super().__init__()
+        self.grid_refine = nn.Sequential(
+            ConvBNReLU(in_ch, 256),
+            ConvBNReLU(256, 192),
+        )
+        self.up64_refine = ConvBNReLU(192, 128)
+        self.up128_refine = nn.Sequential(
+            ConvBNReLU(128, 96),
+            ConvBNReLU(96, out_ch, kernel_size=1),
+        )
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        x = self.grid_refine(features)
+        x = F.interpolate(x, scale_factor=2, mode="bilinear", align_corners=False)
+        x = self.up64_refine(x)
+        x = F.interpolate(x, scale_factor=2, mode="bilinear", align_corners=False)
+        return self.up128_refine(x)
+
+
+class MultiKernelFusionHead(nn.Module):
+    """BusterNet-style multi-kernel fusion over decoded branch evidence."""
+
+    def __init__(self, in_ch: int = 226, out_channels: int = 3) -> None:
+        super().__init__()
+        self.branch1 = nn.Conv2d(in_ch, 64, 1, bias=False)
+        self.branch3 = nn.Conv2d(in_ch, 64, 3, padding=1, bias=False)
+        self.branch5 = nn.Conv2d(in_ch, 64, 5, padding=2, bias=False)
+        self.post_concat = nn.Sequential(
+            nn.BatchNorm2d(192),
+            nn.ReLU(inplace=True),
+            ConvBNReLU(192, 128),
+            ConvBNReLU(128, 64),
+            nn.Conv2d(64, out_channels, 3, padding=1),
+        )
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        fused = torch.cat(
+            [
+                self.branch1(features),
+                self.branch3(features),
+                self.branch5(features),
+            ],
+            dim=1,
+        )
+        return self.post_concat(fused)
+
+
+def _fusion_head(out_channels: int) -> MultiKernelFusionHead:
+    return MultiKernelFusionHead(out_channels=out_channels)
+
+
+class DinoBusterNet(nn.Module):
+    def __init__(
+        self,
+        encoder: nn.Module,
+        embed_dim: int = 768,
+        nb_pools: int = 100,
+        freeze_encoder: bool = True,
+    ) -> None:
+        super().__init__()
+        self.encoder = encoder
+        self.mani_decoder = ProgressiveManiDecoder(in_ch=embed_dim, out_ch=128)
+        self.mani_classifier = nn.Conv2d(128, 1, 3, padding=1)
+        self.corr_pooling = SelfCorrelPercPooling(nb_pools=nb_pools)
+        self.simi_decoder = ProgressiveSimiDecoder(in_ch=nb_pools, out_ch=96)
+        self.simi_classifier = nn.Conv2d(96, 1, 3, padding=1)
+        self.fusion = _fusion_head(out_channels=3)
+        self._encoder_frozen = False
+        if freeze_encoder:
+            self.freeze_encoder()
+
+    @classmethod
+    def from_official(
+        cls,
+        model_name: str = "dinov2_vitb14",
+        embed_dim: int = 768,
+        nb_pools: int = 100,
+        freeze_encoder: bool = True,
+        repo: str = "facebookresearch/dinov2",
+    ) -> "DinoBusterNet":
+        warnings.filterwarnings(
+            "ignore",
+            message="xFormers is not available.*",
+            category=UserWarning,
+        )
+        encoder = torch.hub.load(repo_or_dir=repo, model=model_name)
+        return cls(
+            encoder=encoder,
+            embed_dim=embed_dim,
+            nb_pools=nb_pools,
+            freeze_encoder=freeze_encoder,
+        )
+
+    def freeze_encoder(self) -> None:
+        self._encoder_frozen = True
+        self.encoder.eval()
+        for param in self.encoder.parameters():
+            param.requires_grad = False
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        if self._encoder_frozen:
+            # BatchNorm/dropout-freezing intent: DINO is a fixed feature extractor here.
+            self.encoder.eval()
+        return self
+
+    def _get_patch_size(self) -> tuple[int, int]:
+        patch_size = getattr(self.encoder, "patch_size", 14)
+        if isinstance(patch_size, tuple):
+            return int(patch_size[0]), int(patch_size[1])
+        return int(patch_size), int(patch_size)
+
+    def _pad_to_patch_multiple(self, x: torch.Tensor) -> tuple[torch.Tensor, tuple[int, int]]:
+        patch_h, patch_w = self._get_patch_size()
+        h, w = x.shape[-2], x.shape[-1]
+        pad_h = (patch_h - (h % patch_h)) % patch_h
+        pad_w = (patch_w - (w % patch_w)) % patch_w
+        if pad_h == 0 and pad_w == 0:
+            return x, (0, 0)
+        return F.pad(x, (0, pad_w, 0, pad_h), mode="reflect"), (pad_h, pad_w)
+
+    def forward_features(self, x: torch.Tensor) -> torch.Tensor:
+        if hasattr(self.encoder, "forward_features"):
+            feats: Any = self.encoder.forward_features(x)
+            if isinstance(feats, dict):
+                if "x_norm_patchtokens" in feats:
+                    grid_tokens = feats["x_norm_patchtokens"]
+                elif "x_prenorm" in feats:
+                    tokens = feats["x_prenorm"]
+                    n_tokens = tokens.shape[1]
+                    grid_tokens = tokens[:, 1:, :] if int(math.sqrt(n_tokens - 1)) ** 2 == (n_tokens - 1) else tokens
+                else:
+                    raise ValueError("Unsupported DINOv2 forward_features dict keys.")
+            elif isinstance(feats, torch.Tensor):
+                grid_tokens = feats
+            else:
+                raise ValueError("Unsupported DINOv2 forward_features return type.")
+        else:
+            encoder_out: Any = self.encoder(x)
+            if isinstance(encoder_out, torch.Tensor):
+                n_tokens = encoder_out.shape[1]
+                grid_tokens = encoder_out[:, 1:, :] if int(math.sqrt(n_tokens - 1)) ** 2 == (n_tokens - 1) else encoder_out
+            else:
+                raise ValueError("Unsupported encoder output format for DINO BusterNet.")
+
+        side = int(math.sqrt(grid_tokens.shape[1]))
+        if side * side != grid_tokens.shape[1]:
+            raise ValueError(
+                f"Token count {grid_tokens.shape[1]} is not a perfect square; "
+                "cannot reshape to spatial map."
+            )
+
+        return grid_tokens.permute(0, 2, 1).reshape(x.shape[0], grid_tokens.shape[2], side, side)
+
+    def _branch_grid_features(self, features: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        mani_features = self.mani_decoder(features)
+        simi_features = self.corr_pooling(features)
+        simi_features = self.simi_decoder(simi_features)
+        return mani_features, simi_features
+
+    def _branch_grid_logits_from_features(
+        self,
+        mani_features: torch.Tensor,
+        simi_features: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.mani_classifier(mani_features), self.simi_classifier(simi_features)
+
+    def _fusion_grid_from_branch_features(
+        self,
+        mani_features: torch.Tensor,
+        simi_features: torch.Tensor,
+    ) -> torch.Tensor:
+        mani_grid, simi_grid = self._branch_grid_logits_from_features(mani_features, simi_features)
+        # Aux logits give direct Mani/Simi evidence; feature maps keep richer context.
+        return self.fusion(torch.cat([mani_features, simi_features, mani_grid, simi_grid], dim=1))
+
+    def _upsample_and_crop(self, logits: torch.Tensor, padded_size: tuple[int, int], original_size: tuple[int, int]) -> torch.Tensor:
+        # DINO needs patch-multiple padding; crop it away so masks match input size.
+        logits = F.interpolate(logits, size=padded_size, mode="bilinear", align_corners=False)
+        orig_h, orig_w = original_size
+        return logits[:, :, :orig_h, :orig_w]
+
+    def forward_branches(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        orig_size = (x.shape[-2], x.shape[-1])
+        x_pad, _ = self._pad_to_patch_multiple(x)
+        features = self.forward_features(x_pad)
+        mani_features, simi_features = self._branch_grid_features(features)
+        mani_grid, simi_grid = self._branch_grid_logits_from_features(mani_features, simi_features)
+        padded_size = (x_pad.shape[-2], x_pad.shape[-1])
+        return (
+            self._upsample_and_crop(mani_grid, padded_size, orig_size),
+            self._upsample_and_crop(simi_grid, padded_size, orig_size),
+        )
+
+    def forward_with_branches(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        orig_size = (x.shape[-2], x.shape[-1])
+        x_pad, _ = self._pad_to_patch_multiple(x)
+        features = self.forward_features(x_pad)
+        mani_features, simi_features = self._branch_grid_features(features)
+        mani_grid, simi_grid = self._branch_grid_logits_from_features(mani_features, simi_features)
+        fused_grid = self.fusion(torch.cat([mani_features, simi_features, mani_grid, simi_grid], dim=1))
+        padded_size = (x_pad.shape[-2], x_pad.shape[-1])
+        return (
+            self._upsample_and_crop(fused_grid, padded_size, orig_size),
+            self._upsample_and_crop(mani_grid, padded_size, orig_size),
+            self._upsample_and_crop(simi_grid, padded_size, orig_size),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        orig_size = (x.shape[-2], x.shape[-1])
+        x_pad, _ = self._pad_to_patch_multiple(x)
+        features = self.forward_features(x_pad)
+        mani_features, simi_features = self._branch_grid_features(features)
+        fused_grid = self._fusion_grid_from_branch_features(mani_features, simi_features)
+        padded_size = (x_pad.shape[-2], x_pad.shape[-1])
+        return self._upsample_and_crop(fused_grid, padded_size, orig_size)
+
+
+class BinaryFusionDinoBusterNet(DinoBusterNet):
+    """BusterNet variant whose fusion head predicts the binary union mask."""
+
+    def __init__(
+        self,
+        encoder: nn.Module,
+        embed_dim: int = 768,
+        nb_pools: int = 100,
+        freeze_encoder: bool = True,
+    ) -> None:
+        super().__init__(
+            encoder=encoder,
+            embed_dim=embed_dim,
+            nb_pools=nb_pools,
+            freeze_encoder=freeze_encoder,
+        )
+        self.fusion = _fusion_head(out_channels=1)
+
+    @classmethod
+    def from_official(
+        cls,
+        model_name: str = "dinov2_vitb14",
+        embed_dim: int = 768,
+        nb_pools: int = 100,
+        freeze_encoder: bool = True,
+        repo: str = "facebookresearch/dinov2",
+    ) -> "BinaryFusionDinoBusterNet":
+        warnings.filterwarnings(
+            "ignore",
+            message="xFormers is not available.*",
+            category=UserWarning,
+        )
+        encoder = torch.hub.load(repo_or_dir=repo, model=model_name)
+        return cls(
+            encoder=encoder,
+            embed_dim=embed_dim,
+            nb_pools=nb_pools,
+            freeze_encoder=freeze_encoder,
+        )
+
+
+class BusterNetUnionWrapper(nn.Module):
+    """Expose BusterNet as one-channel binary logits for baseline evaluators."""
+
+    def __init__(self, model: nn.Module, eps: float = 1e-6) -> None:
+        super().__init__()
+        self.model = model
+        self.eps = float(eps)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        logits = self.model(x)
+        if logits.shape[1] == 1:
+            return logits
+        if logits.shape[1] != 3:
+            raise ValueError(f"Expected 1 or 3 output channels, got {logits.shape[1]}")
+        probs = logits.softmax(dim=1)
+        forgery_prob = probs[:, 1:2] + probs[:, 2:3]
+        # Baseline evaluator expects logits and applies sigmoid itself.
+        return torch.logit(forgery_prob.clamp(self.eps, 1.0 - self.eps))

@@ -11,17 +11,17 @@ def train_one_epoch(
     grad_clip_max_norm: float,
     epoch_idx: int,
     use_amp: bool = False,
-    scaler: torch.cuda.amp.GradScaler | None = None,
+    scaler: torch.amp.GradScaler | None = None,
 ) -> float:
     model.train()
-    total_loss = 0.0
+    total_loss = torch.zeros((), device=device)
 
     for imgs, masks in tqdm(train_loader, desc=f"epoch {epoch_idx + 1} train"):
-        imgs = imgs.to(device)
-        masks = masks.to(device)
+        imgs = imgs.to(device, non_blocking=True)
+        masks = masks.to(device, non_blocking=True)
 
-        optimizer.zero_grad()
-        with torch.cuda.amp.autocast(enabled=use_amp):
+        optimizer.zero_grad(set_to_none=True)
+        with torch.amp.autocast(device_type=device.type, enabled=use_amp):
             logits = model(imgs)
             loss = loss_fn(logits, masks)
 
@@ -35,9 +35,9 @@ def train_one_epoch(
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip_max_norm)
             optimizer.step()
-        total_loss += float(loss.item())
+        total_loss += loss.detach()
 
     if device.type == "cuda":
         torch.cuda.empty_cache()
 
-    return total_loss / max(1, len(train_loader))
+    return float((total_loss / max(1, len(train_loader))).item())
