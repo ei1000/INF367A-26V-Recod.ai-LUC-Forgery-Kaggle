@@ -24,6 +24,11 @@ The `374` no-pair cases are still generated into `data/train_masks_target/` with
 source masks and recorded in `data/train_masks_source_target_metadata.csv` as
 `target_only_no_authentic`. They are reserved for later experiments, not Stage 1.
 
+This restriction is only for training labels. Validation, diagnostics, and holdout
+evaluation use the baseline `ForgeryDataset` on the normal grouped splits and score the
+binary union masks. They do not require source/target labels, so no-pair forged samples
+remain part of evaluation when they fall into the validation or holdout split. This way validation should be the same as for baseline making the approach more comparable. 
+
 ## Treat No-Pair Cases as Unknown-Order Pairs Later
 
 Inspection of the no-authentic cases suggests that many mask instances already contain
@@ -165,7 +170,7 @@ Because DINO dominates runtime, we expanded the cheap branch decoders:
 Mani decoder: 768 -> 512 -> 256 -> 128
 Simi decoder: 100 -> 256 -> 128 -> 96
 Fusion input: 128 + 96 + 1 + 1 = 226
-Fusion: 226 -> 160 -> 128 -> 64 -> output
+Fusion: parallel 1x1/3x3/5x5 convs -> 192 -> 128 -> 64 -> output
 ```
 
 Reason: if the Simi branch under-represents weak copied-source evidence, fusion cannot
@@ -253,3 +258,187 @@ Reason: Stage 3 improves forged recall but can weaken authentic precision. Small
 auxiliary losses may keep Mani target evidence and Simi union evidence stable while the
 fusion head adapts. Multi-kernel fusion is closer to original BusterNet's BN-Inception
 fusion while preserving our binary union output.
+
+## Keep Training Filtered, Evaluate On Normal Splits
+
+The clean `derived_from_pair` filter is a training-label decision, not an evaluation
+decision. Stage 1/2/3 training needs source/target masks, so it uses paired forged cases
+and paired authentic negatives. Validation, diagnostics, and holdout use the baseline
+`ForgeryDataset` and score binary union masks, so they include no-pair forged samples
+when those samples are in the grouped split.
+
+Reason: this keeps training supervision clean without making validation easier than the
+baseline. It also means reported validation/holdout numbers reflect the normal dataset
+mix, including ambiguous no-pair forged examples.
+
+## Experiment Trail And Lessons
+
+This section records the main experiments so the final method reads as a sequence of
+decisions, not random tuning.
+
+### 1. Initial 3-Class BusterNet
+
+Started with the paper-like 3-class fusion output:
+
+```text
+0 = background
+1 = target
+2 = source
+evaluation = P(target) + P(source)
+```
+
+Result: the model was hard to calibrate for the competition objective. Low background
+weight improved forged firing but created authentic false positives. Higher background
+weight cleaned authentic images but made forged predictions too empty. This showed that
+the source/target separation is useful internally, but the final head should match the
+binary union scoring task more directly.
+
+### 2. Simi Branch Supervision Changed From Source To Union
+
+The first Stage 1 design supervised Simi-Det mostly as source detection. On inspection,
+this was conceptually wrong: self-similarity is symmetric and should identify both copied
+regions, not decide historical source direction. We changed Simi-Det auxiliary
+supervision to the union mask:
+
+```text
+Mani auxiliary target = target only
+Simi auxiliary target = source ∪ target
+```
+
+Result: the model fired more on repeated/similar structures. This was more faithful to
+BusterNet, but also exposed the authentic false-positive problem. The change was kept
+because the branch semantics are correct; calibration and fusion objective needed fixing
+instead.
+
+### 3. Binary Fusion With BCE
+
+Added `fusion_mode="binary_union"` so the final fusion head predicts one-channel union
+logits. This kept Mani/Simi branch supervision but removed the 3-class-to-binary mismatch
+at the final output.
+
+Result: authentic control improved, but forged predictions became too conservative.
+The model often predicted empty masks for forged samples, especially small/tiny cases.
+BCE alone was stable but too background-dominated for pixel overlap.
+
+### 4. BCE+Dice Loss
+
+Changed binary branch/fusion objectives to:
+
+```text
+loss = BCEWithLogitsLoss + dice_weight * SoftDiceLoss
+```
+
+The first naive Stage 1 attempt used too much Dice pressure with `stage1_lr=1e-2` and
+produced NaNs around Stage 1 epoch 4. The stable setting became:
+
+```python
+stage1_lr = 1e-3
+branch_dice_weight = 0.5
+fusion_dice_weight = 1.0
+```
+
+Result: this was the first major jump. Binary fusion with BCE+Dice aligned optimization
+with pixel overlap while BCE still punished false positives. This became the mainline
+loss setup.
+
+### 5. Post-Processing Sweep
+
+Diagnostics showed that opening and large component filtering removed weak small forged
+predictions. We loosened defaults:
+
+```python
+pred_threshold = 0.2
+min_component_area = 10
+post_process_apply_opening = False
+```
+
+Notebook sweeps later showed thresholds around `0.15` to `0.2` were often better than
+`0.5` for the binary BusterNet. This is not the core improvement, but it prevents the
+post-processing step from deleting useful small/tiny detections.
+
+### 6. Longer Stage 1 Training
+
+Short runs proved the architecture worked, but Stage 1 branch losses were still dropping.
+Increasing Stage 1 to 15 and then 20 epochs improved later Stage 2 starting points.
+
+Result: longer branch pretraining gave better forged localization without adding runtime
+risk. This supports the idea that the auxiliary branches need enough time to learn
+target/similarity evidence before fusion is trained.
+
+### 7. Wider And Progressive Decoders
+
+The cheap decoder/fusion modules were expanded because DINO dominated runtime and the
+diagnostics showed under-detection of forged regions, especially source/small masks.
+The final branch design moved from coarse grid-only decoding to progressive decoding:
+
+```text
+32x32 DINO/SelfCorr features
+-> refine
+-> upsample to 64x64
+-> refine
+-> upsample to 128x128
+-> auxiliary heads and fusion
+```
+
+Result: forged bucket metrics and visual masks improved, and runtime stayed effectively
+unchanged compared with DINO. This is closer to the original BusterNet decoder idea and
+more appropriate for small medical structures than final-only upsampling from 32x32.
+
+### 8. Stage 3 Auxiliary Loss And Multi-Kernel Fusion
+
+Later Stage 3 checkpoints tended to improve forged localization but could trade away
+some authentic precision. We added a small persistent branch loss during Stage 3:
+
+```text
+stage3_loss =
+    fusion_loss
+  + 0.1 * mani_aux_target_loss
+  + 0.1 * simi_aux_union_loss
+```
+
+At the same time, Fusion was changed to a BusterNet-style multi-kernel head with
+parallel `1x1`, `3x3`, and `5x5` branches.
+
+Result: training became more stable across Stage 2 and Stage 3. Balanced validation kept
+improving through Stage 3, while official oF1 stayed competitive. This supports the final
+model choice for the assignment even when the most conservative checkpoint has slightly
+better official score.
+
+### 9. Best, Last, And Balanced Checkpoints
+
+Official `best.pt` is selected by Kaggle/oF1 and often prefers conservative authentic
+behavior. `last.pt` often fires more and improves forged masks, but can lose authentic
+F1. `best_balanced.pt` captures the more scientifically useful tradeoff:
+
+```text
+balanced_score = harmonic_mean(authentic_mean_f1, forged_mean_f1)
+```
+
+Decision: report both the official validation/holdout score and the authentic/forged
+breakdown. For assignment discussion, prefer `best_balanced.pt` because it demonstrates
+the actual BusterNet contribution: better forged localization rather than only empty
+authentic predictions.
+
+## Final Cleanup Should Preserve Behavior
+
+The final run is strong enough that cleanup should be refactor-only until the report is
+finished. Safe cleanup items are moving balanced metric code into a shared helper,
+adding CLI support for selecting `best_balanced.pt`, removing deprecated grid decoders
+after final acceptance, and archiving old incompatible checkpoints. Do not change losses,
+post-processing, model shape, or split policy as part of cleanup.
+
+Final selected checkpoint for report analysis:
+
+```text
+best_balanced.pt, epoch 37
+validation official score: 0.5335
+validation authentic mean F1: 0.8655
+validation forged mean F1: 0.3375
+validation harmonic authentic/forged F1: 0.4856
+holdout official score: 0.5138
+holdout authentic mean F1: 0.8361
+holdout forged mean F1: 0.3292
+```
+
+This is preferred for the assignment narrative because it gives a better authentic-vs-
+forged tradeoff than choosing only the most conservative official-oF1 checkpoint.

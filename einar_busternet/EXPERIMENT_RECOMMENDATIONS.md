@@ -247,7 +247,7 @@ Current implementation now also widens the branch decoders:
 Mani decoder: 768 -> 512 -> 256 -> 128
 Simi decoder: 100 -> 256 -> 128 -> 96
 Fusion input: 128 + 96 + 1 + 1 = 226
-Fusion body: 226 -> 160 -> 128 -> 64 -> output
+Fusion body: parallel 1x1/3x3/5x5 convs -> 192 -> 128 -> 64 -> output
 ```
 
 Both `three_class` and `binary_union` use this body; only the output channel count
@@ -286,6 +286,11 @@ Reason:
 
 This is now the main architecture ablation after the longer epoch run. DINO remains
 unchanged.
+
+Evaluation note: the BusterNet training dataset is filtered to `derived_from_pair`
+forged samples because Stage 1 needs source/target labels. Validation, diagnostics, and
+holdout use the baseline `ForgeryDataset` and normal grouped splits, so no-pair forged
+samples are still evaluated as binary union masks.
 
 Why auxiliary logits may help:
 
@@ -373,6 +378,39 @@ concat + BN/ReLU
 
 Reason: original BusterNet uses BN-Inception-like fusion. This keeps the method close to
 BusterNet while preserving the binary union output that fits the assignment objective.
+
+Latest best-balanced checkpoint diagnostics:
+
+```text
+checkpoint: best_balanced.pt, epoch 37
+validation official score: 0.5335
+validation authentic mean F1: 0.8655
+validation forged mean F1: 0.3375
+validation harmonic authentic/forged F1: 0.4856
+holdout official score: 0.5138
+holdout authentic mean F1: 0.8361
+holdout forged mean F1: 0.3292
+```
+
+Interpretation:
+
+- The model is much more stable than the earlier binary head.
+- Balanced selection captures a later checkpoint with stronger forged localization.
+- Official best and balanced best are both worth reporting because they show different
+  operating points.
+- Further training may help, but the next code work should be cleanup only unless a new
+  experiment is explicitly chosen.
+
+## Refactor-Only Cleanup
+
+Do not change behavior while the report is being finalized. Useful cleanup:
+
+- Move balanced validation summaries out of `train.py` into a shared evaluation helper.
+- Add `balanced` checkpoint choice to `evaluate.py` so CLI evaluation matches the
+  diagnostics notebook.
+- Remove deprecated grid decoders after deciding the progressive decoder is final.
+- Remove unused BCE-only binary loss helpers if no run still depends on them.
+- Keep notebook sweep/holdout toggles off by default to avoid accidental long runs.
 
 ## Threshold And Post-Processing
 

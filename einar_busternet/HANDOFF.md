@@ -1,8 +1,8 @@
 # Handoff: BusterNet-DINO
 
 This directory contains Einar's BusterNet-inspired individual project plan. The current
-state is ready to rerun the binary-union BCE+Dice model with loosened small-mask
-post-processing and the larger fusion ablation.
+state is the final binary-union BCE+Dice direction with progressive branch decoders,
+multi-kernel fusion, Stage 3 auxiliary loss, and balanced checkpoint tracking.
 
 ## Current State
 
@@ -22,9 +22,13 @@ Metadata summary:
 - Initial training uses forged rows with `status == "derived_from_pair"` plus their
   authentic counterparts as all-background negatives.
 
-The 374 no-pair cases are intentionally reserved for later experiments. Do not use them
-as target-only labels in the first training loop because that would teach the model that
-source regions are absent/background.
+The 374 no-pair cases are intentionally reserved for later training experiments. Do not
+use them as target-only labels in the branch-training loop because that would teach the
+model that source regions are absent/background.
+
+This restriction is for training only. Evaluation and diagnostics use the baseline
+`ForgeryDataset` on the normal grouped validation/holdout splits. They score binary union
+masks and therefore include no-pair forged samples when those samples land in the split.
 
 ## Important Decisions
 
@@ -99,7 +103,7 @@ Key decisions:
   - `BusterNetConfig`.
   - Baseline-compatible training/validation fields plus BusterNet stage, loss, dataset,
     and artifact settings.
-  - Current stage schedule is `5 + 5 + 10` epochs.
+  - Current stage schedule is `20 + 10 + 10` epochs.
   - Default `fusion_mode="three_class"`; use `"binary_union"` for the union-head ablation.
   - BusterNet validation defaults to `accumulate_gpu` transfer mode.
 - `tests/test_busternet_config.py`
@@ -122,6 +126,8 @@ Key decisions:
 - `einar_busternet/evaluate.py`
   - Validation evaluation entrypoint for BusterNet checkpoints.
   - Uses `BusterNetUnionWrapper` and the shared validation scoring path.
+  - Uses baseline `ForgeryDataset` on the normal validation split; no-pair forged cases
+    are not filtered out for evaluation because evaluation only needs binary union masks.
   - Writes `einar_busternet/artifacts/results/eval_summary.json`.
 - `tests/test_busternet_evaluate.py`
   - Unit tests for evaluation CLI guards and checkpoint config reconstruction.
@@ -221,7 +227,20 @@ Post-generation invariants checked:
 
 ## Recommended Next Step
 
-Retrain with the current binary union ablation:
+Final run completed. Use `best_balanced.pt` for report diagnostics unless the report
+specifically needs the official-score checkpoint:
+
+```text
+best_balanced.pt, epoch 37
+validation official score: 0.5335
+validation authentic mean F1: 0.8655
+validation forged mean F1: 0.3375
+holdout official score: 0.5138
+holdout authentic mean F1: 0.8361
+holdout forged mean F1: 0.3292
+```
+
+Command for retraining the final model if needed:
 
 ```bash
 uv run python -m einar_busternet.train --fusion-mode binary_union
@@ -244,3 +263,16 @@ model.
 Stage 1 uses `forward_branches(x)` and two optimizers, so it needs a small
 BusterNet-specific training loop. Stage 2 can reuse the baseline `train_one_epoch`.
 Stage 3 uses the BusterNet-specific auxiliary-loss loop when `stage3_aux_loss_weight > 0`.
+
+## Cleanup Plan
+
+Behavior-preserving cleanup after the report:
+
+- Remove deprecated grid-only decoders if the final architecture stays progressive.
+- Move balanced validation metric code out of `train.py` into a shared helper used by
+  the notebook and training.
+- Consider dropping BCE-only binary loss helpers if no longer used.
+- Add `balanced` checkpoint selection to `evaluate.py` for parity with the notebook.
+- Normalize wording in docs from "ablation" to "final variant" once the final numbers
+  are fixed.
+- Archive old incompatible checkpoints to save disk space.

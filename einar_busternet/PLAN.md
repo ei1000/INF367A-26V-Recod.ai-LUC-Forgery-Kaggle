@@ -177,17 +177,17 @@ Fields:
   training reads the generated masks and metadata.
 - Checkpointing: `checkpoint_dir = "einar_busternet/artifacts/checkpoints"`
 - Results: `results_dir = "einar_busternet/artifacts/results"`
-- Checkpoint names: `best.pt`, `last.pt`
+- Checkpoint names: `best.pt`, `best_balanced.pt`, `last.pt`
 - Convenience: `total_stage_epochs` property.
 
 Default stage schedule:
-- `stage1_epochs=15`
+- `stage1_epochs=20`
 - `stage2_epochs=10`
 - `stage3_epochs=10`
 
 Implemented tests: `tests/test_busternet_config.py`.
 
-## Step 4 — Training script  `train.py` — code done, run pending
+## Step 4 — Training script  `train.py` — done
 
 Three-stage training following the BusterNet paper curriculum. Continue from the baseline
 training/validation stack and make small generic extensions only when needed. Reuses from
@@ -317,8 +317,34 @@ Implemented:
   forged/authentic breakdowns, false-positive/false-negative tables, probability
   distributions, prediction plots, and CSV exports.
 
+Evaluation uses the normal baseline-style split and `ForgeryDataset`, not
+`BusterNetDataset`. Therefore validation and holdout include all labeled forged samples
+from the split, including any no-authentic/no-pair forged cases. The clean
+`derived_from_pair` filter applies only to BusterNet training, where source/target branch
+labels are needed. Evaluation scores the binary union mask, so no source/target labels
+are required.
+
 Implemented tests: `tests/test_busternet_evaluate.py`,
 `tests/test_busternet_evaluate_notebook.py`.
+
+Final balanced validation result for the combined binary-fusion model:
+
+```text
+checkpoint: best_balanced.pt, epoch 37
+official validation score: 0.5335
+authentic mean F1: 0.8655
+forged mean F1: 0.3375
+harmonic authentic/forged F1: 0.4856
+forged nonempty mean F1: 0.4955
+```
+
+Locked holdout run with the same checkpoint/post-processing:
+
+```text
+official holdout score: 0.5138
+authentic mean F1: 0.8361
+forged mean F1: 0.3292
+```
 
 ## Step 6 — README  `README.md`
 
@@ -441,7 +467,7 @@ einar_busternet/
 ├── dataset.py            ← Step 1 done
 ├── model.py              ← Step 2 done
 ├── config.py             ← Step 3 done
-├── train.py              ← Step 4 code done
+├── train.py              ← Step 4 done
 ├── evaluate.py           ← Step 5 done
 └── artifacts/
     ├── checkpoints/
@@ -464,3 +490,20 @@ einar_busternet/
 
 Frozen DINOv2 + small decoders → similar to baseline (5–15 min on 4080 Super for 10 epochs).
 Correlation matrix at 32×32 adds ~5ms per batch — negligible.
+
+## Refactor-Only Cleanup Plan
+
+Do not change model behavior before the report is stable. Safe cleanup items:
+
+- Remove `_DeprecatedCustomManiGridDecoder` and `_DeprecatedCustomSimiGridDecoder` after
+  confirming the progressive decoder remains the final architecture.
+- Move balanced validation helpers out of `train.py` into a shared evaluation utility so
+  the training script and diagnostics notebook do not duplicate metric logic.
+- Consider removing `BinaryUnionBCEWithLogitsLoss` if no experiment still uses BCE-only
+  binary fusion.
+- Add `balanced` as a first-class checkpoint choice in `evaluate.py` and keep the
+  notebook defaults safe (`best`, holdout disabled).
+- Rename comments/docs from "ablation" to "final variant" once final report numbers are
+  locked.
+- Keep `best.pt`, `best_balanced.pt`, and `last.pt`; archive older incompatible
+  checkpoints outside git/artifacts if disk space matters.

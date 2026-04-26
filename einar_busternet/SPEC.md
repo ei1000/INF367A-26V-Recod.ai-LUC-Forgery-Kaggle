@@ -131,8 +131,10 @@ followed by `Conv2d(..., 3×3) + softmax`.
 Our current competition-oriented adaptation:
 ```
 concat(mani_features, simi_features, mani_logit, simi_logit) → (B, 226, 128, 128)
-Conv2d(226, 160, 1) + BN + ReLU
-Conv2d(160, 128, 3, padding=1) + BN + ReLU
+parallel Conv2d branches with kernels 1, 3, 5, each 64 channels
+concat → (B, 192, 128, 128)
+BatchNorm + ReLU
+Conv2d(192, 128, 3, padding=1) + BN + ReLU
 Conv2d(128, 64, 3, padding=1) + BN + ReLU
 Conv2d(64, out_channels, 3, padding=1)        ← final classifier
 raw logits
@@ -237,6 +239,11 @@ Training saves both official and balanced validation checkpoints:
 - `last.pt`: latest checkpoint.
 
 Balanced validation is for assignment analysis; it does not replace official oF1.
+
+Validation and holdout evaluation use the baseline-style `ForgeryDataset` over the
+normal grouped splits. They do not filter to `derived_from_pair`, because scoring only
+needs binary union masks. The source/target metadata filter applies only to BusterNet
+training, where branch labels are required.
 
 ## Dataset Label Format
 
