@@ -118,16 +118,22 @@ Implemented classes:
 - `forward(x)`: returns raw logits `(B, 3, H, W)`.
 - Reuse the baseline DINO padding and `forward_features` logic so non-448 or
   sliding-window inputs still work.
-- Mani decoder: wider DINO-grid CNN (`embed_dim→512→256→128`)
-  but operates on the DINO feature grid; do not upsample inside the branch.
+- Deprecated custom Mani decoder kept in code as `_DeprecatedCustomManiGridDecoder`:
+  a DINO-grid CNN (`embed_dim→512→256→128`) with no branch upsampling.
+- Current Mani decoder: progressive BusterNet-style decoder
+  `32x32 → 64x64 → 128x128` for 448 input:
+  `embed_dim→512→256`, upsample, `256→192`, upsample, `192→128`.
 - Mani auxiliary classifier: `Conv2d(128,1,3,padding=1)` for Stage 1 target-mask BCE.
-- Copy decoder: wider CNN on top of `SelfCorrelPercPooling`
-  (`nb_pools→256→128→96`) on the same feature grid.
+- Deprecated custom Simi decoder kept in code as `_DeprecatedCustomSimiGridDecoder`:
+  a grid-level CNN (`nb_pools→256→128→96`) with no branch upsampling.
+- Current Simi decoder: progressive BusterNet-style decoder
+  `32x32 → 64x64 → 128x128` for 448 input:
+  `nb_pools→256→192`, upsample, `192→128`, upsample, `128→96`.
 - Simi auxiliary classifier: `Conv2d(96,1,3,padding=1)` for Stage 1 union-mask BCE.
 - Fusion: concatenate Mani and Simi decoder features plus their auxiliary logits into
-  `(B, 226, h, w)`, then apply the wider fusion head from the spec before upsampling.
-- Final output is bilinearly upsampled once to the padded image size, then cropped back
-  to the original input size, matching `DinoSegmenter`.
+  `(B, 226, 128, 128)` for 448 input, then apply the wider fusion head from the spec.
+- Final output is bilinearly upsampled from the refined fusion resolution to the padded
+  image size, then cropped back to the original input size, matching `DinoSegmenter`.
 - Exposes `forward_branches(x)` returning full-resolution one-channel `mani_logits` and
   `simi_logits` for Stage 1 auxiliary losses.
 
@@ -175,8 +181,8 @@ Fields:
 - Convenience: `total_stage_epochs` property.
 
 Default stage schedule:
-- `stage1_epochs=5`
-- `stage2_epochs=5`
+- `stage1_epochs=15`
+- `stage2_epochs=10`
 - `stage3_epochs=10`
 
 Implemented tests: `tests/test_busternet_config.py`.
@@ -220,12 +226,40 @@ project root:
 - Unfreeze Mani-Det + Simi-Det + Fusion (DINOv2 stays frozen)
 - Optimizer: `Adam(all_trainable_params, lr=1e-5)`
 - Same fusion loss as Stage 2; LR halved on plateau, early stop on patience
+- Planned next experiment: keep the same fusion loss but add small persistent auxiliary
+  branch losses during Stage 3:
+
+  ```text
+  stage3_loss =
+      fusion_loss
+    + 0.1 * mani_aux_target_loss
+    + 0.1 * simi_aux_union_loss
+  ```
+
+  Reason: later checkpoints improve forged recall and small/tiny buckets, but lose some
+  authentic precision. Small auxiliary losses may preserve Mani/Simi branch semantics
+  while fusion adapts.
 - Same paired-only data policy as Stage 2 for the initial run.
 - Runs for `config.stage3_epochs` epochs
 
 Validation during training uses `BusterNetUnionWrapper(model)` so the baseline validation
 path scores `P(target)+P(source)`. Checkpoint saving: best by validation kaggle_score
 (same criterion as baseline). Save to `artifacts/checkpoints/best.pt`.
+
+Planned validation/checkpoint extension:
+- Keep `best.pt` for official Kaggle/oF1 compatibility.
+- Add `best_balanced.pt` using a fixed-postprocess validation metric:
+
+  ```text
+  authentic_f1 = mean pixel F1 over authentic validation samples
+  forged_f1 = mean pixel F1 over forged validation samples
+  balanced_score = harmonic_mean(authentic_f1, forged_f1)
+  ```
+
+- Reuse the existing validation predictions and the same post-processing settings as
+  training. Do not run a threshold sweep inside training.
+- Expected overhead is a small CPU post-processing/aggregation pass after validation,
+  not extra DINO inference.
 
 Implemented:
 - `configure_trainable_parts(model, stage)` keeps DINO frozen and switches branch/fusion
@@ -236,6 +270,9 @@ Implemented:
 - Fusion consumes branch decoder features plus auxiliary logits so the final head sees
   both rich features and direct Mani/Simi evidence.
 - Stage 2/3 use baseline `train_one_epoch` with the selected fusion loss.
+- Planned Stage 3 auxiliary-loss experiment will need a BusterNet-specific Stage 3 loop,
+  because it must call both `forward(...)` and `forward_branches(...)` for the same
+  batch. Keep tensors on GPU and avoid per-batch CPU metric syncs.
 - Validation uses baseline `ForgeryDataset` plus `BusterNetUnionWrapper`, so the score is
   binary union on the normal validation split. The wrapper collapses 3-class output or
   passes binary-fusion logits through.
@@ -292,7 +329,7 @@ Method description for grading. Cover:
 - How it integrates with the group project
 - Results (fill after eval)
 
-## Step 7 — Progressive Mani/Simi decoding and higher-resolution fusion — planned
+## Step 7 — Progressive Mani/Simi decoding and higher-resolution fusion — implemented
 
 Current decoder/fusion is useful but still too grid-like:
 - DINO produces a low-resolution token grid.
@@ -305,8 +342,9 @@ branch classifiers and fusion head are forced to decide boundaries and weak copi
 regions before any spatial refinement has happened. Original BusterNet did the opposite:
 it repeatedly decoded/upsampled branch features before classification and fusion.
 
-Planned ablation: keep DINO frozen, but replace the current grid-only branch decoders
-with progressive decoders.
+Implemented ablation: keep DINO frozen, but replace the grid-only branch decoders with
+progressive decoders. The old custom grid decoders remain in `model.py` with
+`_DeprecatedCustom...` names for comparison/revert.
 
 Recommended first version:
 
@@ -373,6 +411,24 @@ Later, if time allows, use DINO intermediate layers:
 
 This is more principled but touches the encoder feature path more, so progressive branch
 decoding is the safer first ablation.
+
+## Step 8 — Later fusion ablation — planned, not next
+
+The current fusion module is capable and should not be changed before the Stage 3
+auxiliary-loss experiment. If forged/source coverage still lags after that, test a
+BusterNet-style multi-kernel fusion block while keeping binary union output:
+
+```text
+input: Mani features + Simi features + Mani aux logit + Simi aux logit
+parallel convs: 1x1, 3x3, 5x5
+concat + BN/ReLU
+3x3 classifier to one-channel binary union logits
+```
+
+Reason: original BusterNet used BN-Inception-style fusion, and multi-kernel fusion can
+mix local evidence with broader context. This is a later ablation because the current
+results show fusion can already use the progressive decoder features; the immediate
+failure mode is the authentic-vs-forged recall tradeoff during fine-tuning.
 
 ## File Map
 

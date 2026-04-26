@@ -70,6 +70,18 @@ class BusterNetModelTests(unittest.TestCase):
         self.assertEqual(tuple(mani_logits.shape), (1, 1, 16, 16))
         self.assertEqual(tuple(simi_logits.shape), (1, 1, 16, 16))
 
+    def test_progressive_decoders_refine_above_dino_grid_resolution(self) -> None:
+        model = DinoBusterNet(FakeDinoEncoder(), embed_dim=8, nb_pools=4)
+        x = torch.randn(1, 3, 16, 16)
+        x_pad, _ = model._pad_to_patch_multiple(x)
+        features = model.forward_features(x_pad)
+
+        mani_features, simi_features = model._branch_grid_features(features)
+
+        self.assertEqual(tuple(features.shape), (1, 8, 4, 4))
+        self.assertEqual(tuple(mani_features.shape), (1, 128, 16, 16))
+        self.assertEqual(tuple(simi_features.shape), (1, 96, 16, 16))
+
     def test_fusion_uses_decoder_features_and_branch_logits(self) -> None:
         model = DinoBusterNet(FakeDinoEncoder(), embed_dim=8, nb_pools=4)
 

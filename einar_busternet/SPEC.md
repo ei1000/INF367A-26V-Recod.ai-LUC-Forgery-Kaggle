@@ -44,18 +44,19 @@ Features: (B, 768, 32, 32)
        ↙                         ↘
 Mani-Det branch              Simi-Det branch
 ───────────────              ───────────────
-3 conv blocks                SelfCorrelPercPooling
-768→512→256→128              (B,768,32,32) → cosine similarity
-→ (B,128,32,32)              (B,1024,1024) → percentile pool
-→ aux Conv2d(128,1,3)        → (B,100,32,32)
-→ target logits              3 conv blocks
-                             3 conv blocks
-                             100→256→128→96
-                             → (B,96,32,32)
+progressive decoder          SelfCorrelPercPooling
+768→512→256                  (B,768,32,32) → cosine similarity
+upsample, 256→192            (B,1024,1024) → percentile pool
+upsample, 192→128            → (B,100,32,32)
+→ (B,128,128,128)            progressive decoder
+→ aux Conv2d(128,1,3)        100→256→192
+→ target logits              upsample, 192→128
+                             upsample, 128→96
+                             → (B,96,128,128)
                              → aux Conv2d(96,1,3)
                              → copy-move union logits
        ↘                         ↙
-       Fusion: concat decoder features + aux logits → (B,226,32,32)
+       Fusion: concat decoder features + aux logits → (B,226,128,128)
        Conv2d(226,160,1) + BN + ReLU
        → Conv2d(160,128,3) + BN + ReLU
        → Conv2d(128,64,3) + BN + ReLU
@@ -129,7 +130,7 @@ followed by `Conv2d(..., 3×3) + softmax`.
 
 Our current competition-oriented adaptation:
 ```
-concat(mani_features, simi_features, mani_logit, simi_logit) → (B, 226, 32, 32)
+concat(mani_features, simi_features, mani_logit, simi_logit) → (B, 226, 128, 128)
 Conv2d(226, 160, 1) + BN + ReLU
 Conv2d(160, 128, 3, padding=1) + BN + ReLU
 Conv2d(128, 64, 3, padding=1) + BN + ReLU
@@ -144,6 +145,11 @@ evidence while retaining the richer decoder features. `out_channels=3` for
 Branch classifiers are explicit one-channel auxiliary heads:
 `Conv2d(128,1,3,padding=1)` for Mani-Det and `Conv2d(96,1,3,padding=1)` for Simi-Det.
 Softmax is applied by losses/evaluation, not inside the training forward pass.
+
+Branch decoders are progressive: they refine DINO/SelfCorr features on the 32×32 grid,
+upsample to 64×64, refine again, then upsample to 128×128 before auxiliary
+classification and fusion. The previous grid-only custom decoders are kept in code as
+`_DeprecatedCustomManiGridDecoder` and `_DeprecatedCustomSimiGridDecoder` for comparison.
 
 ## Training Objective and Multi-Stage Curriculum
 
@@ -256,7 +262,7 @@ by VGG-16 constraints, we apply the modern equivalent for DINOv2.
 | Feature grid | 16×16×512 | 32×32×768 | Follows from 448×448 input + ViT-B/14 patch stride; finer spatial resolution |
 | Correlation matrix | 256×256 | 1024×1024 | Larger grid, still GPU-tractable on 4080 Super (~16MB/batch) |
 | Percentile pooling | K=100 | K=100 | Faithful to paper |
-| Decoder | 4-stage BN-Inception + BilinearUpPool | Wider 3-conv decoders + bilinear upsample | DINO dominates runtime; wider decoders target missed small/source regions cheaply |
+| Decoder | 4-stage BN-Inception + BilinearUpPool | Progressive 32→64→128 branch decoders + final bilinear upsample | Closer to BusterNet and modern dense prediction; targets small/source regions before final upsample |
 | Fusion module | Decoder-feature fusion with BN-Inception 3@[1,3,5] + Conv2d | Decoder features plus auxiliary logits, Conv2d(226,160,1) + two 3x3 blocks + classifier | DINO dominates runtime, so a wider fusion head is cheap; auxiliary logits provide direct Mani/Simi evidence |
 | Training data | 100K synthetic COCO samples | 2377 real scientific image pairs initially; 374 no-pair cases reserved | Real domain-specific data; avoid target-only labels corrupting source learning |
 | External mani data | IFS-TC + Wild Web datasets | None | Time constraint; noted as a limitation |

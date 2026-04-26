@@ -12,12 +12,13 @@ DINOv2 ViT-B/14 — frozen, shared          [modern: stronger than VGG-16; froze
 (B, 768, 32, 32)
    ↙                      ↘
 Mani-Det                 Simi-Det
-3 conv blocks            SelfCorrelPercPooling → (B, 100, 32, 32)
-768→512→256→128          3 conv blocks: 100→256→128→96
+progressive decoder      SelfCorrelPercPooling → (B, 100, 32, 32)
+32→64→128 spatial        progressive decoder, 32→64→128 spatial
+768→512→256→192→128      100→256→192→128→96
 aux Conv2d(128,1,3)      aux Conv2d(96,1,3)
-(B, 128, 32, 32)         (B, 96, 32, 32)
+(B, 128, 128, 128)       (B, 96, 128, 128)
    ↘                      ↙
-concat decoder features + aux logits → (B, 226, 32, 32)
+concat decoder features + aux logits → (B, 226, 128, 128)
 Fusion: Conv2d(226,160,1)+BN+ReLU → Conv2d(160,128,3)+BN+ReLU
         → Conv2d(128,64,3)+BN+ReLU → Conv2d(64,out,3,pad=1)
 bilinear upsample → (B, 3, 448, 448)
@@ -55,10 +56,10 @@ use 2377 real scientific image pairs with domain-specific source/target labels.
 
 | Stage | Trains | Loss | LR | Labels |
 |---|---|---|---|---|
-| 1a — Mani-Det | mani decoder + classifier | BCE | 1e-2 | target mask |
-| 1b — Simi-Det | simi decoder + classifier + corr | BCE | 1e-2 | source+target union mask |
-| 2 — Fusion | fusion only | CE `[0.3,1,1]` or binary BCE | 1e-2 | 3-class or union |
-| 3 — Fine-tune | all (DINOv2 frozen) | CE `[0.3,1,1]` or binary BCE | 1e-5 | 3-class or union |
+| 1a — Mani-Det | mani decoder + classifier | BCE+Dice | 1e-3 | target mask |
+| 1b — Simi-Det | simi decoder + classifier + corr | BCE+Dice | 1e-3 | source+target union mask |
+| 2 — Fusion | fusion only | CE `[0.3,1,1]` or binary BCE+Dice | 1e-2 | 3-class or union |
+| 3 — Fine-tune | all (DINOv2 frozen) | CE `[0.3,1,1]` or binary BCE+Dice | 1e-5 | 3-class or union |
 
 Class weights `[0.3, 1.0, 1.0]` are the current 3-class setting after validation showed
 that `[0.1, 1.0, 1.0]` caused too many authentic false positives. A binary fusion
@@ -70,7 +71,7 @@ ablation is implemented separately as `fusion_mode="binary_union"`.
 |---|---|---|
 | VGG-16, two separate extractors | DINOv2, one shared frozen | Better features; frozen = identical outputs |
 | Pearson correlation (z-score) | Cosine similarity (L2) | DINOv2 optimised for cosine |
-| 4-stage BN-Inception decoder | Wider 3 conv blocks + upsample | Decoder compute is cheap beside DINO; target missed small/source regions |
+| 4-stage BN-Inception decoder | Progressive 32→64→128 branch decoders | Closer to BusterNet and modern dense prediction; helps small/source regions before final upsample |
 | Multi-kernel Inception fusion | Decoder features + aux logits, Conv2d(226→160→128→64→out) | Wider fusion is cheap beside DINO; aux logits expose direct Mani/Simi evidence |
 | 100K synthetic samples | 2377 real pairs initially | Real > synthetic for domain-specific task |
 | No class weighting | `[0.3, 1.0, 1.0]` or binary union BCE | Real data is imbalanced; Kaggle scores union masks |

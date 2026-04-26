@@ -110,3 +110,47 @@ generalization. Takeaway: image forensics often benefits from complementary-view
 For this project we keep DINO and source/similarity branches rather than adding frequency
 branches now, but adaptive or attention-weighted branch fusion is a reasonable later
 ablation.
+
+https://bmcresnotes.biomedcentral.com/articles/10.1186/s13104-022-06096-y
+
+Taha and Hanbury-style metric guidance summarized in "Towards a guideline for evaluation
+metrics in medical image segmentation" (BMC Research Notes 2022). Useful for checkpoint
+selection discussion. It emphasizes that medical segmentation has extreme foreground vs
+background imbalance and that metrics involving true negatives/background can be
+misleading. Takeaway: for our assignment, reporting authentic performance alone or an
+official score dominated by empty authentic masks is not enough; forged localization
+metrics should be reported separately.
+
+https://www.nature.com/articles/s41597-024-04159-2
+
+MedSegBench, "A comprehensive benchmark for medical image segmentation in diverse data
+modalities" (Scientific Data 2024). Useful evaluation source. It reports precision,
+recall, F1, and IoU because F1 gives a balanced view under class imbalance, while IoU
+measures overlap quality. Takeaway: our diagnostics should keep precision/recall/F1 split
+by authentic/forged and size bucket, not only the official Kaggle/oF1.
+
+https://pmc.ncbi.nlm.nih.gov/articles/PMC12115501/
+
+"Medical Image Segmentation: A Comprehensive Review of Deep Learning-Based Methods"
+(2025). Useful metric/loss source. It notes that high recall matters for lesion-like
+tasks, Dice is robust to class imbalance, and Tversky can bias the false-positive /
+false-negative tradeoff. Takeaway: if later checkpoints improve forged recall with
+acceptable authentic false positives, they may be scientifically stronger than an early
+checkpoint that mainly avoids predictions.
+
+https://www.sciencedirect.com/science/article/pii/S0262885620300421
+
+"Recent advances in small object detection based on deep learning: A review" (Image and
+Vision Computing 2020). Useful small-object source. It identifies multi-scale feature
+learning, context, and information transmission as major directions because small objects
+lack appearance information and require precise localization. Takeaway: our progressive
+decoder and possible later DINO multi-layer fusion are justified by the small/tiny forged
+mask failure mode.
+
+https://pmc.ncbi.nlm.nih.gov/articles/PMC10823909/
+
+"Small-Object Sensitive Segmentation Using Across Feature Map Attention" (2023). Useful
+segmentation source. It summarizes that encoder-decoder designs and feature reuse/skip
+strategies are widely used to recover fine-grained spatial information lost by low-res
+features. Takeaway: final-only upsampling from a coarse grid is a plausible bottleneck
+for tiny masks; progressive decoding is a reasonable BusterNet-compatible fix.

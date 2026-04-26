@@ -41,7 +41,7 @@ class SelfCorrelPercPooling(nn.Module):
         return pooled.permute(0, 2, 1).reshape(b, self.nb_pools, h, w)
 
 
-class ManiGridDecoder(nn.Module):
+class _DeprecatedCustomManiGridDecoder(nn.Module):
     def __init__(self, in_ch: int = 768, out_ch: int = 128) -> None:
         super().__init__()
         self.net = nn.Sequential(
@@ -61,7 +61,7 @@ class ManiGridDecoder(nn.Module):
         return self.net(features)
 
 
-class SimiGridDecoder(nn.Module):
+class _DeprecatedCustomSimiGridDecoder(nn.Module):
     def __init__(self, in_ch: int = 100, out_ch: int = 96) -> None:
         super().__init__()
         self.net = nn.Sequential(
@@ -78,6 +78,62 @@ class SimiGridDecoder(nn.Module):
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         return self.net(features)
+
+
+class ConvBNReLU(nn.Sequential):
+    def __init__(self, in_ch: int, out_ch: int, kernel_size: int = 3) -> None:
+        padding = kernel_size // 2
+        super().__init__(
+            nn.Conv2d(in_ch, out_ch, kernel_size, padding=padding, bias=False),
+            nn.BatchNorm2d(out_ch),
+            nn.ReLU(inplace=True),
+        )
+
+
+class ProgressiveManiDecoder(nn.Module):
+    """BusterNet-style branch decoder: refine, upsample, refine."""
+
+    def __init__(self, in_ch: int = 768, out_ch: int = 128) -> None:
+        super().__init__()
+        self.grid_refine = nn.Sequential(
+            ConvBNReLU(in_ch, 512),
+            ConvBNReLU(512, 256),
+        )
+        self.up64_refine = ConvBNReLU(256, 192)
+        self.up128_refine = nn.Sequential(
+            ConvBNReLU(192, 128),
+            ConvBNReLU(128, out_ch, kernel_size=1),
+        )
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        x = self.grid_refine(features)
+        x = F.interpolate(x, scale_factor=2, mode="bilinear", align_corners=False)
+        x = self.up64_refine(x)
+        x = F.interpolate(x, scale_factor=2, mode="bilinear", align_corners=False)
+        return self.up128_refine(x)
+
+
+class ProgressiveSimiDecoder(nn.Module):
+    """Progressively decode self-correlation evidence before fusion."""
+
+    def __init__(self, in_ch: int = 100, out_ch: int = 96) -> None:
+        super().__init__()
+        self.grid_refine = nn.Sequential(
+            ConvBNReLU(in_ch, 256),
+            ConvBNReLU(256, 192),
+        )
+        self.up64_refine = ConvBNReLU(192, 128)
+        self.up128_refine = nn.Sequential(
+            ConvBNReLU(128, 96),
+            ConvBNReLU(96, out_ch, kernel_size=1),
+        )
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        x = self.grid_refine(features)
+        x = F.interpolate(x, scale_factor=2, mode="bilinear", align_corners=False)
+        x = self.up64_refine(x)
+        x = F.interpolate(x, scale_factor=2, mode="bilinear", align_corners=False)
+        return self.up128_refine(x)
 
 
 def _fusion_head(out_channels: int) -> nn.Sequential:
@@ -105,10 +161,10 @@ class DinoBusterNet(nn.Module):
     ) -> None:
         super().__init__()
         self.encoder = encoder
-        self.mani_decoder = ManiGridDecoder(in_ch=embed_dim, out_ch=128)
+        self.mani_decoder = ProgressiveManiDecoder(in_ch=embed_dim, out_ch=128)
         self.mani_classifier = nn.Conv2d(128, 1, 3, padding=1)
         self.corr_pooling = SelfCorrelPercPooling(nb_pools=nb_pools)
-        self.simi_decoder = SimiGridDecoder(in_ch=nb_pools, out_ch=96)
+        self.simi_decoder = ProgressiveSimiDecoder(in_ch=nb_pools, out_ch=96)
         self.simi_classifier = nn.Conv2d(96, 1, 3, padding=1)
         self.fusion = _fusion_head(out_channels=3)
         self._encoder_frozen = False

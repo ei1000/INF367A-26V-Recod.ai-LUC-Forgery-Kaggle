@@ -202,3 +202,53 @@ We are not fully abandoning final bilinear upsampling. The final output can stil
 upsampled at the end, but it should come from a refined 128x128 feature map rather than
 directly from the 32x32 DINO grid. That is a better compromise between BusterNet-style
 decoding and DINO runtime.
+
+Implemented as the next architecture-breaking ablation:
+
+```text
+Mani: DINO grid -> Conv/BN/ReLU -> upsample -> Conv/BN/ReLU -> upsample -> 128 channels
+Simi: SelfCorr grid -> Conv/BN/ReLU -> upsample -> Conv/BN/ReLU -> upsample -> 96 channels
+Fusion: concatenate 128 + 96 + Mani aux + Simi aux at the refined branch resolution
+```
+
+The previous grid-only custom decoders were kept in `model.py` as
+`_DeprecatedCustomManiGridDecoder` and `_DeprecatedCustomSimiGridDecoder` so we can
+compare or revert without losing the code. Existing checkpoints are not compatible with
+the progressive decoder model.
+
+## Track Balanced Validation Separately From Official oF1
+
+Validation diagnostics showed a recurring checkpoint tradeoff:
+
+- best-by-official-oF1 checkpoints often keep authentic images cleaner,
+- later checkpoints often localize forged masks better, especially across size buckets.
+
+Decision: keep official `best.pt`, but add a balanced checkpoint for assignment/report
+analysis:
+
+```text
+balanced_score = harmonic_mean(authentic_mean_f1, forged_mean_f1)
+```
+
+This does not replace the competition score. It adds a scientific model-selection view
+that does not let authentic empty predictions dominate the story. Use the same fixed
+post-processing settings as training validation; do not run threshold sweeps inside the
+training loop.
+
+## Try Stage 3 Auxiliary Loss Before Fusion Redesign
+
+The current fusion module is capable: progressive-decoder runs show stronger forged
+localization without changing fusion. The next training experiment should therefore keep
+fusion unchanged and add small auxiliary branch losses during Stage 3:
+
+```text
+stage3_loss =
+    fusion_loss
+  + 0.1 * mani_aux_target_loss
+  + 0.1 * simi_aux_union_loss
+```
+
+Reason: Stage 3 improves forged recall but can weaken authentic precision. Small
+auxiliary losses may keep Mani target evidence and Simi union evidence stable while the
+fusion head adapts. A BusterNet-style multi-kernel fusion block remains a later ablation,
+not the next change.

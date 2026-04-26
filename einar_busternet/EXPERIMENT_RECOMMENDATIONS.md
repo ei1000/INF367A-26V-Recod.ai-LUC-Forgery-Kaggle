@@ -260,10 +260,10 @@ Why this is cheap:
 - We can add capacity without changing baseline preprocessing or validation.
 - The latest diagnostics showed small/tiny forged masks remain the weakest buckets.
 
-## Next Architecture Recommendation: Progressive Decoders
+## Current Architecture Ablation: Progressive Decoders
 
-The current wider decoder is still mostly a low-resolution token-grid head. The next
-architecture change should make the branch decoders progressive:
+The wider decoder was still mostly a low-resolution token-grid head. We changed the
+branch decoders to be progressive:
 
 ```text
 32x32 DINO/SelfCorr features
@@ -284,8 +284,8 @@ Reason:
   classifier.
 - Final-only upsampling from 32x32 can make tiny copied regions too coarse to recover.
 
-Keep this as the next architecture ablation after the longer epoch run. Do not change
-DINO first.
+This is now the main architecture ablation after the longer epoch run. DINO remains
+unchanged.
 
 Why auxiliary logits may help:
 
@@ -316,8 +316,64 @@ stage3_loss =
   + 0.1 * simi_aux_union_loss
 ```
 
-Do not start here. First try better branch/fusion loss. Add persistent auxiliary loss
-only if Stage 3 causes branch drift or source coverage remains weak.
+Status: this is now the recommended next training experiment before changing fusion.
+
+Reason:
+
+- Progressive decoding improved forged localization, especially later checkpoints.
+- Later checkpoints trade authentic precision for forged recall.
+- A small persistent auxiliary term may keep Mani/Simi branch semantics stable while
+  Stage 3 fine-tunes fusion and branch features.
+- It is cheaper and easier to interpret than another fusion architecture change.
+
+Implementation notes:
+
+- Use the same `BCEDiceLoss` branch criteria as Stage 1.
+- Compute auxiliary logits with `forward_branches`.
+- Keep all tensors on GPU; only aggregate scalar losses for logging.
+- Start with `0.1` for both auxiliary terms. If authentic false positives rise further,
+  try `0.05`.
+
+## Balanced Checkpoint Recommendation
+
+Official Kaggle/oF1 still matters, but diagnostics show that best-by-oF1 can favor an
+early conservative checkpoint with cleaner authentic images and weaker forged masks.
+
+Add a second checkpoint criterion during validation:
+
+```text
+authentic_f1 = mean pixel F1 over authentic validation samples
+forged_f1 = mean pixel F1 over forged validation samples
+balanced_score = harmonic_mean(authentic_f1, forged_f1)
+```
+
+Save:
+
+```text
+best.pt             # official Kaggle/oF1
+best_balanced.pt    # harmonic authentic/forged F1
+last.pt             # latest weights
+```
+
+Use one fixed post-processing setting from config. Do not sweep thresholds during
+training. This should add only a small CPU pass after validation because predictions are
+already collected.
+
+## Later Fusion Ablation
+
+Do not change fusion before testing Stage 3 auxiliary loss. If source coverage or
+small/tiny masks still lag, try a BusterNet-style multi-kernel fusion block:
+
+```text
+input: Mani features + Simi features + Mani aux logit + Simi aux logit
+parallel Conv2d branches: 1x1, 3x3, 5x5
+concat + BN/ReLU
+3x3 binary union classifier
+```
+
+Reason: original BusterNet uses BN-Inception-like fusion. This would keep the method
+close to BusterNet while preserving the binary union output that fits the assignment
+objective.
 
 ## Threshold And Post-Processing
 

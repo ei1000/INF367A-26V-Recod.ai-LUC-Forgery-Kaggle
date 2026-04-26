@@ -21,7 +21,7 @@ class BusterNetConfigTests(unittest.TestCase):
         self.assertEqual(config.min_component_area, 10)
         self.assertFalse(config.post_process_apply_opening)
         self.assertEqual(config.union_wrapper_eps, 1e-6)
-        self.assertEqual(config.total_stage_epochs, 20)
+        self.assertEqual(config.total_stage_epochs, 35)
 
     def test_dataset_defaults_use_clean_pairs_and_paired_authentic(self) -> None:
         config = BusterNetConfig()

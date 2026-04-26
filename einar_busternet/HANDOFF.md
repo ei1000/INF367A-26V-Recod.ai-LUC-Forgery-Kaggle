@@ -85,7 +85,13 @@ Key decisions:
 - Branch auxiliary classifiers are explicit one-channel heads.
   - Current fusion input is 226 channels: 128 Mani features, 96 Simi features, and two
     one-channel auxiliary logits.
-  - Old checkpoints from earlier fusion architectures will not load into this model.
+  - Mani/Simi decoders are progressive: DINO/SelfCorr grid features are refined at
+    32x32, upsampled/refined to 64x64, then upsampled/refined to 128x128 before
+    auxiliary classification and fusion.
+  - The previous grid-only decoders are kept as `_DeprecatedCustom...` classes in
+    `model.py`.
+  - Old checkpoints from earlier fusion/decoder architectures will not load into this
+    model.
 - `tests/test_busternet_model.py`
   - Unit tests for correlation pooling, model shapes, branch outputs, frozen encoder
     behavior, and evaluation wrapper probabilities.
@@ -104,6 +110,10 @@ Key decisions:
     target mask, Simi source+target union mask.
   - Stage 1 trains decoder + auxiliary classifier for each branch.
   - Stage 2/3 reuse baseline `train_one_epoch` with 3-class CE or binary union BCE+Dice.
+  - Planned next change: optional Stage 3 auxiliary losses
+    `fusion_loss + 0.1 * mani_aux_target_loss + 0.1 * simi_aux_union_loss`.
+  - Planned checkpoint change: keep official `best.pt`, add `best_balanced.pt` using
+    harmonic authentic/forged validation F1 with fixed post-processing.
   - Validation wraps the model with `BusterNetUnionWrapper`.
   - Training loss logging syncs once per epoch, not once per batch.
   - Supports `--smoke` and small CLI overrides for first-run safety.
