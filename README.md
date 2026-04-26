@@ -1,30 +1,69 @@
-# Introduction
+# Recod.ai/LUC - Scientific Image Forgery Detection
 
-This project uses uv, can be installed with;
+Group project for INF367A. The goal is copy-move forgery detection (CMFD) on scientific images
+from the [Kaggle competition](https://www.kaggle.com/competitions/recodai-luc-scientific-image-forgery-detection).
 
-- `pip install uv`
+## Competition
 
-Then env is initiated with;
+Copy-move forgery duplicates a region of an image and pastes it elsewhere, often with
+post-processing to hide the manipulation. The competition focuses on scientific images, where
+this technique can be used to fabricate results.
 
-- `uv venv`
+The dataset contains 2751 forged and 2377 authentic images. For 2377 forged cases an authentic
+counterpart is also provided. Images vary widely in size and are resized to 448x448 for training.
 
-The env is maintained with;
+The evaluation metric is a component-level oF1: pixelwise F1 is computed per connected component
+and matched to ground truth using the Hungarian algorithm. A penalty is applied for extra predicted
+components. Any prediction on an authentic image gives oF1=0 for that image.
 
-- `uv sync` - If new dependencies are not downloaded locally
-- `uv lock` - If you add new dependencies
+We were unable to submit to the Kaggle test set due to late entry. All results are on a local
+stratified holdout split (80/10/10 train/val/test, seed=42).
 
-The main entrypoint of the project is the `train_baseline.py` file. This runs a pipeline consisting of the DINOv2 feature extractor, a simple decoder and some pixel mask post-processing operations.
+## Setup
 
-## Report
+This project uses [uv](https://github.com/astral-sh/uv):
 
-Our methods are documented in detail in `report/nldl-NLDL2025/main.pdf`, where we give an overview of the different models utilized and more information on the individual competition.
-
-See also the respective READMEs in the `x_individual_project` directories for more information on the specific implementations.
-
-## Kaggle Competition
-
-The aim of this project is to achieve good performance on the Kaggle competition: "Recod.ai/LUC - Scientific Image Forgery Detection". This competition aims to predict Copy-Move Forgeries on scientific images. See the competition here: https://www.kaggle.com/competitions/recodai-luc-scientific-image-forgery-detection. Our implementation utilizes the training data and metric from the competition. Unfortunately, we were unable to enter the competition, so we were neither able to use the associated test data nor submit our model to the Kaggle leaderboard. For more detailed information on the competition, see the report.
+```bash
+pip install uv
+uv venv
+uv sync
+```
 
 ## Data
 
-- Data is stored in data/ folder. It must be added it if not present in order to run the project.
+Place the Kaggle competition data in `data/`. The expected structure is documented in `data/README.md`.
+
+## Baseline
+
+The baseline uses a frozen DINOv2 ViT-B/14 encoder with a lightweight convolutional decoder.
+Configuration is in `configs/baseline_config.py`.
+
+```bash
+# Train
+uv run python train_baseline.py
+
+# Evaluate on holdout (one-shot, keep locked during model selection)
+uv run python evaluate_baseline.py --checkpoint runs/checkpoints/best_by_kaggle_score.pt --confirm-local-holdout --allow-torch-hub
+```
+
+Checkpoints are saved to `runs/checkpoints/`. Validation diagnostics can be explored in
+`notebooks/evaluate_validation_postprocess.ipynb`.
+
+## Data Exploration
+
+`notebooks/explore_forgery_data.ipynb` covers image dimensions, mask statistics, instance counts,
+and authentic/forged pair inspection.
+
+## Individual Projects
+
+Each group member implemented a novel method:
+
+- `max_crosscale_patchmatch/` — Deep Cross-Scale PatchMatch adaptation (Max)
+- `einar_busternet/` — BusterNet-inspired dual-branch model with DINOv2 features (Einar)
+- `emre_segnext/` — SegNeXt-inspired segmentation baseline (Emre)
+
+See the individual READMEs for method descriptions, running instructions, and results.
+
+## Report
+
+Full description of methods, results, and discussion: `report/nldl-NLDL2025/main.pdf`.
