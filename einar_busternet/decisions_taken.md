@@ -1,7 +1,6 @@
 # Decisions Taken
 
-This file records the main scientific and engineering decisions behind the final
-BusterNet-DINO method.
+Main decisions behind BusterNet-DINO.
 
 ## Training Data And Evaluation Split
 
@@ -152,19 +151,18 @@ Official `best.pt` is selected by Kaggle/oF1 and often prefers conservative auth
 behavior. Later checkpoints may localize forged masks better but trade away some
 authentic F1.
 
-For assignment analysis we also save:
+Also saved:
 
 ```text
 balanced_score = harmonic_mean(authentic_mean_f1, forged_mean_f1)
 ```
 
-`best_balanced.pt` is not a replacement for official oF1. It is a clearer model-selection
-view for the scientific question: does BusterNet-style similarity improve forged
-localization without simply relying on empty authentic predictions?
+`best_balanced.pt` is not a replacement for official oF1 — it gives a clearer view of
+whether the model actually localizes forged regions or just avoids predictions.
 
 ## Final Selected Result
 
-Selected checkpoint for report discussion:
+Final numbers:
 
 ```text
 best_balanced.pt, epoch 37
@@ -178,15 +176,6 @@ holdout authentic mean F1: 0.8361
 holdout forged mean F1: 0.3292
 ```
 
-The result supports the report narrative: the baseline is strong at keeping authentic
-images clean, while BusterNet-DINO adds copy-move similarity and extra decoder/fusion
-capacity that improves forged localization.
+The baseline is strong at keeping authentic images clean. BusterNet-DINO adds
+copy-move similarity and extra decoder/fusion capacity that improves forged localization.
 
-## Refactor Policy Before Submission
-
-Do not change model behavior before submission. Cleanup should be presentation-only:
-
-- Keep `three_class` mode as a documented comparison path.
-- Keep `binary_union` as the submitted method.
-- Keep artifacts/checkpoints/results out of git.
-- Only move helper code if tests prove behavior is unchanged.

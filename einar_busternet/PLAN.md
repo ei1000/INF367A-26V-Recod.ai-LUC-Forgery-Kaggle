@@ -1,6 +1,6 @@
 # BusterNet-DINO Implementation Plan
 
-This file is the compact implementation status for the submitted individual method.
+Compact implementation status for BusterNet-DINO.
 Detailed experiment history lives in `decisions_taken.md`.
 
 ## Goal
@@ -124,7 +124,7 @@ Implemented in `evaluate.py` and `evaluate_validation_diagnostics.ipynb`.
 
 ## Final Report Numbers
 
-Selected checkpoint for assignment analysis:
+Selected checkpoint:
 
 ```text
 checkpoint: best_balanced.pt, epoch 37
@@ -139,8 +139,8 @@ holdout authentic mean F1: 0.8361
 holdout forged mean F1: 0.3292
 ```
 
-`best.pt` remains useful for official-oF1 reporting, but `best_balanced.pt` better shows
-the assignment goal: improved forged localization without collapsing authentic control.
+`best.pt` is best on official oF1. `best_balanced.pt` better shows forged localization
+without collapsing authentic control.
 
 ## Reused Project Code
 
@@ -155,10 +155,3 @@ Imported instead of copied:
 - `inference/postprocess.py`
 - `configs/baseline_config.py`
 
-## Final Cleanup Plan
-
-No behavior changes before submission. Safe refactor-only cleanup later:
-
-- Move balanced validation helpers out of `train.py` into shared evaluation utilities.
-- Add `balanced` as a first-class checkpoint choice to `evaluate.py` if CLI parity with
-  the notebook is needed.

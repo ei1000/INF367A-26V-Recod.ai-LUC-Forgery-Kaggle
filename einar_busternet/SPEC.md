@@ -62,10 +62,10 @@ upsample, 192→128            → (B,100,32,32)
        → Conv2d(128,64,3) + BN + ReLU
        → Conv2d(64,out,3,padding=1)
        bilinear upsample → (B,out,448,448)
-       raw logits: out=1 for submitted binary union, out=3 for source/target experiment
+       raw logits: out=1 for binary union, out=3 for source/target experiment
 ```
 
-At inference for evaluation, the submitted binary model returns one-channel union logits.
+At inference, the binary model returns one-channel union logits.
 For the 3-class experiment: `P(target) + P(source)` → forgery probability → binary mask.
 
 ### Backbone Adaptation Note
@@ -73,12 +73,12 @@ For the 3-class experiment: `P(target) + P(source)` → forgery probability → 
 The original BusterNet uses **two separate VGG-16 feature extractors** (same architecture,
 different weights). Since our DINOv2 is always frozen, one shared frozen encoder is
 equivalent — both branches receive identical features, same result as two identical
-frozen encoders. This is an intentional adaptation, not a loss of fidelity.
+frozen encoders. One shared frozen encoder gives identical results since both branches see the same features.
 
 ## SelfCorrelPercPooling
 
-The key Simi-Det innovation. Computes all-pairs feature similarity across the DINOv2
-spatial grid, then distils the per-location similarity distribution via percentile pooling.
+Computes all-pairs feature similarity across the DINOv2 spatial grid, then distils the
+per-location similarity distribution via percentile pooling.
 
 ### Similarity metric: cosine similarity (deviation from paper, justified)
 
@@ -118,10 +118,9 @@ A copy-move location shows a sharp drop in similarity after the matching patch;
 the percentile curve makes this pattern detectable regardless of input size.
 Result: `(B, 1024, 100)` → permute → `(B, 100, 1024)` → reshape → `(B, 100, 32, 32)`
 
-All operations GPU-native. Use a small normalisation epsilon so degenerate feature vectors
-stay finite. For the initial implementation, keep the diagonal self-similarity term; it
-can be removed later as an ablation if it appears to waste one percentile slot.
-Memory: (1024×1024) × 4B × B ≈ 16MB per batch of 4 — fine.
+All operations run on GPU. A small normalisation epsilon keeps degenerate vectors finite.
+The diagonal self-similarity term is kept; removing it is worth testing if it wastes a
+percentile slot. Memory: (1024x1024) x 4B x B ~= 16MB per batch of 4.
 
 ## Fusion Module
 
@@ -129,7 +128,7 @@ Paper fuses the two branch mask-decoder feature maps. It uses `BN-Inception 3@[1
 (three parallel Conv2d branches with kernel sizes 1, 3, 5, concatenated, then BN)
 followed by `Conv2d(..., 3×3) + softmax`.
 
-Our current competition-oriented adaptation:
+The adapted fusion:
 ```
 concat(mani_features, simi_features, mani_logit, simi_logit) → (B, 226, 128, 128)
 parallel Conv2d branches with kernels 1, 3, 5, each 64 channels
@@ -152,8 +151,7 @@ Softmax is applied by losses/evaluation, not inside the training forward pass.
 Branch decoders are progressive: they refine DINO/SelfCorr features on the 32×32 grid,
 upsample to 64×64, refine again, then upsample to 128×128 before auxiliary
 classification and fusion. Earlier grid-only custom decoders were tried during
-experimentation, then removed from the final submission code once progressive decoding
-became the selected architecture.
+experimentation, then dropped once progressive decoding proved better.
 
 ## Training Objective and Multi-Stage Curriculum
 
@@ -184,7 +182,7 @@ Current LR: `1e-3`.
 
 Freeze all Mani-Det and Simi-Det parameters. Train only the Fusion module.
 Default loss: `CrossEntropyLoss(weight=[0.3, 1.0, 1.0])` on 3-class labels.
-Binary-fusion submitted variant: BCE+soft-Dice on `(label_map > 0).float()`.
+Binary-fusion path: BCE+soft-Dice on `(label_map > 0).float()`.
 LR: `1e-2` (paper). Initial training uses only paired forged cases with reliable
 source/target labels plus their authentic counterparts as all-background negatives.
 
@@ -240,7 +238,7 @@ Training saves both official and balanced validation checkpoints:
   the same fixed post-processing settings as validation.
 - `last.pt`: latest checkpoint.
 
-Balanced validation is for assignment analysis; it does not replace official oF1.
+Balanced validation does not replace official oF1.
 
 Validation and holdout evaluation use the baseline-style `ForgeryDataset` over the
 normal grouped splits. They do not filter to `derived_from_pair`, because scoring only
@@ -274,14 +272,13 @@ and nearest-neighbor label resize. Always emits `(image, label_map)` where:
 - Everything stays on GPU: no numpy/CPU operations during forward/backward pass.
 - Input size: 448×448 (same as baseline) → 32×32 DINO feature grid (1024 locations).
 - `fusion_mode="three_class"` outputs `(B, 3, H, W)` logits before softmax.
-  The submitted `fusion_mode="binary_union"` variant outputs `(B, 1, H, W)` raw binary
+  `fusion_mode="binary_union"` outputs `(B, 1, H, W)` raw binary
   logits.
 - Checkpoints and results live entirely within `einar_busternet/artifacts/`.
 
 ## Adaptations from Paper (summary)
 
-All adaptations are documented with justification. Where the paper's design was driven
-by VGG-16 constraints, we apply the modern equivalent for DINOv2.
+Where the paper's design was driven by VGG-16 constraints, the DINOv2 equivalent is used.
 
 | Aspect | Original BusterNet | Our Adaptation | Justification |
 |---|---|---|---|
