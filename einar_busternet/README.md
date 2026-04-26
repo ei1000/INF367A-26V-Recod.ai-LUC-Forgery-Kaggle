@@ -5,9 +5,9 @@ I used AI tools such as Codex while implementing this project. I did not outsour
 
 The architecture is my own BusterNet adaptation based on the project baseline and modern dense-prediction practice. AI tools made it possible to implement and test ideas faster, but the important choices were made from inspection, experiments, and review.
 
-One practical lesson was that generated code still needs careful engineering review. For example, an earlier autocast change increased memory use, so I reviewed and corrected it.
+Vibing and blindly trusting generated code would have most likely blown up my gpu. Identifying memory leaks and setting up proper implementation principles lead to efficient, readable and decent code. 
 
-The workflow was: research, write a spec, write an implementation plan, implement one part at a time, test it, then inspect diagnostics before changing the next part. Then making a lot of hypothesis about the data, architecture, tricks and then testing it empirically with the implementations. 
+The workflow was: research, write a spec, write an implementation plan, implement one part at a time, test it, then inspect diagnostics before changing the next part. Then making a lot of hypotheses about the data, architecture, tricks and then testing it empirically with the implementations. 
 
 ## Method
 
@@ -22,9 +22,10 @@ that copy-move forgery leaves two complementary signals in an image:
 
 1. **Manipulation signal**: the pasted target region shows local artifacts and inconsistencies
    detectable by a standard segmentation branch (manipulation-detection branch).
-2. **Copy-move signal**: the source and target regions are *self-similar* — they contain
-   the same visual content. A second branch that computes the image's self-cosine-similarity
-   map can directly detect this paired structure.
+2. **Copy-move signal**: the source and target regions are self-similar and contain
+   the same visual content. A second branch that computes a self-similarity map can
+   directly detect this paired structure. The original BusterNet uses Pearson correlation;
+   this implementation uses cosine similarity since DINOv2 features are L2-normalized.
 
 Combining both signals is more principled than binary segmentation alone for CMFD.
 
@@ -39,8 +40,10 @@ source from target:
 
 Classification is done per connected component: if ≥25% of a component's pixels
 changed by more than 5 intensity units, the component is labeled target; otherwise source.
-Cases without an authentic pair are reserved for later analysis rather than used in the
-initial source/target training loop.
+Cases without an authentic pair are excluded from the source/target training loop because
+there is no signal to identify which component is the target. Since the target region
+shows local artifacts detectable by the Mani-Det branch, randomly attributing a component
+as target would provide incorrect supervision.
 This provides three-class ground truth (background / target / source) for training,
 without requiring any additional annotation.
 
@@ -59,9 +62,11 @@ progressive convolutional decoder. This branch directly models the "same content
 twice" structure of copy-move forgery.
 
 The current final model uses progressive branch decoders, auxiliary branch classifiers,
-and a multi-kernel fusion head. The main submitted setting is `fusion_mode="binary_union"`:
-the fusion head directly predicts the source+target union mask with BCE+Dice. The
-3-class path remains in code because it was the initial BusterNet-style experiment.
+and a multi-kernel fusion head. The submitted setting is `fusion_mode="binary_union"`:
+the fusion head directly predicts the source+target union mask with BCE+Dice. This was
+chosen for better problem alignment and empirically better performance. With binary_union
+only the target auxiliary and the union GT mask are needed for training, not 3-class labels.
+The 3-class path remains in code as the initial BusterNet-style experiment.
 
 ### Integration
 
@@ -72,6 +77,7 @@ The model integrates with the group project pipeline:
 - Produces a single-channel forgery probability map compatible with the shared
   post-processing and evaluation pipeline (`score_validation_predictions`).
 - Checkpoints and results are self-contained in `einar_busternet/artifacts/`.
+- Trained model weights: [best_balanced.pt](https://huggingface.co/ei1000/busternet-dino-cmfd-inf367a/blob/main/best_balanced.pt).
 
 ### Comparison with Baseline
 
