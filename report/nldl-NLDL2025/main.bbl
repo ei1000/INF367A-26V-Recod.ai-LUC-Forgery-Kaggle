@@ -316,8 +316,8 @@
       \strng{authornamehash}{85c4b5e6cb963012fb3f1012309a5574}
       \strng{authorfullhash}{e78c3b4dc49e40ff223dbfe2946b4b1b}
       \field{extraname}{2}
-      \field{sortinit}{7}
-      \field{sortinithash}{108d0be1b1bee9773a1173443802c0a3}
+      \field{sortinit}{6}
+      \field{sortinithash}{b33bc299efb3c36abec520a4c896a66d}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{journaltitle}{CoRR}
@@ -358,8 +358,8 @@
       \strng{authorbibnamehash}{0af98ec91dcb2ddd68147346dfe6349c}
       \strng{authornamehash}{aacf0074683790d535f8f37dc86d8ff0}
       \strng{authorfullhash}{0af98ec91dcb2ddd68147346dfe6349c}
-      \field{sortinit}{8}
-      \field{sortinithash}{a231b008ebf0ecbe0b4d96dcc159445f}
+      \field{sortinit}{7}
+      \field{sortinithash}{108d0be1b1bee9773a1173443802c0a3}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{journaltitle}{IEEE Transactions on Information Forensics and Security}
@@ -417,8 +417,8 @@
       \strng{authorbibnamehash}{d0cea8f0bbd2d62c9b27b71cb99af3e1}
       \strng{authornamehash}{79766bde1f1e985eb5fba0c5e17c0c40}
       \strng{authorfullhash}{d0cea8f0bbd2d62c9b27b71cb99af3e1}
-      \field{sortinit}{9}
-      \field{sortinithash}{0a5ebc79d83c96b6579069544c73c7d4}
+      \field{sortinit}{8}
+      \field{sortinithash}{a231b008ebf0ecbe0b4d96dcc159445f}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{note}{Also available at: https://arxiv.org/pdf/2404.17310}
@@ -444,8 +444,8 @@
       \strng{authornamehash}{8fec9765921cfa63cb331e42a924c27c}
       \strng{authorfullhash}{8fec9765921cfa63cb331e42a924c27c}
       \field{extraname}{2}
-      \field{sortinit}{1}
-      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{sortinit}{9}
+      \field{sortinithash}{0a5ebc79d83c96b6579069544c73c7d4}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{howpublished}{\url{https://www.kaggle.com/code/metric/recodai-f1/}}
@@ -575,53 +575,6 @@
       \verb https://arxiv.org/abs/2304.07193
       \endverb
     \endentry
-    \entry{segnext}{article}{}
-      \name{author}{6}{}{%
-        {{hash=c3ca904dab0113caf62cde3654551f85}{%
-           family={Guo},
-           familyi={G\bibinitperiod},
-           given={Meng-Hao},
-           giveni={M\bibinithyphendelim H\bibinitperiod}}}%
-        {{hash=bacd3c42aefdb747282bec54ea7d0d4c}{%
-           family={Lu},
-           familyi={L\bibinitperiod},
-           given={Cheng-Ze},
-           giveni={C\bibinithyphendelim Z\bibinitperiod}}}%
-        {{hash=f2d105116f208ed641dc9126d8209ee4}{%
-           family={Hou},
-           familyi={H\bibinitperiod},
-           given={Qibin},
-           giveni={Q\bibinitperiod}}}%
-        {{hash=556295f47ce81e5a80a17b3b699dec7a}{%
-           family={Liu},
-           familyi={L\bibinitperiod},
-           given={Zheng-Ning},
-           giveni={Z\bibinithyphendelim N\bibinitperiod}}}%
-        {{hash=bfbe355b6a8257baeffd5b8814bc5c57}{%
-           family={Cheng},
-           familyi={C\bibinitperiod},
-           given={Ming-Ming},
-           giveni={M\bibinithyphendelim M\bibinitperiod}}}%
-        {{hash=afab500d2408e1897d292c1678561465}{%
-           family={Hu},
-           familyi={H\bibinitperiod},
-           given={Shi-Min},
-           giveni={S\bibinithyphendelim M\bibinitperiod}}}%
-      }
-      \strng{namehash}{fb54b869bb1acb37aff1e2c22d532774}
-      \strng{fullhash}{d69b0a8de6052a6207bae973aaf7496f}
-      \strng{bibnamehash}{d69b0a8de6052a6207bae973aaf7496f}
-      \strng{authorbibnamehash}{d69b0a8de6052a6207bae973aaf7496f}
-      \strng{authornamehash}{fb54b869bb1acb37aff1e2c22d532774}
-      \strng{authorfullhash}{d69b0a8de6052a6207bae973aaf7496f}
-      \field{sortinit}{1}
-      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
-      \field{labelnamesource}{author}
-      \field{labeltitlesource}{title}
-      \field{journaltitle}{arXiv preprint arXiv:2209.08575}
-      \field{title}{SegNeXt: Rethinking Convolutional Attention Design for Semantic Segmentation}
-      \field{year}{2022}
-    \endentry
     \entry{barnes2009patchmatch}{article}{}
       \name{author}{4}{}{%
         {{hash=4e74e92ac258a7344d22dd0661d08dd2}{%
@@ -683,8 +636,8 @@
       \strng{authorbibnamehash}{25d2f3c4577a6632d37f0126cc781232}
       \strng{authornamehash}{25d2f3c4577a6632d37f0126cc781232}
       \strng{authorfullhash}{25d2f3c4577a6632d37f0126cc781232}
-      \field{sortinit}{2}
-      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{journaltitle}{arXiv preprint arXiv:1409.1556}
@@ -726,8 +679,8 @@
       \strng{authorbibnamehash}{42c4b52dc3a62cebabbc11c73e1afb53}
       \strng{authornamehash}{6edb98fe38401d2fe4a026f5ce6e8451}
       \strng{authorfullhash}{42c4b52dc3a62cebabbc11c73e1afb53}
-      \field{sortinit}{2}
-      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
       \field{labelnamesource}{author}
       \field{labeltitlesource}{title}
       \field{journaltitle}{arXiv preprint arXiv:1512.03385}
@@ -739,6 +692,53 @@
       \verb{url}
       \verb https://arxiv.org/abs/1512.03385
       \endverb
+    \endentry
+    \entry{segnext}{article}{}
+      \name{author}{6}{}{%
+        {{hash=c3ca904dab0113caf62cde3654551f85}{%
+           family={Guo},
+           familyi={G\bibinitperiod},
+           given={Meng-Hao},
+           giveni={M\bibinithyphendelim H\bibinitperiod}}}%
+        {{hash=bacd3c42aefdb747282bec54ea7d0d4c}{%
+           family={Lu},
+           familyi={L\bibinitperiod},
+           given={Cheng-Ze},
+           giveni={C\bibinithyphendelim Z\bibinitperiod}}}%
+        {{hash=f2d105116f208ed641dc9126d8209ee4}{%
+           family={Hou},
+           familyi={H\bibinitperiod},
+           given={Qibin},
+           giveni={Q\bibinitperiod}}}%
+        {{hash=556295f47ce81e5a80a17b3b699dec7a}{%
+           family={Liu},
+           familyi={L\bibinitperiod},
+           given={Zheng-Ning},
+           giveni={Z\bibinithyphendelim N\bibinitperiod}}}%
+        {{hash=bfbe355b6a8257baeffd5b8814bc5c57}{%
+           family={Cheng},
+           familyi={C\bibinitperiod},
+           given={Ming-Ming},
+           giveni={M\bibinithyphendelim M\bibinitperiod}}}%
+        {{hash=afab500d2408e1897d292c1678561465}{%
+           family={Hu},
+           familyi={H\bibinitperiod},
+           given={Shi-Min},
+           giveni={S\bibinithyphendelim M\bibinitperiod}}}%
+      }
+      \strng{namehash}{fb54b869bb1acb37aff1e2c22d532774}
+      \strng{fullhash}{d69b0a8de6052a6207bae973aaf7496f}
+      \strng{bibnamehash}{d69b0a8de6052a6207bae973aaf7496f}
+      \strng{authorbibnamehash}{d69b0a8de6052a6207bae973aaf7496f}
+      \strng{authornamehash}{fb54b869bb1acb37aff1e2c22d532774}
+      \strng{authorfullhash}{d69b0a8de6052a6207bae973aaf7496f}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{arXiv preprint arXiv:2209.08575}
+      \field{title}{SegNeXt: Rethinking Convolutional Attention Design for Semantic Segmentation}
+      \field{year}{2022}
     \endentry
     \entry{lin2014coco}{inproceedings}{}
       \name{author}{8}{}{%

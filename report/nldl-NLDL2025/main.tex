@@ -121,7 +121,7 @@ This paper presents a complete main pipeline for CMFD and several alternate meth
 \section{Methods}
 As the Kaggle competition had already been running for 3 months when we began our experiments, our initial implementation was inspired by the techniques used by other users \cites{notebook1, notebook2}. We noted that many users employed the the DINOv2 model \cites{oquab2023dinov2}, as well as techniques for prediction mask post-processing. Our main model is inspired by the use of these techniques.
 \\\\
-We run two main experiments. Firstly, to assess the performance of our implementation as a whole, we compare it to a model inspired by Deep Cross-Scale PatchMatch \cites{li2024deeppatchmatch} and BusterNet (TODO: Source). All experiments were conducted with a fixed random seed of 42.
+We run two main experiments. Firstly, to assess the performance of our implementation as a whole, we compare it to a model inspired by Deep Cross-Scale PatchMatch \cites{li2024deeppatchmatch} and BusterNet (TODO: Source). All experiments were conducted with a fixed random seed of 42. We also seeded Python, NumPy, PyTorch, CUDA, and data-loader workers where applicable, and disabled cuDNN benchmarking to make the runs highly reproducible. However, we do not claim strict bit-wise determinism, as some PyTorch/CUDA operations and architecture-dependent kernels can remain nondeterministic in practice, and enforcing fully deterministic algorithms would have made parts of the training pipeline impractical.
 \\\
 Then, in order to evaluate the feature extraction strength of DINOv2, we evaluate it against a pretrained SegNeXt-inspired model for different dataset sizes, measuring validation F1, without applying any post-processing in order to keep this experiment clean.
 
@@ -163,8 +163,8 @@ Post-processing steps were critical for performance under the competition metric
 \section{Results}
 \subsection{Main results}
 At the time of writing, the maximum oF1 score achieved on hold-out test data was $0.458$, achieved by Kaggle user \emph{orshanec}. \cites{kaggle} We again emphasize that our architecture cannot be directly compared with this metric due to us being unable to access the Kaggle hold-out test set.
-\subsubsection{Main model results (Validation score rerun evaluation later)}
-Our main model achieved an OF1 score of : 0.509. With f1 of 0.9664 on authentic and 0.1156 for forged. As we observe it is being too conservative to makes almost no forged predictions. If we observe the f1 when the model fires it is higher. This indicates that during training the loss of predicting wrong on authentic images hurts so much that we instead rarely make a prediction. This makes sense since it supports the performance measure. Since we are using a stratisfied holdout set it gets a good score, but if we were only testing on a more forged imbalanced set it would likely perform worse. The forged masks were not the best either despite the good score. The runtime of the baseline is quite fast. The Dino extractor dominates runtime as the decoder is smaller by a significant margin. It was trained for around 10 minutes on a 4080 super.
+\subsubsection{Main model results}
+Our main model achieved an OF1 score of : 0.5007. With f1 of 0.9958 on authentic and 0.0722 for forged. We observed that it was scared to make predictions. This indicates that during training the loss of predicting wrong on authentic images hurts so much that we instead rarely make a prediction. The performance measure discussed earlier supports this approach. We are using a stratisfied holdout set with 238 authentic and 275. The semi-balance in classes helps, but if the holdout were to be dominated by forged samples it would perform worse. We think given the performance measure, they are instead encouraging low FP rate for authentic samples, which the baseline achieves. It will instead fire when it is certain. Furthermore we believe that the simplicity of the decoder is holder back the results for the forged predictions. It is not utilizing the extracted features much, instead downsampling to a binary mask. If it were to upsample and do more convolutions it could perhaps learn more, especially on smaller forgeries. Right now it is mainly looking for large certain forgeries that are low risk. The runtime of the baseline is quite fast. The Dino extractor dominates runtime as the decoder is smaller by a significant margin. It was trained for around 15 minutes on a 4080 super. 
 \subsubsection{Deep Cross-Scale PatchMatch results}
 The PatchMatch architecture achieved competitive performance, reaching 0.613 on authentic images and 0.340 on forged images, giving a combined score of $0.466$. However, this architecture had much higher runtime and memory consumption compared to our main method. The runtime is particularly dependent on the number of PatchMatch iterations which are performed. This module iteratively executes propagation and evaluation steps "several times" \cite[p.~7]{li2024deeppatchmatch}. While the original paper does not specify the number of iterations, we found that 24 iterations produced stable results. Using this amount of iterations, PatchMatch on a single image takes $~4$s on an NVIDIA RTX 4070 TI Super GPU, while other components of the network take less than $0.1s$ to run.
 \\\\
@@ -251,7 +251,6 @@ For instance, PatchMatch's reliance on finding groups of pixels with high featur
 
 
 \end{document}
-
 
 
 
