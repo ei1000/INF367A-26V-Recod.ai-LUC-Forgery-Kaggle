@@ -183,7 +183,7 @@ Current LR: `1e-3`.
 
 Freeze all Mani-Det and Simi-Det parameters. Train only the Fusion module.
 Default loss: `CrossEntropyLoss(weight=[0.3, 1.0, 1.0])` on 3-class labels.
-Binary-fusion ablation: BCE+soft-Dice on `(label_map > 0).float()`.
+Binary-fusion submitted variant: BCE+soft-Dice on `(label_map > 0).float()`.
 LR: `1e-2` (paper). Initial training uses only paired forged cases with reliable
 source/target labels plus their authentic counterparts as all-background negatives.
 
@@ -209,7 +209,7 @@ and Simi-Det union/similarity evidence active during fine-tuning.
 
 At inference/evaluation, wrap the model as a binary foreground model. For the 3-class
 model: `forgery_prob = softmax(logits)[:, 1] + softmax(logits)[:, 2]`. For the binary
-fusion ablation, the wrapper passes the one-channel logits through. This lets us reuse
+fusion variant, the wrapper passes the one-channel logits through. This lets us reuse
 the baseline validation and oF1 scoring path.
 
 Conceptually:
@@ -272,7 +272,7 @@ and nearest-neighbor label resize. Always emits `(image, label_map)` where:
 - DINOv2 encoder is **always frozen** (trains in minutes, same as baseline).
 - Everything stays on GPU: no numpy/CPU operations during forward/backward pass.
 - Input size: 448×448 (same as baseline) → 32×32 DINO feature grid (1024 locations).
-- Default output is `(B, 3, H, W)` logits before softmax. The binary fusion ablation
+- Default output is `(B, 3, H, W)` logits before softmax. The binary fusion variant
   outputs `(B, 1, H, W)` raw binary logits.
 - Checkpoints and results live entirely within `einar_busternet/artifacts/`.
 
@@ -295,7 +295,7 @@ by VGG-16 constraints, we apply the modern equivalent for DINOv2.
 | External mani data | IFS-TC + Wild Web datasets | None | Time constraint; noted as a limitation |
 | Image size | 256×256 | 448×448 | Matches project baseline and pipeline |
 | LR scheduling | Halve on plateau, patience=20 | ReduceLROnPlateau, tighter patience | Training runs in minutes, not days; aggressive patience is meaningless at our scale |
-| Class weighting | None needed (balanced synthetic data) | `[0.3, 1.0, 1.0]` or binary union BCE | Real data is severely imbalanced; competition scores union masks |
+| Class weighting | None needed (balanced synthetic data) | Binary union BCE+Dice main path; `[0.3, 1.0, 1.0]` retained for 3-class experiment | Real data is severely imbalanced; competition scores union masks |
 
 ## Comparison with Baseline
 
@@ -304,9 +304,9 @@ by VGG-16 constraints, we apply the modern equivalent for DINOv2.
 | Backbone | DINOv2 ViT-B/14 (frozen) | DINOv2 ViT-B/14 (frozen) |
 | Branches | 1 (mani-det only) | 2 (mani-det + simi-det) |
 | Self-similarity | No | Yes (cosine SelfCorrelPercPooling) |
-| Output channels | 1 (binary) | 3 (bg/target/source) or binary union ablation |
-| GT labels | Union mask | Derived source/target (3-class) |
-| Training signal | BCE | Stage-wise BCE → CE or binary union BCE |
+| Output channels | 1 (binary) | 1 for final binary union; 3 retained for source/target experiment |
+| GT labels | Union mask | Derived source/target branch labels + binary union fusion |
+| Training signal | BCE | Stage-wise BCE+Dice with Stage 3 auxiliary losses |
 
 Scientific question: does explicit copy-move similarity modeling improve over
 single-branch DINO segmentation for this task?

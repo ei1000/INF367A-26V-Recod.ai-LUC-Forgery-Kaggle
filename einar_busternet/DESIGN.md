@@ -22,11 +22,12 @@ concat decoder features + aux logits → (B, 226, 128, 128)
 Fusion: parallel Conv2d(226,64,k={1,3,5}) → concat 192 + BN/ReLU
         → Conv2d(192,128,3)+BN+ReLU → Conv2d(128,64,3)+BN+ReLU
         → Conv2d(64,out,3,pad=1)
-bilinear upsample → (B, 3, 448, 448)
-softmax → [background, target, source]
+bilinear upsample → (B, out, 448, 448)
+out=1 for binary union, out=3 for source/target experiment
 ```
 
-Inference: `forgery_prob = P(target) + P(source)`
+Main inference path: binary union logits. For the 3-class experiment,
+`forgery_prob = P(target) + P(source)`.
 
 ## SelfCorrelPercPooling
 
@@ -59,12 +60,12 @@ use 2377 real scientific image pairs with domain-specific source/target labels.
 |---|---|---|---|---|
 | 1a — Mani-Det | mani decoder + classifier | BCE+Dice | 1e-3 | target mask |
 | 1b — Simi-Det | simi decoder + classifier + corr | BCE+Dice | 1e-3 | source+target union mask |
-| 2 — Fusion | fusion only | CE `[0.3,1,1]` or binary BCE+Dice | 1e-2 | 3-class or union |
-| 3 — Fine-tune | all (DINOv2 frozen) | CE `[0.3,1,1]` or binary BCE+Dice | 1e-5 | 3-class or union |
+| 2 — Fusion | fusion only | binary BCE+Dice | 1e-2 | source+target union |
+| 3 — Fine-tune | branches + fusion (DINOv2 frozen) | binary BCE+Dice + 0.1 aux losses | 1e-5 | union + branch auxiliaries |
 
 Class weights `[0.3, 1.0, 1.0]` are the current 3-class setting after validation showed
-that `[0.1, 1.0, 1.0]` caused too many authentic false positives. A binary fusion
-ablation is implemented separately as `fusion_mode="binary_union"`.
+that `[0.1, 1.0, 1.0]` caused too many authentic false positives. The submitted model
+uses `fusion_mode="binary_union"` because it better matches the scored union-mask task.
 
 ## Key Deviations from Paper
 
@@ -75,4 +76,4 @@ ablation is implemented separately as `fusion_mode="binary_union"`.
 | 4-stage BN-Inception decoder | Progressive 32→64→128 branch decoders | Closer to BusterNet and modern dense prediction; helps small/source regions before final upsample |
 | Multi-kernel Inception fusion | Decoder features + aux logits, parallel 1×1/3×3/5×5 fusion → classifier | Closer to BusterNet fusion; aux logits expose direct Mani/Simi evidence |
 | 100K synthetic samples | 2377 real pairs initially | Real > synthetic for domain-specific task |
-| No class weighting | `[0.3, 1.0, 1.0]` or binary union BCE | Real data is imbalanced; Kaggle scores union masks |
+| No class weighting | Binary union BCE+Dice main path | Real data is imbalanced; Kaggle scores union masks |

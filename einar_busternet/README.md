@@ -1,15 +1,13 @@
 # BusterNet-DINO — Individual Project (Einar)
 
 ## Transparency of AI tools
-I have been using AI tools like codex when implementing this project. I have not outsourced the thinking, drafting, research, designing, planning and testing. I have spent most of my time researching, creating specs and plans, experimenting and reflecting to improve the project. 
+I used AI tools such as Codex while implementing this project. I did not outsource the research, design decisions, experiments, or interpretation. Most of the work went into understanding the task, planning the method, running experiments, reviewing code, and deciding what to keep.
 
-The architecture is my own adaptation of busternet based on the baseline and modern practices. The tools have given me the oppertunity to implement and test ideas at a speed that would not have been possible with normal time and work constraints. I fully understand what the code does, and have spent much time doing code-review and refactoring.
+The architecture is my own BusterNet adaptation based on the project baseline and modern dense-prediction practice. AI tools made it possible to implement and test ideas faster, but the important choices were made from inspection, experiments, and review.
 
-For instance it loves to use torch autocast nested and introduce memory leaks causing OOM on both ram and Vram if you are not carefull.
+One practical lesson was that generated code still needs careful engineering review. For example, an earlier autocast change increased memory use, so I reviewed and corrected it.
 
-I used a spec, plan, implement, test stragegy. Where I first do research and create a spec. Then create a plan for how to implement the code. Then implement and test one step at a time to ensure everything works. 
-
-I wanted to be transparent with this whilst showcasing how it can be used responsibly. I am a software engineer, and we use these tools at work. This way I could spend more time on machine learning instead of code plumbing. The results backs this up too. 
+The workflow was: research, write a spec, write an implementation plan, implement one part at a time, test it, then inspect diagnostics before changing the next part. Then making a lot of hypothesis about the data, architecture, tricks and then testing it empirically with the implementations. 
 
 ## Method
 
@@ -52,18 +50,18 @@ The model shares a frozen DINOv2 ViT-B/14 encoder with the project baseline, the
 splits into two branches:
 
 **Manipulation-detection branch**: A lightweight convolutional decoder applied directly
-to the DINOv2 feature map, learning to detect local forgery evidence.
+to the DINOv2 feature map, learning to detect local target/manipulation evidence.
 
 **Copy-detection branch**: A `SelfCorrelPercPooling` module that computes a normalized
 self-cosine-similarity matrix across all spatial locations in the DINOv2 feature map,
 selects the top-k responses (percentile pooling), and passes the result through a
-convolutional decoder. This branch directly models the "same content appears twice"
-structure of copy-move forgery.
+progressive convolutional decoder. This branch directly models the "same content appears
+twice" structure of copy-move forgery.
 
-The branch outputs are summed and decoded to a 3-channel prediction
-[background, target, source], trained with weighted cross-entropy. At inference,
-target and source probabilities are combined into a single forgery probability map
-for evaluation with the competition metric.
+The current final model uses progressive branch decoders, auxiliary branch classifiers,
+and a multi-kernel fusion head. The main submitted setting is `fusion_mode="binary_union"`:
+the fusion head directly predicts the source+target union mask with BCE+Dice. The
+3-class path remains in code because it was the initial BusterNet-style experiment.
 
 ### Integration
 
@@ -85,26 +83,33 @@ over the baseline's single-branch approach, holding the feature extractor consta
 | Backbone | DINOv2 ViT-B/14 (frozen) | DINOv2 ViT-B/14 (frozen) |
 | Branches | 1 (mani-det only) | 2 (mani-det + copy-det) |
 | Self-similarity | No | Yes |
-| Training labels | Binary union mask | Derived source/target (3-class) |
+| Training labels | Binary union mask | Derived source/target auxiliaries + binary union fusion |
+| Final objective | Binary segmentation | Binary union BCE+Dice |
 
 ## Results
 
-*(To be filled after training and evaluation.)*
-
 | Metric | Value |
 |---|---|
-| Validation oF1 | — |
-| Authentic oF1 | — |
-| Forged oF1 | — |
+| Validation official score | 0.5335 |
+| Validation authentic mean F1 | 0.8655 |
+| Validation forged mean F1 | 0.3375 |
+| Validation harmonic authentic/forged F1 | 0.4856 |
+| Holdout official score | 0.5138 |
+| Holdout authentic mean F1 | 0.8361 |
+| Holdout forged mean F1 | 0.3292 |
+
+The validation and holdout evaluation use the same baseline-style binary union task and
+normal grouped splits as the DINO baseline. The source/target filter is only used for
+BusterNet training, where clean branch labels are required.
 
 ## Running
 
 ```bash
 # Train
-python -m einar_busternet.train
+uv run python -m einar_busternet.train --fusion-mode binary_union
 
 # Evaluate on validation set
-python -m einar_busternet.evaluate
+uv run python -m einar_busternet.evaluate --checkpoint einar_busternet/artifacts/checkpoints/best_balanced.pt --allow-torch-hub
 ```
 
 ## References

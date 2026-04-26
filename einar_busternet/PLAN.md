@@ -162,11 +162,11 @@ Fields:
   post-processing settings, workers, DINO model name/embed dim, AMP, sliding-window
   settings, split ratios, checkpoint cadence, etc.
 - Stage schedule: `stage1_epochs`, `stage2_epochs`, `stage3_epochs`.
-- Stage learning rates: `stage1_lr=1e-2`, `stage2_lr=1e-2`, `stage3_lr=1e-5`.
+- Stage learning rates: `stage1_lr=1e-3`, `stage2_lr=1e-2`, `stage3_lr=1e-5`.
 - Loss settings: `ce_class_weights=(0.3, 1.0, 1.0)`, `union_wrapper_eps=1e-6`.
 - BusterNet/model fields: `nb_pools=100`, `freeze_dino_encoder=True`,
   `fusion_mode="three_class"` by default. `fusion_mode="binary_union"` selects the
-  binary fusion ablation.
+  submitted binary union variant.
 - Dataset fields: `metadata_path`, `allowed_forged_statuses=("derived_from_pair",)`,
   `include_authentic=True`, `authentic_policy="paired_derived_only"`.
 - Step 0 audit fields: `diff_threshold`, `component_change_fraction` for reporting only;
@@ -221,9 +221,8 @@ project root:
 **Stage 3** — unfreeze branches + Fusion, end-to-end fine-tuning (LR=1e-5):
 - Unfreeze Mani-Det + Simi-Det + Fusion (DINOv2 stays frozen)
 - Optimizer: `Adam(all_trainable_params, lr=1e-5)`
-- Same fusion loss as Stage 2; LR halved on plateau, early stop on patience
-- Planned next experiment: keep the same fusion loss but add small persistent auxiliary
-  branch losses during Stage 3:
+- Same fusion loss as Stage 2; LR halved on plateau, early stop on patience.
+- Uses small persistent auxiliary branch losses during Stage 3:
 
   ```text
   stage3_loss =
@@ -242,7 +241,7 @@ Validation during training uses `BusterNetUnionWrapper(model)` so the baseline v
 path scores `P(target)+P(source)`. Checkpoint saving: best by validation kaggle_score
 (same criterion as baseline). Save to `artifacts/checkpoints/best.pt`.
 
-Planned validation/checkpoint extension:
+Implemented validation/checkpoint extension:
 - Keep `best.pt` for official Kaggle/oF1 compatibility.
 - Add `best_balanced.pt` using a fixed-postprocess validation metric:
 
@@ -266,9 +265,9 @@ Implemented:
 - Fusion consumes branch decoder features plus auxiliary logits so the final head sees
   both rich features and direct Mani/Simi evidence.
 - Stage 2/3 use baseline `train_one_epoch` with the selected fusion loss.
-- Planned Stage 3 auxiliary-loss experiment will need a BusterNet-specific Stage 3 loop,
-  because it must call both `forward(...)` and `forward_branches(...)` for the same
-  batch. Keep tensors on GPU and avoid per-batch CPU metric syncs.
+- Stage 3 auxiliary-loss training uses a BusterNet-specific loop with
+  `forward_with_branches(...)` so DINO features are computed once per batch. Keep tensors
+  on GPU and avoid per-batch CPU metric syncs.
 - Validation uses baseline `ForgeryDataset` plus `BusterNetUnionWrapper`, so the score is
   binary union on the normal validation split. The wrapper collapses 3-class output or
   passes binary-fusion logits through.
@@ -278,7 +277,8 @@ Implemented:
   GPU→CPU probability transfers before CPU post-processing/scoring.
 - CLI overrides support quick smoke runs, subsets, batch size, stage epochs, validation
   transfer mode, and checkpoint weight loading.
-- Best/last checkpoints go under `einar_busternet/artifacts/checkpoints`.
+- Best, best-balanced, and last checkpoints go under
+  `einar_busternet/artifacts/checkpoints`.
 
 Implemented tests: `tests/test_busternet_train.py`.
 
@@ -287,7 +287,7 @@ Implemented tests: `tests/test_busternet_train.py`.
 Wraps existing `collect_validation_predictions` and `score_validation_predictions`,
 matching the baseline evaluation flow.
 
-Training uses either the native 3-channel BusterNet model or the binary-fusion ablation.
+Training uses either the native 3-channel BusterNet model or the binary-fusion variant.
 Evaluation uses a tiny `BusterNetUnionWrapper` whose `forward` converts 3-class logits
 into one-channel binary foreground logits:
 
@@ -342,14 +342,10 @@ authentic mean F1: 0.8361
 forged mean F1: 0.3292
 ```
 
-## Step 6 — README  `README.md`
+## Step 6 — README  `README.md` — done
 
-Method description for grading. Cover:
-- What BusterNet is and why it suits CMFD
-- Architecture (mani + copy-det branches, self-similarity)
-- Source/target derivation insight
-- How it integrates with the group project
-- Results (fill after eval)
+Method description for grading, including the final architecture, source/target
+derivation, baseline integration, and validation/holdout results.
 
 ## Step 7 — Progressive Mani/Simi decoding and higher-resolution fusion — implemented
 
@@ -364,7 +360,7 @@ branch classifiers and fusion head are forced to decide boundaries and weak copi
 regions before any spatial refinement has happened. Original BusterNet did the opposite:
 it repeatedly decoded/upsampled branch features before classification and fusion.
 
-Implemented ablation: keep DINO frozen, but replace the grid-only branch decoders with
+Implemented change: keep DINO frozen, but replace the grid-only branch decoders with
 progressive decoders. The old custom grid decoders were removed during submission
 cleanup after the progressive version became the final model.
 
@@ -433,11 +429,11 @@ Later, if time allows, use DINO intermediate layers:
 - reassemble/fuse them in DPT/SegFormer style.
 
 This is more principled but touches the encoder feature path more, so progressive branch
-decoding is the safer first ablation.
+decoding was the safer first architecture change.
 
-## Step 8 — Multi-kernel fusion ablation — implemented
+## Step 8 — Multi-kernel fusion — implemented
 
-The final combined experiment also replaces the plain wider fusion head with a
+The final combined experiment replaced the plain wider fusion head with a
 BusterNet-style multi-kernel fusion block while keeping binary union output:
 
 ```text
@@ -448,8 +444,8 @@ concat + BN/ReLU
 ```
 
 Reason: original BusterNet used BN-Inception-style fusion, and multi-kernel fusion can
-mix local evidence with broader context. Combining this with Stage 3 auxiliary loss is
-less ablation-clean, but fits the remaining time budget and stays close to BusterNet.
+mix local evidence with broader context. Combining this with Stage 3 auxiliary loss
+stays close to BusterNet while matching the binary union objective.
 
 ## File Map
 
@@ -493,9 +489,7 @@ Do not change model behavior before the report is stable. Safe cleanup items:
 
 - Move balanced validation helpers out of `train.py` into a shared evaluation utility so
   the training script and diagnostics notebook do not duplicate metric logic.
-- Add `balanced` as a first-class checkpoint choice in `evaluate.py` and keep the
-  notebook defaults safe (`best`, holdout disabled).
-- Rename comments/docs from "ablation" to "final variant" once final report numbers are
-  locked.
+- Add `balanced` as a first-class checkpoint choice in `evaluate.py` if CLI parity with
+  the notebook becomes useful.
 - Keep `best.pt`, `best_balanced.pt`, and `last.pt`; archive older incompatible
   checkpoints outside git/artifacts if disk space matters.
