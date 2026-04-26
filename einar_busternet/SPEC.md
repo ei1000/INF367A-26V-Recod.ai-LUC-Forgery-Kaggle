@@ -150,8 +150,9 @@ Softmax is applied by losses/evaluation, not inside the training forward pass.
 
 Branch decoders are progressive: they refine DINO/SelfCorr features on the 32×32 grid,
 upsample to 64×64, refine again, then upsample to 128×128 before auxiliary
-classification and fusion. The previous grid-only custom decoders are kept in code as
-`_DeprecatedCustomManiGridDecoder` and `_DeprecatedCustomSimiGridDecoder` for comparison.
+classification and fusion. Earlier grid-only custom decoders were tried during
+experimentation, then removed from the final submission code once progressive decoding
+became the selected architecture.
 
 ## Training Objective and Multi-Stage Curriculum
 

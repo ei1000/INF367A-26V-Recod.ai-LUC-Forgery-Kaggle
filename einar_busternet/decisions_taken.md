@@ -216,9 +216,9 @@ Simi: SelfCorr grid -> Conv/BN/ReLU -> upsample -> Conv/BN/ReLU -> upsample -> 9
 Fusion: concatenate 128 + 96 + Mani aux + Simi aux at the refined branch resolution
 ```
 
-The previous grid-only custom decoders were kept in `model.py` as
-`_DeprecatedCustomManiGridDecoder` and `_DeprecatedCustomSimiGridDecoder` so we can
-compare or revert without losing the code. Existing checkpoints are not compatible with
+The previous grid-only custom decoders were kept temporarily for comparison, then removed
+during submission cleanup after the progressive decoder became the final architecture.
+Existing checkpoints from earlier decoder/fusion architectures are not compatible with
 the progressive decoder model.
 
 ## Track Balanced Validation Separately From Official oF1
@@ -423,9 +423,9 @@ authentic predictions.
 
 The final run is strong enough that cleanup should be refactor-only until the report is
 finished. Safe cleanup items are moving balanced metric code into a shared helper,
-adding CLI support for selecting `best_balanced.pt`, removing deprecated grid decoders
-after final acceptance, and archiving old incompatible checkpoints. Do not change losses,
-post-processing, model shape, or split policy as part of cleanup.
+adding CLI support for selecting `best_balanced.pt`, and archiving old incompatible
+checkpoints. Do not change losses, post-processing, model shape, or split policy as part
+of cleanup.
 
 Final selected checkpoint for report analysis:
 

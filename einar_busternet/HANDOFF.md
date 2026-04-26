@@ -92,8 +92,7 @@ Key decisions:
   - Mani/Simi decoders are progressive: DINO/SelfCorr grid features are refined at
     32x32, upsampled/refined to 64x64, then upsampled/refined to 128x128 before
     auxiliary classification and fusion.
-  - The previous grid-only decoders are kept as `_DeprecatedCustom...` classes in
-    `model.py`.
+  - The previous grid-only decoders were removed during submission cleanup.
   - Old checkpoints from earlier fusion/decoder architectures will not load into this
     model.
 - `tests/test_busternet_model.py`
@@ -268,10 +267,8 @@ Stage 3 uses the BusterNet-specific auxiliary-loss loop when `stage3_aux_loss_we
 
 Behavior-preserving cleanup after the report:
 
-- Remove deprecated grid-only decoders if the final architecture stays progressive.
 - Move balanced validation metric code out of `train.py` into a shared helper used by
   the notebook and training.
-- Consider dropping BCE-only binary loss helpers if no longer used.
 - Add `balanced` checkpoint selection to `evaluate.py` for parity with the notebook.
 - Normalize wording in docs from "ablation" to "final variant" once the final numbers
   are fixed.

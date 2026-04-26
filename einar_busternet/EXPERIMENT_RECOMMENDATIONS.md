@@ -408,8 +408,6 @@ Do not change behavior while the report is being finalized. Useful cleanup:
 - Move balanced validation summaries out of `train.py` into a shared evaluation helper.
 - Add `balanced` checkpoint choice to `evaluate.py` so CLI evaluation matches the
   diagnostics notebook.
-- Remove deprecated grid decoders after deciding the progressive decoder is final.
-- Remove unused BCE-only binary loss helpers if no run still depends on them.
 - Keep notebook sweep/holdout toggles off by default to avoid accidental long runs.
 
 ## Threshold And Post-Processing

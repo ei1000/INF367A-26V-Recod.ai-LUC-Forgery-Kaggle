@@ -128,24 +128,6 @@ def _trainable_params(modules: Iterable[nn.Module]) -> list[nn.Parameter]:
     return [param for module in modules for param in module.parameters() if param.requires_grad]
 
 
-def foreground_logit_from_three_class(logits: torch.Tensor) -> torch.Tensor:
-    if logits.ndim != 4 or logits.shape[1] != 3:
-        raise ValueError(f"Expected logits with shape (B,3,H,W), got {tuple(logits.shape)}")
-    return torch.logsumexp(logits[:, 1:3], dim=1) - logits[:, 0]
-
-
-class BinaryUnionBCEWithLogitsLoss(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-        self.loss = nn.BCEWithLogitsLoss()
-
-    def forward(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        if logits.ndim != 4 or logits.shape[1] != 1:
-            raise ValueError(f"Expected binary logits with shape (B,1,H,W), got {tuple(logits.shape)}")
-        union_mask = (labels > 0).float()
-        return self.loss(logits[:, 0], union_mask)
-
-
 class SoftDiceLoss(nn.Module):
     """Soft Dice loss. Computed in fp32 to avoid AMP precision loss on large spatial sums."""
 

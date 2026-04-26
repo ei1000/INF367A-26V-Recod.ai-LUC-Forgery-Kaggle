@@ -40,7 +40,6 @@ class BusterNetConfig:
     validation_inference_mode: str = "direct"
     validation_probability_dtype: str = "float16"
     validation_log_timing: bool = True
-    include_supplemental: bool = False
     post_process_confident_threshold: float | None = 0.9
     post_process_smooth_probabilities: bool = True
     post_process_fill_holes: bool = True

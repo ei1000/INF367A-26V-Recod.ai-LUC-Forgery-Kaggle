@@ -6,13 +6,11 @@ from einar_busternet.config import BusterNetConfig
 from einar_busternet.model import BinaryFusionDinoBusterNet, DinoBusterNet
 from einar_busternet.train import (
     BinaryUnionBCEDiceLoss,
-    BinaryUnionBCEWithLogitsLoss,
     BCEDiceLoss,
     build_config_from_args,
     build_fusion_loss,
     build_model,
     configure_trainable_parts,
-    foreground_logit_from_three_class,
     train_stage1_epoch,
     train_stage3_aux_epoch,
 )
@@ -20,14 +18,6 @@ from tests.test_busternet_model import FakeDinoEncoder
 
 
 class BusterNetTrainTests(unittest.TestCase):
-    def test_foreground_logit_matches_source_target_softmax_sum(self) -> None:
-        logits = torch.randn(2, 3, 5, 7)
-
-        foreground_prob = foreground_logit_from_three_class(logits).sigmoid()
-        expected = logits.softmax(dim=1)[:, 1:3].sum(dim=1)
-
-        torch.testing.assert_close(foreground_prob, expected)
-
     def test_smoke_args_build_tiny_config(self) -> None:
         config = build_config_from_args(["--smoke"])
 
@@ -71,19 +61,6 @@ class BusterNetTrainTests(unittest.TestCase):
 
         self.assertIsInstance(ce_loss, torch.nn.CrossEntropyLoss)
         self.assertIsInstance(bce_loss, BinaryUnionBCEDiceLoss)
-
-    def test_binary_union_loss_uses_source_target_union(self) -> None:
-        loss_fn = BinaryUnionBCEWithLogitsLoss()
-        logits = torch.zeros(1, 1, 2, 3)
-        labels = torch.tensor([[[0, 1, 2], [0, 0, 2]]])
-
-        loss = loss_fn(logits, labels)
-        expected = torch.nn.functional.binary_cross_entropy_with_logits(
-            logits[:, 0],
-            (labels > 0).float(),
-        )
-
-        torch.testing.assert_close(loss, expected)
 
     def test_bce_dice_loss_is_bce_plus_one_minus_dice(self) -> None:
         loss_fn = BCEDiceLoss(dice_weight=1.0)

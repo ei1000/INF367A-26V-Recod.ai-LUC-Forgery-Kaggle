@@ -118,14 +118,10 @@ Implemented classes:
 - `forward(x)`: returns raw logits `(B, 3, H, W)`.
 - Reuse the baseline DINO padding and `forward_features` logic so non-448 or
   sliding-window inputs still work.
-- Deprecated custom Mani decoder kept in code as `_DeprecatedCustomManiGridDecoder`:
-  a DINO-grid CNN (`embed_dim→512→256→128`) with no branch upsampling.
 - Current Mani decoder: progressive BusterNet-style decoder
   `32x32 → 64x64 → 128x128` for 448 input:
   `embed_dim→512→256`, upsample, `256→192`, upsample, `192→128`.
 - Mani auxiliary classifier: `Conv2d(128,1,3,padding=1)` for Stage 1 target-mask BCE.
-- Deprecated custom Simi decoder kept in code as `_DeprecatedCustomSimiGridDecoder`:
-  a grid-level CNN (`nb_pools→256→128→96`) with no branch upsampling.
 - Current Simi decoder: progressive BusterNet-style decoder
   `32x32 → 64x64 → 128x128` for 448 input:
   `nb_pools→256→192`, upsample, `192→128`, upsample, `128→96`.
@@ -369,8 +365,8 @@ regions before any spatial refinement has happened. Original BusterNet did the o
 it repeatedly decoded/upsampled branch features before classification and fusion.
 
 Implemented ablation: keep DINO frozen, but replace the grid-only branch decoders with
-progressive decoders. The old custom grid decoders remain in `model.py` with
-`_DeprecatedCustom...` names for comparison/revert.
+progressive decoders. The old custom grid decoders were removed during submission
+cleanup after the progressive version became the final model.
 
 Recommended first version:
 
@@ -495,12 +491,8 @@ Correlation matrix at 32×32 adds ~5ms per batch — negligible.
 
 Do not change model behavior before the report is stable. Safe cleanup items:
 
-- Remove `_DeprecatedCustomManiGridDecoder` and `_DeprecatedCustomSimiGridDecoder` after
-  confirming the progressive decoder remains the final architecture.
 - Move balanced validation helpers out of `train.py` into a shared evaluation utility so
   the training script and diagnostics notebook do not duplicate metric logic.
-- Consider removing `BinaryUnionBCEWithLogitsLoss` if no experiment still uses BCE-only
-  binary fusion.
 - Add `balanced` as a first-class checkpoint choice in `evaluate.py` and keep the
   notebook defaults safe (`best`, holdout disabled).
 - Rename comments/docs from "ablation" to "final variant" once final report numbers are

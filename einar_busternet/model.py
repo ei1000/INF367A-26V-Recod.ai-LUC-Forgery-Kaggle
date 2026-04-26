@@ -41,45 +41,6 @@ class SelfCorrelPercPooling(nn.Module):
         return pooled.permute(0, 2, 1).reshape(b, self.nb_pools, h, w)
 
 
-class _DeprecatedCustomManiGridDecoder(nn.Module):
-    def __init__(self, in_ch: int = 768, out_ch: int = 128) -> None:
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(in_ch, 512, 3, 1, 1),
-            nn.ReLU(inplace=True),
-            nn.Dropout2d(0.1),
-            nn.Conv2d(512, 256, 3, 1, 1),
-            nn.ReLU(inplace=True),
-            nn.Dropout2d(0.1),
-            nn.Conv2d(256, 128, 3, 1, 1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(128, out_ch, 1),
-            nn.ReLU(inplace=True),
-        )
-
-    def forward(self, features: torch.Tensor) -> torch.Tensor:
-        return self.net(features)
-
-
-class _DeprecatedCustomSimiGridDecoder(nn.Module):
-    def __init__(self, in_ch: int = 100, out_ch: int = 96) -> None:
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(in_ch, 256, 3, 1, 1),
-            nn.ReLU(inplace=True),
-            nn.Dropout2d(0.1),
-            nn.Conv2d(256, 128, 3, 1, 1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(128, 96, 3, 1, 1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(96, out_ch, 1),
-            nn.ReLU(inplace=True),
-        )
-
-    def forward(self, features: torch.Tensor) -> torch.Tensor:
-        return self.net(features)
-
-
 class ConvBNReLU(nn.Sequential):
     def __init__(self, in_ch: int, out_ch: int, kernel_size: int = 3) -> None:
         padding = kernel_size // 2
@@ -215,11 +176,6 @@ class DinoBusterNet(nn.Module):
         self.encoder.eval()
         for param in self.encoder.parameters():
             param.requires_grad = False
-
-    def unfreeze_encoder(self) -> None:
-        self._encoder_frozen = False
-        for param in self.encoder.parameters():
-            param.requires_grad = True
 
     def train(self, mode: bool = True):
         super().train(mode)
