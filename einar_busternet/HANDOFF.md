@@ -83,7 +83,7 @@ Key decisions:
   - `BusterNetUnionWrapper`.
 - Fusion consumes Mani/Simi decoder features plus the two auxiliary branch logits.
 - Branch auxiliary classifiers are explicit one-channel heads.
-  - Current fusion input is 162 channels: 96 Mani features, 64 Simi features, and two
+  - Current fusion input is 226 channels: 128 Mani features, 96 Simi features, and two
     one-channel auxiliary logits.
   - Old checkpoints from earlier fusion architectures will not load into this model.
 - `tests/test_busternet_model.py`

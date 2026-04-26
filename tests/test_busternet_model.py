@@ -75,8 +75,10 @@ class BusterNetModelTests(unittest.TestCase):
 
         self.assertEqual(model.mani_classifier.out_channels, 1)
         self.assertEqual(model.simi_classifier.out_channels, 1)
-        self.assertEqual(model.fusion[0].in_channels, 162)
-        self.assertEqual(model.fusion[0].out_channels, 128)
+        self.assertEqual(model.mani_classifier.in_channels, 128)
+        self.assertEqual(model.simi_classifier.in_channels, 96)
+        self.assertEqual(model.fusion[0].in_channels, 226)
+        self.assertEqual(model.fusion[0].out_channels, 160)
         self.assertEqual(model.fusion[3].out_channels, 128)
         self.assertEqual(model.fusion[6].out_channels, 64)
 

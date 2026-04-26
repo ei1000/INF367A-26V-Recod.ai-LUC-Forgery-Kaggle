@@ -137,7 +137,7 @@ oF1 and forged/authentic diagnostics, not only by visual inspection.
 
 After BCE+Dice and binary union fusion, the remaining failure mode was mostly forged
 false negatives and weak source coverage. We kept DINO frozen and enlarged only the cheap
-fusion head:
+fusion head in this first capacity ablation:
 
 ```text
 mani decoder features: 96
@@ -154,3 +154,21 @@ decoder features, but it also gets the two branch classifiers as low-dimensional
 Mani gives target evidence and Simi gives union/similarity evidence. This is an
 architecture-breaking ablation; old checkpoints should not be reused with this model
 definition.
+
+## Wider Decoders For Source And Small-Mask Recall
+
+Validation diagnostics after the larger fusion run showed strong authentic control and
+good large/medium forged masks, but small and tiny forged cases were still missed often.
+Because DINO dominates runtime, we expanded the cheap branch decoders:
+
+```text
+Mani decoder: 768 -> 512 -> 256 -> 128
+Simi decoder: 100 -> 256 -> 128 -> 96
+Fusion input: 128 + 96 + 1 + 1 = 226
+Fusion: 226 -> 160 -> 128 -> 64 -> output
+```
+
+Reason: if the Simi branch under-represents weak copied-source evidence, fusion cannot
+recover it later. Wider branch decoders add capacity where the current failure mode
+appears, while keeping the frozen DINO backbone and the training/evaluation pipeline
+unchanged. This is another architecture-breaking ablation.

@@ -118,14 +118,14 @@ Implemented classes:
 - `forward(x)`: returns raw logits `(B, 3, H, W)`.
 - Reuse the baseline DINO padding and `forward_features` logic so non-448 or
   sliding-window inputs still work.
-- Mani decoder: same channel pattern as `DinoTinyDecoder` (`embed_dim→384→192→96`)
+- Mani decoder: wider DINO-grid CNN (`embed_dim→512→256→128`)
   but operates on the DINO feature grid; do not upsample inside the branch.
-- Mani auxiliary classifier: `Conv2d(96,1,3,padding=1)` for Stage 1 target-mask BCE.
-- Copy decoder: lightweight 3-conv-block CNN on top of `SelfCorrelPercPooling`
-  (`nb_pools→128→64`) on the same feature grid.
-- Simi auxiliary classifier: `Conv2d(64,1,3,padding=1)` for Stage 1 union-mask BCE.
+- Mani auxiliary classifier: `Conv2d(128,1,3,padding=1)` for Stage 1 target-mask BCE.
+- Copy decoder: wider CNN on top of `SelfCorrelPercPooling`
+  (`nb_pools→256→128→96`) on the same feature grid.
+- Simi auxiliary classifier: `Conv2d(96,1,3,padding=1)` for Stage 1 union-mask BCE.
 - Fusion: concatenate Mani and Simi decoder features plus their auxiliary logits into
-  `(B, 162, h, w)`, then apply the wider fusion head from the spec before upsampling.
+  `(B, 226, h, w)`, then apply the wider fusion head from the spec before upsampling.
 - Final output is bilinearly upsampled once to the padded image size, then cropped back
   to the original input size, matching `DinoSegmenter`.
 - Exposes `forward_branches(x)` returning full-resolution one-channel `mani_logits` and

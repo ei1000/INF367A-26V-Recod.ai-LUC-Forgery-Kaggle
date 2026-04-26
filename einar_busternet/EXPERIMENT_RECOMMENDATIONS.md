@@ -206,12 +206,12 @@ Why:
 
 ## Architecture Recommendation
 
-Status: implemented for the next run.
+Status: implemented and then expanded further after diagnostics.
 
 Do loss first. If loss improves but source coverage remains weak, enlarge fusion and feed
 auxiliary logits into fusion.
 
-Current binary fusion input:
+Previous binary fusion input:
 
 ```text
 mani_features: 96 channels
@@ -219,7 +219,7 @@ simi_features: 64 channels
 concat: 160 channels
 ```
 
-Suggested next fusion input:
+Previous fusion ablation input:
 
 ```text
 mani_features: 96 channels
@@ -229,7 +229,7 @@ simi_aux_logit: 1 channel
 concat: 162 channels
 ```
 
-Suggested larger fusion body:
+Previous larger fusion body:
 
 ```text
 Conv 162 -> 128
@@ -241,14 +241,24 @@ BN/ReLU
 Conv 64 -> 1
 ```
 
-Current implementation uses this wider fusion body for both `three_class` and
-`binary_union`; only the output channel count changes.
+Current implementation now also widens the branch decoders:
+
+```text
+Mani decoder: 768 -> 512 -> 256 -> 128
+Simi decoder: 100 -> 256 -> 128 -> 96
+Fusion input: 128 + 96 + 1 + 1 = 226
+Fusion body: 226 -> 160 -> 128 -> 64 -> output
+```
+
+Both `three_class` and `binary_union` use this body; only the output channel count
+changes.
 
 Why this is cheap:
 
 - DINO dominates runtime.
 - Decoder/fusion compute is small compared with DINO.
 - We can add capacity without changing baseline preprocessing or validation.
+- The latest diagnostics showed small/tiny forged masks remain the weakest buckets.
 
 Why auxiliary logits may help:
 

@@ -45,19 +45,19 @@ Features: (B, 768, 32, 32)
 Mani-Det branch              Simi-Det branch
 ───────────────              ───────────────
 3 conv blocks                SelfCorrelPercPooling
-768→384→192→96               (B,768,32,32) → cosine similarity
-→ (B,96,32,32)               (B,1024,1024) → percentile pool
-→ aux Conv2d(96,1,3)         → (B,100,32,32)
+768→512→256→128              (B,768,32,32) → cosine similarity
+→ (B,128,32,32)              (B,1024,1024) → percentile pool
+→ aux Conv2d(128,1,3)        → (B,100,32,32)
 → target logits              3 conv blocks
                              3 conv blocks
-                             100→128→64
-                             → (B,64,32,32)
-                             → aux Conv2d(64,1,3)
+                             100→256→128→96
+                             → (B,96,32,32)
+                             → aux Conv2d(96,1,3)
                              → copy-move union logits
        ↘                         ↙
-       Fusion: concat decoder features + aux logits → (B,162,32,32)
-       Conv2d(162,128,1) + BN + ReLU
-       → Conv2d(128,128,3) + BN + ReLU
+       Fusion: concat decoder features + aux logits → (B,226,32,32)
+       Conv2d(226,160,1) + BN + ReLU
+       → Conv2d(160,128,3) + BN + ReLU
        → Conv2d(128,64,3) + BN + ReLU
        → Conv2d(64,out,3,padding=1)
        bilinear upsample → (B,3,448,448)
@@ -129,9 +129,9 @@ followed by `Conv2d(..., 3×3) + softmax`.
 
 Our current competition-oriented adaptation:
 ```
-concat(mani_features, simi_features, mani_logit, simi_logit) → (B, 162, 32, 32)
-Conv2d(162, 128, 1) + BN + ReLU
-Conv2d(128, 128, 3, padding=1) + BN + ReLU
+concat(mani_features, simi_features, mani_logit, simi_logit) → (B, 226, 32, 32)
+Conv2d(226, 160, 1) + BN + ReLU
+Conv2d(160, 128, 3, padding=1) + BN + ReLU
 Conv2d(128, 64, 3, padding=1) + BN + ReLU
 Conv2d(64, out_channels, 3, padding=1)        ← final classifier
 raw logits
@@ -142,7 +142,7 @@ The auxiliary logits give the fusion head direct Mani target evidence and Simi u
 evidence while retaining the richer decoder features. `out_channels=3` for
 `three_class`; `out_channels=1` for `binary_union`.
 Branch classifiers are explicit one-channel auxiliary heads:
-`Conv2d(96,1,3,padding=1)` for Mani-Det and `Conv2d(64,1,3,padding=1)` for Simi-Det.
+`Conv2d(128,1,3,padding=1)` for Mani-Det and `Conv2d(96,1,3,padding=1)` for Simi-Det.
 Softmax is applied by losses/evaluation, not inside the training forward pass.
 
 ## Training Objective and Multi-Stage Curriculum
@@ -256,8 +256,8 @@ by VGG-16 constraints, we apply the modern equivalent for DINOv2.
 | Feature grid | 16×16×512 | 32×32×768 | Follows from 448×448 input + ViT-B/14 patch stride; finer spatial resolution |
 | Correlation matrix | 256×256 | 1024×1024 | Larger grid, still GPU-tractable on 4080 Super (~16MB/batch) |
 | Percentile pooling | K=100 | K=100 | Faithful to paper |
-| Decoder | 4-stage BN-Inception + BilinearUpPool | 3 conv blocks + bilinear upsample | VGG needed 4× upsampling stages; DINOv2 grid needs only one upsample; lighter is sufficient |
-| Fusion module | Decoder-feature fusion with BN-Inception 3@[1,3,5] + Conv2d | Decoder features plus auxiliary logits, Conv2d(162,128,1) + two 3x3 blocks + classifier | DINO dominates runtime, so a wider fusion head is cheap; auxiliary logits provide direct Mani/Simi evidence |
+| Decoder | 4-stage BN-Inception + BilinearUpPool | Wider 3-conv decoders + bilinear upsample | DINO dominates runtime; wider decoders target missed small/source regions cheaply |
+| Fusion module | Decoder-feature fusion with BN-Inception 3@[1,3,5] + Conv2d | Decoder features plus auxiliary logits, Conv2d(226,160,1) + two 3x3 blocks + classifier | DINO dominates runtime, so a wider fusion head is cheap; auxiliary logits provide direct Mani/Simi evidence |
 | Training data | 100K synthetic COCO samples | 2377 real scientific image pairs initially; 374 no-pair cases reserved | Real domain-specific data; avoid target-only labels corrupting source learning |
 | External mani data | IFS-TC + Wild Web datasets | None | Time constraint; noted as a limitation |
 | Image size | 256×256 | 448×448 | Matches project baseline and pipeline |

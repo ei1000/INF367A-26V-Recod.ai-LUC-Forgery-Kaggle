@@ -42,16 +42,35 @@ class SelfCorrelPercPooling(nn.Module):
 
 
 class ManiGridDecoder(nn.Module):
-    def __init__(self, in_ch: int = 768, out_ch: int = 96) -> None:
+    def __init__(self, in_ch: int = 768, out_ch: int = 128) -> None:
         super().__init__()
         self.net = nn.Sequential(
-            nn.Conv2d(in_ch, 384, 3, 1, 1),
+            nn.Conv2d(in_ch, 512, 3, 1, 1),
             nn.ReLU(inplace=True),
             nn.Dropout2d(0.1),
-            nn.Conv2d(384, 192, 3, 1, 1),
+            nn.Conv2d(512, 256, 3, 1, 1),
             nn.ReLU(inplace=True),
             nn.Dropout2d(0.1),
-            nn.Conv2d(192, 96, 3, 1, 1),
+            nn.Conv2d(256, 128, 3, 1, 1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128, out_ch, 1),
+            nn.ReLU(inplace=True),
+        )
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        return self.net(features)
+
+
+class SimiGridDecoder(nn.Module):
+    def __init__(self, in_ch: int = 100, out_ch: int = 96) -> None:
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Conv2d(in_ch, 256, 3, 1, 1),
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(0.1),
+            nn.Conv2d(256, 128, 3, 1, 1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128, 96, 3, 1, 1),
             nn.ReLU(inplace=True),
             nn.Conv2d(96, out_ch, 1),
             nn.ReLU(inplace=True),
@@ -61,29 +80,12 @@ class ManiGridDecoder(nn.Module):
         return self.net(features)
 
 
-class SimiGridDecoder(nn.Module):
-    def __init__(self, in_ch: int = 100, out_ch: int = 64) -> None:
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(in_ch, 128, 3, 1, 1),
-            nn.ReLU(inplace=True),
-            nn.Dropout2d(0.1),
-            nn.Conv2d(128, 64, 3, 1, 1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(64, out_ch, 1),
-            nn.ReLU(inplace=True),
-        )
-
-    def forward(self, features: torch.Tensor) -> torch.Tensor:
-        return self.net(features)
-
-
 def _fusion_head(out_channels: int) -> nn.Sequential:
     return nn.Sequential(
-        nn.Conv2d(162, 128, 1),
-        nn.BatchNorm2d(128),
+        nn.Conv2d(226, 160, 1),
+        nn.BatchNorm2d(160),
         nn.ReLU(inplace=True),
-        nn.Conv2d(128, 128, 3, padding=1),
+        nn.Conv2d(160, 128, 3, padding=1),
         nn.BatchNorm2d(128),
         nn.ReLU(inplace=True),
         nn.Conv2d(128, 64, 3, padding=1),
@@ -103,11 +105,11 @@ class DinoBusterNet(nn.Module):
     ) -> None:
         super().__init__()
         self.encoder = encoder
-        self.mani_decoder = ManiGridDecoder(in_ch=embed_dim, out_ch=96)
-        self.mani_classifier = nn.Conv2d(96, 1, 3, padding=1)
+        self.mani_decoder = ManiGridDecoder(in_ch=embed_dim, out_ch=128)
+        self.mani_classifier = nn.Conv2d(128, 1, 3, padding=1)
         self.corr_pooling = SelfCorrelPercPooling(nb_pools=nb_pools)
-        self.simi_decoder = SimiGridDecoder(in_ch=nb_pools, out_ch=64)
-        self.simi_classifier = nn.Conv2d(64, 1, 3, padding=1)
+        self.simi_decoder = SimiGridDecoder(in_ch=nb_pools, out_ch=96)
+        self.simi_classifier = nn.Conv2d(96, 1, 3, padding=1)
         self.fusion = _fusion_head(out_channels=3)
         self._encoder_frozen = False
         if freeze_encoder:
