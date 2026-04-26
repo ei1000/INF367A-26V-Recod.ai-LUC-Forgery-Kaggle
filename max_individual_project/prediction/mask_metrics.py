@@ -148,3 +148,27 @@ def optimal_f1_score(pred_masks: list[np.ndarray], gt_masks: list[np.ndarray]) -
     # mask that fragments into many small blobs.
     excess_predictions_penalty = len(gt_masks) / max(len(pred_masks), len(gt_masks))
     return float(np.mean(f1_matrix[row_ind, col_ind]) * excess_predictions_penalty)
+
+
+def update_instance_metrics_from_batch(
+    mask_preds: torch.Tensor,
+    image_paths,
+    mask_dir_by_sample,
+    image_size: int,
+    instance_tracker: dict,
+    update_instance_metric_tracker_fn,
+):
+    pred_masks_np = mask_preds.cpu().numpy().astype(np.uint8)
+    for pred_mask, image_path in zip(pred_masks_np, image_paths):
+        pred_instances = binary_mask_to_instances(pred_mask)
+        gt_instances = load_resized_gt_instances(
+            image_path,
+            mask_dir_by_sample=mask_dir_by_sample,
+            image_size=image_size,
+        )
+        update_instance_metric_tracker_fn(
+            instance_tracker,
+            image_of1=optimal_f1_score(pred_instances, gt_instances),
+            pred_component_count=len(pred_instances),
+            gt_component_count=len(gt_instances),
+        )

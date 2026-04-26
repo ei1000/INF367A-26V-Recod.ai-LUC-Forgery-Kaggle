@@ -14,8 +14,6 @@ class PatchMatchBranchResult:
     second_cost: torch.Tensor
     confidence: torch.Tensor
     structure_map: torch.Tensor
-    topk_offsets: torch.Tensor | None = None
-    topk_costs: torch.Tensor | None = None
 
 
 @dataclass

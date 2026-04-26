@@ -360,19 +360,6 @@ class PixelPropagator:
         confidence = ((second_cost - best_cost) / (second_cost + 1e-6)).clamp_(0.0, 1.0)
         return best_cost, second_cost, confidence
 
-    def select_topk_candidates(
-        self,
-        candidates: torch.Tensor,
-        l1: torch.Tensor,
-        topk: int,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        topk = max(1, min(int(topk), l1.shape[1]))
-        topk_costs, topk_indices = torch.topk(l1, k=topk, largest=False, dim=1)
-        candidate_values = candidates.permute(0, 3, 4, 1, 2)
-        gather_idx = topk_indices.unsqueeze(2).expand(-1, -1, candidate_values.shape[2], -1, -1)
-        topk_offsets = torch.gather(candidate_values, dim=1, index=gather_idx)
-        return topk_offsets, topk_costs
-
     def evaluate_reference(
         self,
         candidates: torch.Tensor,
@@ -380,19 +367,15 @@ class PixelPropagator:
         beta: float = 10.0,
         exclude_self: bool = True,
         hard_selection: bool = False,
-        topk: int = 1,
     ):
         l1 = self.compute_candidate_costs_reference(candidates, feature_list, exclude_self=exclude_self)
         selected = self.select_candidates(candidates, l1, beta=beta, hard_selection=hard_selection)
         best_cost, second_cost, confidence = self.summarize_candidate_costs(l1)
-        topk_offsets, topk_costs = self.select_topk_candidates(candidates, l1, topk=topk)
         return {
             "selected": selected,
             "best_cost": best_cost,
             "second_cost": second_cost,
             "confidence": confidence,
-            "topk_offsets": topk_offsets,
-            "topk_costs": topk_costs,
         }
 
     def evaluate(
@@ -402,19 +385,15 @@ class PixelPropagator:
         beta: float = 10.0,
         exclude_self: bool = True,
         hard_selection: bool = False,
-        topk: int = 1,
     ):
         l1 = self.compute_candidate_costs(candidates, feature_list, exclude_self=exclude_self)
         selected = self.select_candidates(candidates, l1, beta=beta, hard_selection=hard_selection)
         best_cost, second_cost, confidence = self.summarize_candidate_costs(l1)
-        topk_offsets, topk_costs = self.select_topk_candidates(candidates, l1, topk=topk)
         return {
             "selected": selected,
             "best_cost": best_cost,
             "second_cost": second_cost,
             "confidence": confidence,
-            "topk_offsets": topk_offsets,
-            "topk_costs": topk_costs,
         }
 
     def _restore_tensor(self, tensor: torch.Tensor | None) -> torch.Tensor | None:
@@ -431,8 +410,6 @@ class PixelPropagator:
             second_cost=self._restore_tensor(branch_result.second_cost),
             confidence=self._restore_tensor(branch_result.confidence),
             structure_map=self._restore_tensor(branch_result.structure_map),
-            topk_offsets=self._restore_tensor(branch_result.topk_offsets),
-            topk_costs=self._restore_tensor(branch_result.topk_costs),
         )
 
     def run_branch(
@@ -444,7 +421,6 @@ class PixelPropagator:
         non_local_limit: float,
         flat_threshold: float,
         margin_threshold: float,
-        topk: int,
         hard_selection: bool = False,
         reference_evaluate: bool = False,
     ) -> PatchMatchBranchResult:
@@ -453,31 +429,24 @@ class PixelPropagator:
         best_cost = None
         second_cost = None
         confidence = None
-        topk_offsets = None
-        topk_costs = None
 
         for iter_idx in range(iters):
             base = torch.stack((dx, dy), dim=-1).unsqueeze(-2)
             propagated = self.propagation_block(dx, dy)
             random_candidates = self.random_search_block(dx, dy, num_random=4)
             candidates = torch.cat((base, propagated, random_candidates), dim=-2)
-            topk_request = topk if iter_idx == (iters - 1) else 1
             evaluated = evaluate_fn(
                 candidates,
                 feature_list,
                 beta=beta,
                 exclude_self=True,
                 hard_selection=hard_selection,
-                topk=topk_request,
             )
             best = evaluated["selected"]
             dx, dy = best[..., 0], best[..., 1]
             best_cost = evaluated["best_cost"]
             second_cost = evaluated["second_cost"]
             confidence = evaluated["confidence"]
-            if iter_idx == (iters - 1):
-                topk_offsets = evaluated["topk_offsets"]
-                topk_costs = evaluated["topk_costs"]
             if use_non_local and iter_idx < (iters - 1):
                 ambiguous_flat = (self.structure_map < float(flat_threshold)) & (confidence < float(margin_threshold))
                 dx, dy = self.non_local_reset(
@@ -496,8 +465,6 @@ class PixelPropagator:
             second_cost=second_cost,
             confidence=confidence,
             structure_map=self.structure_map.clone(),
-            topk_offsets=topk_offsets,
-            topk_costs=topk_costs,
         )
 
     def propagation_layer(
@@ -509,7 +476,6 @@ class PixelPropagator:
         non_local_limit: float = 25.0,
         flat_threshold: float = 0.15,
         margin_threshold: float = 0.10,
-        topk: int = 1,
         hard_selection: bool = False,
         reference_evaluate: bool = False,
     ):
@@ -524,7 +490,6 @@ class PixelPropagator:
             non_local_limit=non_local_limit,
             flat_threshold=flat_threshold,
             margin_threshold=margin_threshold,
-            topk=topk,
             hard_selection=hard_selection,
             reference_evaluate=reference_evaluate,
         )
@@ -536,7 +501,6 @@ class PixelPropagator:
             non_local_limit=non_local_limit,
             flat_threshold=flat_threshold,
             margin_threshold=margin_threshold,
-            topk=topk,
             hard_selection=hard_selection,
             reference_evaluate=reference_evaluate,
         )

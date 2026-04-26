@@ -30,8 +30,14 @@ def validate_one_epoch(
     inference_mode: str = "direct",
     probability_dtype: str = "float16",
     log_timing: bool = True,
-    save_prediction_tensors: bool = False,
-    prediction_output_dir=None,
+    validation_transfer_mode: str = "per_batch",
+    post_process_confident_threshold: float | None = 0.9,
+    post_process_smooth_probabilities: bool = True,
+    post_process_fill_holes: bool = True,
+    post_process_apply_opening: bool = True,
+    post_process_apply_closing: bool = True,
+    post_process_keep_confident_seeded_components: bool = False,
+    return_predictions: bool = False,
 ) -> dict:
     if isinstance(getattr(val_loader, "sampler", None), RandomSampler):
         raise ValueError(
@@ -48,6 +54,7 @@ def validate_one_epoch(
         inference_mode=inference_mode,
         sliding_window_fn=sliding_window_fn,
         probability_dtype=probability_dtype,
+        transfer_mode=validation_transfer_mode,
         collect_masks=compute_pixel_f1,
     )
     inference_seconds = time.perf_counter() - inference_start
@@ -62,13 +69,19 @@ def validate_one_epoch(
         min_component_area=min_component_area,
         compute_pixel_f1=compute_pixel_f1,
         verify_score_equivalence=verify_score_equivalence,
-        prediction_output_dir=prediction_output_dir if save_prediction_tensors else None,
-        prediction_filename_prefix=f"epoch_{epoch_idx + 1:03d}",
-        prediction_batch_size=getattr(val_loader, "batch_size", None),
+        confident_threshold=post_process_confident_threshold,
+        smooth_probabilities=post_process_smooth_probabilities,
+        fill_holes=post_process_fill_holes,
+        apply_opening=post_process_apply_opening,
+        apply_closing=post_process_apply_closing,
+        keep_confident_seeded_components=post_process_keep_confident_seeded_components,
     )
     result["inference_seconds"] = float(inference_seconds)
     result["validation_inference_mode"] = inference_mode
     result["probability_dtype"] = probability_dtype
+    result["validation_transfer_mode"] = validation_transfer_mode
+    if return_predictions:
+        result["predictions"] = predictions
 
     if compute_pixel_f1:
         print(f"[non-official] pixel F1 (epoch {epoch_idx + 1}): {result['pixel_f1']:.4f}")

@@ -46,12 +46,18 @@ class BaselineConfig:
     checkpoint_dir: str = "runs/checkpoints"
     best_checkpoint_name: str = "best_by_kaggle_score.pt"
     include_supplemental: bool = False
-    post_process_confident_threshold: float | None = None
-    post_process_smooth_probabilities: bool = False
+    post_process_confident_threshold: float | None = 0.9
+    post_process_smooth_probabilities: bool = True
     post_process_fill_holes: bool = True
     post_process_apply_opening: bool = True
-    post_process_apply_closing: bool = False
+    post_process_apply_closing: bool = True
     post_process_keep_confident_seeded_components: bool = False
+    val_batch_size: int | None = None
+    validation_transfer_mode: str = "per_batch"
+    resume_checkpoint_path: str | None = None
+    save_last_checkpoint: bool = True
+    last_checkpoint_name: str = "last.pt"
+    save_last_every_epochs: int = 1
 
 
 def set_seed(seed: int) -> None:
