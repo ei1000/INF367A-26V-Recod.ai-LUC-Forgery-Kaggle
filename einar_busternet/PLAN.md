@@ -376,9 +376,10 @@ Higher-resolution fusion:
     = 226 channels
 
   fusion:
-    Conv 226 -> 160
+    parallel Conv 226 -> 64 with kernels 1, 3, 5
+    concat -> 192
     BN/ReLU
-    Conv 160 -> 128
+    Conv 192 -> 128
     BN/ReLU
     Conv 128 -> 64
     BN/ReLU
@@ -412,10 +413,9 @@ Later, if time allows, use DINO intermediate layers:
 This is more principled but touches the encoder feature path more, so progressive branch
 decoding is the safer first ablation.
 
-## Step 8 — Later fusion ablation — planned, not next
+## Step 8 — Multi-kernel fusion ablation — implemented
 
-The current fusion module is capable and should not be changed before the Stage 3
-auxiliary-loss experiment. If forged/source coverage still lags after that, test a
+The final combined experiment also replaces the plain wider fusion head with a
 BusterNet-style multi-kernel fusion block while keeping binary union output:
 
 ```text
@@ -426,9 +426,8 @@ concat + BN/ReLU
 ```
 
 Reason: original BusterNet used BN-Inception-style fusion, and multi-kernel fusion can
-mix local evidence with broader context. This is a later ablation because the current
-results show fusion can already use the progressive decoder features; the immediate
-failure mode is the authentic-vs-forged recall tradeoff during fine-tuning.
+mix local evidence with broader context. Combining this with Stage 3 auxiliary loss is
+less ablation-clean, but fits the remaining time budget and stays close to BusterNet.
 
 ## File Map
 

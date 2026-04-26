@@ -57,8 +57,8 @@ upsample, 192→128            → (B,100,32,32)
                              → copy-move union logits
        ↘                         ↙
        Fusion: concat decoder features + aux logits → (B,226,128,128)
-       Conv2d(226,160,1) + BN + ReLU
-       → Conv2d(160,128,3) + BN + ReLU
+       parallel Conv2d(226,64,k={1,3,5}) → concat 192 + BN + ReLU
+       → Conv2d(192,128,3) + BN + ReLU
        → Conv2d(128,64,3) + BN + ReLU
        → Conv2d(64,out,3,padding=1)
        bilinear upsample → (B,3,448,448)
@@ -191,8 +191,18 @@ labels ∈ {0=background, 1=target, 2=source}  per pixel  (B, H, W) long tensor
 ### Stage 3 — Unfreeze branches, end-to-end fine-tuning
 
 Unfreeze Mani-Det + Simi-Det + Fusion (DINOv2 remains frozen).
-Same fusion loss as Stage 2. LR: `1e-5` (paper). LR reduction: halve when validation loss
-plateaus, stop when no improvement for a patience window.
+Same fusion loss as Stage 2 plus a small persistent auxiliary branch term. LR: `1e-5`
+(paper). LR reduction: halve when validation loss plateaus, stop when no improvement for
+a patience window.
+
+```text
+L_stage3 =
+    L_fusion
+  + stage3_aux_loss_weight * (L_mani_target + L_simi_union)
+```
+
+Default `stage3_aux_loss_weight = 0.1`. The auxiliary term keeps Mani-Det target evidence
+and Simi-Det union/similarity evidence active during fine-tuning.
 
 At inference/evaluation, wrap the model as a binary foreground model. For the 3-class
 model: `forgery_prob = softmax(logits)[:, 1] + softmax(logits)[:, 2]`. For the binary
@@ -218,6 +228,15 @@ class BusterNetUnionWrapper(nn.Module):
 
 The wrapper returns one-channel binary logits because the existing baseline evaluator
 applies `sigmoid` internally.
+
+Training saves both official and balanced validation checkpoints:
+
+- `best.pt`: best official Kaggle/oF1 validation score.
+- `best_balanced.pt`: best harmonic mean of authentic mean F1 and forged mean F1 using
+  the same fixed post-processing settings as validation.
+- `last.pt`: latest checkpoint.
+
+Balanced validation is for assignment analysis; it does not replace official oF1.
 
 ## Dataset Label Format
 
@@ -263,7 +282,7 @@ by VGG-16 constraints, we apply the modern equivalent for DINOv2.
 | Correlation matrix | 256×256 | 1024×1024 | Larger grid, still GPU-tractable on 4080 Super (~16MB/batch) |
 | Percentile pooling | K=100 | K=100 | Faithful to paper |
 | Decoder | 4-stage BN-Inception + BilinearUpPool | Progressive 32→64→128 branch decoders + final bilinear upsample | Closer to BusterNet and modern dense prediction; targets small/source regions before final upsample |
-| Fusion module | Decoder-feature fusion with BN-Inception 3@[1,3,5] + Conv2d | Decoder features plus auxiliary logits, Conv2d(226,160,1) + two 3x3 blocks + classifier | DINO dominates runtime, so a wider fusion head is cheap; auxiliary logits provide direct Mani/Simi evidence |
+| Fusion module | Decoder-feature fusion with BN-Inception 3@[1,3,5] + Conv2d | Decoder features plus auxiliary logits, parallel 1x1/3x3/5x5 fusion + classifier | Closer to BusterNet fusion while preserving binary union output; auxiliary logits provide direct Mani/Simi evidence |
 | Training data | 100K synthetic COCO samples | 2377 real scientific image pairs initially; 374 no-pair cases reserved | Real domain-specific data; avoid target-only labels corrupting source learning |
 | External mani data | IFS-TC + Wild Web datasets | None | Time constraint; noted as a limitation |
 | Image size | 256×256 | 448×448 | Matches project baseline and pipeline |

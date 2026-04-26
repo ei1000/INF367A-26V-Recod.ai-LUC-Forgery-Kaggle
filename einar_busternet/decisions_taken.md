@@ -235,11 +235,12 @@ that does not let authentic empty predictions dominate the story. Use the same f
 post-processing settings as training validation; do not run threshold sweeps inside the
 training loop.
 
-## Try Stage 3 Auxiliary Loss Before Fusion Redesign
+## Final Combined Experiment: Stage 3 Aux Loss And Multi-Kernel Fusion
 
 The current fusion module is capable: progressive-decoder runs show stronger forged
-localization without changing fusion. The next training experiment should therefore keep
-fusion unchanged and add small auxiliary branch losses during Stage 3:
+localization. Because time is limited, the final experiment combines the auxiliary Stage 3
+loss with a BusterNet-style multi-kernel fusion head rather than running two separate
+45-minute ablations.
 
 ```text
 stage3_loss =
@@ -250,5 +251,5 @@ stage3_loss =
 
 Reason: Stage 3 improves forged recall but can weaken authentic precision. Small
 auxiliary losses may keep Mani target evidence and Simi union evidence stable while the
-fusion head adapts. A BusterNet-style multi-kernel fusion block remains a later ablation,
-not the next change.
+fusion head adapts. Multi-kernel fusion is closer to original BusterNet's BN-Inception
+fusion while preserving our binary union output.

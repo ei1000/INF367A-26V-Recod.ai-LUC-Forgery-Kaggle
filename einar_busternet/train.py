@@ -7,6 +7,7 @@ from functools import partial
 from pathlib import Path
 from typing import Iterable, Sequence
 
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -26,6 +27,8 @@ from engine.checkpointing import (
 )
 from engine.train_loop import train_one_epoch
 from engine.validate_loop import validate_one_epoch
+from engine.validation_inference import _post_process_probability
+from engine.validation_records import load_resized_instance_masks
 from inference.sliding_window_dino import sliding_window_dino
 from util.pixelmapUtil import PixelMapUtil
 
@@ -43,6 +46,7 @@ def build_config_from_args(argv: Sequence[str] | None = None) -> BusterNetConfig
     parser.add_argument("--fusion-mode", choices=("three_class", "binary_union"), default=None)
     parser.add_argument("--branch-dice-weight", type=float, default=None)
     parser.add_argument("--fusion-dice-weight", type=float, default=None)
+    parser.add_argument("--stage3-aux-loss-weight", type=float, default=None)
     parser.add_argument("--pred-threshold", type=float, default=None)
     parser.add_argument("--resume-checkpoint-path", type=str, default=None)
     parser.add_argument(
@@ -65,6 +69,7 @@ def build_config_from_args(argv: Sequence[str] | None = None) -> BusterNetConfig
         ("fusion_mode", "fusion_mode"),
         ("branch_dice_weight", "branch_dice_weight"),
         ("fusion_dice_weight", "fusion_dice_weight"),
+        ("stage3_aux_loss_weight", "stage3_aux_loss_weight"),
         ("pred_threshold", "pred_threshold"),
         ("resume_checkpoint_path", "resume_checkpoint_path"),
         ("validation_transfer_mode", "validation_transfer_mode"),
@@ -271,6 +276,70 @@ def train_stage1_epoch(
     }
 
 
+def train_stage3_aux_epoch(
+    *,
+    model: DinoBusterNet,
+    train_loader,
+    optimizer: torch.optim.Optimizer,
+    fusion_loss_fn: nn.Module,
+    branch_loss_fn: nn.Module,
+    aux_loss_weight: float,
+    device: torch.device,
+    grad_clip_max_norm: float,
+    epoch_idx: int,
+    use_amp: bool = False,
+    scaler: torch.amp.GradScaler | None = None,
+) -> dict[str, float]:
+    model.train()
+    total_loss = torch.zeros((), device=device)
+    total_fusion_loss = torch.zeros((), device=device)
+    total_mani_loss = torch.zeros((), device=device)
+    total_simi_loss = torch.zeros((), device=device)
+    params = _trainable_params((model.mani_decoder, model.mani_classifier, model.simi_decoder, model.simi_classifier, model.fusion))
+
+    progress = tqdm(train_loader, desc=f"stage 3 epoch {epoch_idx + 1} train")
+    for imgs, labels in progress:
+        imgs = imgs.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
+        target_mask = (labels == 1).float()
+        union_mask = (labels > 0).float()
+
+        optimizer.zero_grad(set_to_none=True)
+        with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+            fusion_logits, mani_logits, simi_logits = model.forward_with_branches(imgs)
+            fusion_loss = fusion_loss_fn(fusion_logits, labels)
+            mani_loss = branch_loss_fn(mani_logits[:, 0], target_mask)
+            simi_loss = branch_loss_fn(simi_logits[:, 0], union_mask)
+            loss = fusion_loss + aux_loss_weight * (mani_loss + simi_loss)
+
+        if scaler is not None and use_amp:
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(params, max_norm=grad_clip_max_norm)
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(params, max_norm=grad_clip_max_norm)
+            optimizer.step()
+
+        total_loss += loss.detach()
+        total_fusion_loss += fusion_loss.detach()
+        total_mani_loss += mani_loss.detach()
+        total_simi_loss += simi_loss.detach()
+
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+
+    denom = max(1, len(train_loader))
+    return {
+        "loss": float((total_loss / denom).item()),
+        "fusion_loss": float((total_fusion_loss / denom).item()),
+        "mani_loss": float((total_mani_loss / denom).item()),
+        "simi_loss": float((total_simi_loss / denom).item()),
+    }
+
+
 def _build_loaders(config: BusterNetConfig, device: torch.device):
     all_samples = list_labeled_samples(Path(config.data_root))
     splits = make_grouped_stratified_splits(
@@ -372,7 +441,7 @@ def _validate_model(
     epoch_idx: int,
 ) -> dict:
     wrapped_model = BusterNetUnionWrapper(model, eps=config.union_wrapper_eps)
-    return validate_one_epoch(
+    result = validate_one_epoch(
         model=wrapped_model,
         val_loader=val_loader,
         val_samples=val_samples,
@@ -397,7 +466,93 @@ def _validate_model(
         post_process_apply_opening=config.post_process_apply_opening,
         post_process_apply_closing=config.post_process_apply_closing,
         post_process_keep_confident_seeded_components=config.post_process_keep_confident_seeded_components,
+        return_predictions=True,
     )
+    result.update(
+        {
+            "pred_threshold": config.pred_threshold,
+            "harden_temperature": config.harden_temperature,
+            "hard_clip_low": config.hard_clip_low,
+            "hard_clip_high": config.hard_clip_high,
+            "min_component_area": config.min_component_area,
+            "confident_threshold": config.post_process_confident_threshold,
+            "smooth_probabilities": config.post_process_smooth_probabilities,
+            "fill_holes": config.post_process_fill_holes,
+            "apply_opening": config.post_process_apply_opening,
+            "apply_closing": config.post_process_apply_closing,
+            "keep_confident_seeded_components": config.post_process_keep_confident_seeded_components,
+        }
+    )
+    return result
+
+
+def _harmonic_mean(a: float, b: float) -> float:
+    return 0.0 if (a + b) == 0.0 else 2.0 * a * b / (a + b)
+
+
+def _pixel_f1_from_masks(pred_bin, gt_bin) -> tuple[int, int, int, float]:
+    pred = pred_bin > 0
+    gt = gt_bin > 0
+    tp = int((pred & gt).sum())
+    fp = int((pred & ~gt).sum())
+    fn = int((~pred & gt).sum())
+    denom = 2 * tp + fp + fn
+    f1 = 1.0 if denom == 0 else (2 * tp / denom)
+    return tp, fp, fn, float(f1)
+
+
+def _compute_balanced_validation_metrics(*, validation_result: dict, pixel_util) -> dict:
+    predictions = validation_result.get("predictions")
+    if predictions is None:
+        return {}
+
+    authentic_f1s: list[float] = []
+    forged_f1s: list[float] = []
+    authentic_fp_pixels = 0
+    forged_fn_pixels = 0
+
+    for prediction in predictions:
+        pred_bin = _post_process_probability(
+            probability=prediction.probability,
+            pixel_util=pixel_util,
+            pred_threshold=validation_result["pred_threshold"],
+            harden_temperature=validation_result["harden_temperature"],
+            hard_clip_low=validation_result["hard_clip_low"],
+            hard_clip_high=validation_result["hard_clip_high"],
+            min_component_area=validation_result["min_component_area"],
+            confident_threshold=validation_result.get("confident_threshold"),
+            smooth_probabilities=validation_result["smooth_probabilities"],
+            fill_holes=validation_result["fill_holes"],
+            apply_opening=validation_result["apply_opening"],
+            apply_closing=validation_result["apply_closing"],
+            keep_confident_seeded_components=validation_result["keep_confident_seeded_components"],
+        )
+        gt_instances = load_resized_instance_masks(prediction.sample, pred_bin.shape)
+        if gt_instances:
+            gt_bin = np.zeros(pred_bin.shape, dtype=np.uint8)
+            for instance in gt_instances:
+                gt_bin = (gt_bin | (instance > 0)).astype("uint8", copy=False)
+        else:
+            gt_bin = np.zeros(pred_bin.shape, dtype=np.uint8)
+
+        _tp, fp, fn, f1 = _pixel_f1_from_masks(pred_bin, gt_bin)
+        if prediction.sample.label == "authentic":
+            authentic_f1s.append(f1)
+            authentic_fp_pixels += fp
+        else:
+            forged_f1s.append(f1)
+            forged_fn_pixels += fn
+
+    authentic_f1 = float(sum(authentic_f1s) / max(1, len(authentic_f1s)))
+    forged_f1 = float(sum(forged_f1s) / max(1, len(forged_f1s)))
+    balanced_score = _harmonic_mean(authentic_f1, forged_f1)
+    return {
+        "balanced_score": balanced_score,
+        "balanced_authentic_f1": authentic_f1,
+        "balanced_forged_f1": forged_f1,
+        "balanced_authentic_fp_pixels": authentic_fp_pixels,
+        "balanced_forged_fn_pixels": forged_fn_pixels,
+    }
 
 
 def _save_training_checkpoint(
@@ -418,6 +573,7 @@ def _save_training_checkpoint(
     train_loader_generator: torch.Generator,
     val_loader_generator: torch.Generator,
 ) -> None:
+    checkpoint_validation_result = {key: value for key, value in validation_result.items() if key != "predictions"}
     payload = build_checkpoint_payload(
         epoch=epoch,
         model=model,
@@ -427,7 +583,7 @@ def _save_training_checkpoint(
         kaggle_score=kaggle_score,
         best_kaggle_score=best_kaggle_score,
         validation_result={
-            **validation_result,
+            **checkpoint_validation_result,
             "stage": stage,
             "train_loss": float(train_loss),
         },
@@ -440,6 +596,16 @@ def _save_training_checkpoint(
         },
     )
     save_checkpoint(payload, config.checkpoint_dir, checkpoint_name)
+
+
+def _add_balanced_metrics(validation_result: dict, pixel_util) -> dict:
+    balanced_metrics = _compute_balanced_validation_metrics(
+        validation_result=validation_result,
+        pixel_util=pixel_util,
+    )
+    validation_result.update(balanced_metrics)
+    validation_result.pop("predictions", None)
+    return validation_result
 
 
 def main(config: BusterNetConfig | None = None) -> None:
@@ -479,6 +645,7 @@ def main(config: BusterNetConfig | None = None) -> None:
     scaler = torch.amp.GradScaler(device=device.type, enabled=use_amp)
     sliding_window_fn = _build_sliding_window_fn(config)
     best_kaggle_score = 0.0
+    best_balanced_score = 0.0
     global_epoch = 0
 
     configure_trainable_parts(model, stage=1)
@@ -550,9 +717,14 @@ def main(config: BusterNetConfig | None = None) -> None:
             pixel_util=pixel_util,
             epoch_idx=global_epoch,
         )
+        validation_result = _add_balanced_metrics(validation_result, pixel_util)
         global_epoch += 1
         kaggle_score = validation_result["kaggle_score"]
-        print(f"Stage 2 epoch {epoch + 1}: avg_loss={avg_loss:.4f} kaggle_score={kaggle_score:.4f}")
+        balanced_score = validation_result.get("balanced_score", 0.0)
+        print(
+            f"Stage 2 epoch {epoch + 1}: avg_loss={avg_loss:.4f} "
+            f"kaggle_score={kaggle_score:.4f} balanced_score={balanced_score:.4f}"
+        )
         if kaggle_score > best_kaggle_score:
             best_kaggle_score = kaggle_score
             _save_training_checkpoint(
@@ -573,6 +745,27 @@ def main(config: BusterNetConfig | None = None) -> None:
                 val_loader_generator=val_loader_generator,
             )
             print(f"  -> New best BusterNet saved by kaggle_score={kaggle_score:.4f}")
+        is_new_balanced = balanced_score > best_balanced_score
+        if is_new_balanced:
+            best_balanced_score = balanced_score
+            _save_training_checkpoint(
+                model=model,
+                optimizer=fusion_optimizer,
+                scheduler=None,
+                scaler=scaler,
+                config=config,
+                split_counts=split_counts,
+                epoch=global_epoch,
+                stage=2,
+                train_loss=avg_loss,
+                validation_result=validation_result,
+                kaggle_score=kaggle_score,
+                best_kaggle_score=best_kaggle_score,
+                checkpoint_name=config.best_balanced_checkpoint_name,
+                train_loader_generator=train_loader_generator,
+                val_loader_generator=val_loader_generator,
+            )
+            print(f"  -> New balanced BusterNet saved by balanced_score={balanced_score:.4f}")
         if config.save_last_checkpoint and (global_epoch % config.save_last_every_epochs == 0):
             _save_training_checkpoint(
                 model=model,
@@ -605,18 +798,35 @@ def main(config: BusterNetConfig | None = None) -> None:
         threshold=1e-4,
     )
     epochs_without_improvement = 0
+    stage3_branch_loss = BCEDiceLoss(dice_weight=config.branch_dice_weight)
     for epoch in range(config.stage3_epochs):
-        avg_loss = train_one_epoch(
-            model=model,
-            train_loader=train_loader,
-            optimizer=stage3_optimizer,
-            loss_fn=fusion_loss,
-            device=device,
-            grad_clip_max_norm=config.grad_clip_max_norm,
-            epoch_idx=epoch,
-            use_amp=use_amp,
-            scaler=scaler,
-        )
+        if config.stage3_aux_loss_weight > 0:
+            metrics = train_stage3_aux_epoch(
+                model=model,
+                train_loader=train_loader,
+                optimizer=stage3_optimizer,
+                fusion_loss_fn=fusion_loss,
+                branch_loss_fn=stage3_branch_loss,
+                aux_loss_weight=config.stage3_aux_loss_weight,
+                device=device,
+                grad_clip_max_norm=config.grad_clip_max_norm,
+                epoch_idx=epoch,
+                use_amp=use_amp,
+                scaler=scaler,
+            )
+            avg_loss = metrics["loss"]
+        else:
+            avg_loss = train_one_epoch(
+                model=model,
+                train_loader=train_loader,
+                optimizer=stage3_optimizer,
+                loss_fn=fusion_loss,
+                device=device,
+                grad_clip_max_norm=config.grad_clip_max_norm,
+                epoch_idx=epoch,
+                use_amp=use_amp,
+                scaler=scaler,
+            )
         validation_result = _validate_model(
             model=model,
             config=config,
@@ -627,19 +837,33 @@ def main(config: BusterNetConfig | None = None) -> None:
             pixel_util=pixel_util,
             epoch_idx=global_epoch,
         )
+        validation_result = _add_balanced_metrics(validation_result, pixel_util)
         global_epoch += 1
         kaggle_score = validation_result["kaggle_score"]
-        print(f"Stage 3 epoch {epoch + 1}: avg_loss={avg_loss:.4f} kaggle_score={kaggle_score:.4f}")
+        balanced_score = validation_result.get("balanced_score", 0.0)
+        is_new_balanced = balanced_score > best_balanced_score
+        if config.stage3_aux_loss_weight > 0:
+            print(
+                f"Stage 3 epoch {epoch + 1}: avg_loss={avg_loss:.4f} "
+                f"fusion={metrics['fusion_loss']:.4f} mani={metrics['mani_loss']:.4f} "
+                f"simi={metrics['simi_loss']:.4f} kaggle_score={kaggle_score:.4f} "
+                f"balanced_score={balanced_score:.4f}"
+            )
+        else:
+            print(
+                f"Stage 3 epoch {epoch + 1}: avg_loss={avg_loss:.4f} "
+                f"kaggle_score={kaggle_score:.4f} balanced_score={balanced_score:.4f}"
+            )
 
         is_new_best = kaggle_score > best_kaggle_score
-        if is_new_best:
-            best_kaggle_score = kaggle_score
+        if is_new_best or is_new_balanced:
             epochs_without_improvement = 0
         else:
             epochs_without_improvement += 1
         scheduler.step(kaggle_score)
 
         if is_new_best:
+            best_kaggle_score = kaggle_score
             _save_training_checkpoint(
                 model=model,
                 optimizer=stage3_optimizer,
@@ -658,6 +882,26 @@ def main(config: BusterNetConfig | None = None) -> None:
                 val_loader_generator=val_loader_generator,
             )
             print(f"  -> New best BusterNet saved by kaggle_score={kaggle_score:.4f}")
+        if is_new_balanced:
+            best_balanced_score = balanced_score
+            _save_training_checkpoint(
+                model=model,
+                optimizer=stage3_optimizer,
+                scheduler=scheduler,
+                scaler=scaler,
+                config=config,
+                split_counts=split_counts,
+                epoch=global_epoch,
+                stage=3,
+                train_loss=avg_loss,
+                validation_result=validation_result,
+                kaggle_score=kaggle_score,
+                best_kaggle_score=best_kaggle_score,
+                checkpoint_name=config.best_balanced_checkpoint_name,
+                train_loader_generator=train_loader_generator,
+                val_loader_generator=val_loader_generator,
+            )
+            print(f"  -> New balanced BusterNet saved by balanced_score={balanced_score:.4f}")
         if config.save_last_checkpoint and (global_epoch % config.save_last_every_epochs == 0):
             _save_training_checkpoint(
                 model=model,

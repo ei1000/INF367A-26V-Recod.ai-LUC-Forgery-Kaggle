@@ -359,10 +359,10 @@ Use one fixed post-processing setting from config. Do not sweep thresholds durin
 training. This should add only a small CPU pass after validation because predictions are
 already collected.
 
-## Later Fusion Ablation
+## Final Combined Fusion Ablation
 
-Do not change fusion before testing Stage 3 auxiliary loss. If source coverage or
-small/tiny masks still lag, try a BusterNet-style multi-kernel fusion block:
+Due to time, the final architecture experiment combines Stage 3 auxiliary loss with a
+BusterNet-style multi-kernel fusion block:
 
 ```text
 input: Mani features + Simi features + Mani aux logit + Simi aux logit
@@ -371,9 +371,8 @@ concat + BN/ReLU
 3x3 binary union classifier
 ```
 
-Reason: original BusterNet uses BN-Inception-like fusion. This would keep the method
-close to BusterNet while preserving the binary union output that fits the assignment
-objective.
+Reason: original BusterNet uses BN-Inception-like fusion. This keeps the method close to
+BusterNet while preserving the binary union output that fits the assignment objective.
 
 ## Threshold And Post-Processing
 

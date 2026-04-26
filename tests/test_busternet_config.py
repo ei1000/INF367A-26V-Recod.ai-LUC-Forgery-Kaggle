@@ -17,6 +17,7 @@ class BusterNetConfigTests(unittest.TestCase):
         self.assertEqual(config.fusion_mode, "three_class")
         self.assertEqual(config.branch_dice_weight, 0.5)
         self.assertEqual(config.fusion_dice_weight, 1.0)
+        self.assertEqual(config.stage3_aux_loss_weight, 0.1)
         self.assertEqual(config.pred_threshold, 0.2)
         self.assertEqual(config.min_component_area, 10)
         self.assertFalse(config.post_process_apply_opening)
@@ -55,6 +56,7 @@ class BusterNetConfigTests(unittest.TestCase):
         self.assertEqual(config.checkpoint_dir, "einar_busternet/artifacts/checkpoints")
         self.assertEqual(config.results_dir, "einar_busternet/artifacts/results")
         self.assertEqual(config.best_checkpoint_name, "best.pt")
+        self.assertEqual(config.best_balanced_checkpoint_name, "best_balanced.pt")
         self.assertEqual(config.last_checkpoint_name, "last.pt")
 
     def test_config_serializes_as_dataclass(self) -> None:

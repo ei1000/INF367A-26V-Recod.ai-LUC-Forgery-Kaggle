@@ -14,6 +14,7 @@ from einar_busternet.train import (
     configure_trainable_parts,
     foreground_logit_from_three_class,
     train_stage1_epoch,
+    train_stage3_aux_epoch,
 )
 from tests.test_busternet_model import FakeDinoEncoder
 
@@ -46,6 +47,8 @@ class BusterNetTrainTests(unittest.TestCase):
                 "0.25",
                 "--fusion-dice-weight",
                 "0.75",
+                "--stage3-aux-loss-weight",
+                "0.05",
                 "--pred-threshold",
                 "0.25",
             ]
@@ -54,6 +57,7 @@ class BusterNetTrainTests(unittest.TestCase):
         self.assertEqual(config.stage1_lr, 0.002)
         self.assertEqual(config.branch_dice_weight, 0.25)
         self.assertEqual(config.fusion_dice_weight, 0.75)
+        self.assertEqual(config.stage3_aux_loss_weight, 0.05)
         self.assertEqual(config.pred_threshold, 0.25)
 
     def test_binary_fusion_arg_selects_binary_union_mode(self) -> None:
@@ -170,6 +174,47 @@ class BusterNetTrainTests(unittest.TestCase):
         self.assertTrue(any(not torch.equal(before, after) for before, after in zip(simi_before, model.simi_decoder.parameters())))
         self.assertTrue(any(not torch.equal(before, after) for before, after in zip(simi_classifier_before, model.simi_classifier.parameters())))
         self.assertTrue(all(torch.equal(before, after) for before, after in zip(fusion_before, model.fusion.parameters())))
+
+    def test_train_stage3_aux_epoch_updates_fusion_and_branches(self) -> None:
+        torch.manual_seed(11)
+        model = BinaryFusionDinoBusterNet(FakeDinoEncoder(), embed_dim=8, nb_pools=4)
+        configure_trainable_parts(model, stage=3)
+        fusion_before = [param.detach().clone() for param in model.fusion.parameters()]
+        mani_before = [param.detach().clone() for param in model.mani_decoder.parameters()]
+        simi_before = [param.detach().clone() for param in model.simi_decoder.parameters()]
+
+        imgs = torch.randn(2, 3, 16, 16)
+        labels = torch.zeros(2, 16, 16, dtype=torch.long)
+        labels[:, :4, :4] = 1
+        labels[:, 8:12, 8:12] = 2
+        optimizer = torch.optim.Adam(
+            list(model.mani_decoder.parameters())
+            + list(model.mani_classifier.parameters())
+            + list(model.simi_decoder.parameters())
+            + list(model.simi_classifier.parameters())
+            + list(model.fusion.parameters()),
+            lr=1e-2,
+        )
+
+        metrics = train_stage3_aux_epoch(
+            model=model,
+            train_loader=[(imgs, labels)],
+            optimizer=optimizer,
+            fusion_loss_fn=BinaryUnionBCEDiceLoss(),
+            branch_loss_fn=BCEDiceLoss(),
+            aux_loss_weight=0.1,
+            device=torch.device("cpu"),
+            grad_clip_max_norm=1.0,
+            epoch_idx=0,
+        )
+
+        self.assertGreater(metrics["loss"], 0.0)
+        self.assertGreater(metrics["fusion_loss"], 0.0)
+        self.assertGreater(metrics["mani_loss"], 0.0)
+        self.assertGreater(metrics["simi_loss"], 0.0)
+        self.assertTrue(any(not torch.equal(before, after) for before, after in zip(fusion_before, model.fusion.parameters())))
+        self.assertTrue(any(not torch.equal(before, after) for before, after in zip(mani_before, model.mani_decoder.parameters())))
+        self.assertTrue(any(not torch.equal(before, after) for before, after in zip(simi_before, model.simi_decoder.parameters())))
 
 
 if __name__ == "__main__":

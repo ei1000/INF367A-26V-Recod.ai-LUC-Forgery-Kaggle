@@ -19,8 +19,9 @@ aux Conv2d(128,1,3)      aux Conv2d(96,1,3)
 (B, 128, 128, 128)       (B, 96, 128, 128)
    ↘                      ↙
 concat decoder features + aux logits → (B, 226, 128, 128)
-Fusion: Conv2d(226,160,1)+BN+ReLU → Conv2d(160,128,3)+BN+ReLU
-        → Conv2d(128,64,3)+BN+ReLU → Conv2d(64,out,3,pad=1)
+Fusion: parallel Conv2d(226,64,k={1,3,5}) → concat 192 + BN/ReLU
+        → Conv2d(192,128,3)+BN+ReLU → Conv2d(128,64,3)+BN+ReLU
+        → Conv2d(64,out,3,pad=1)
 bilinear upsample → (B, 3, 448, 448)
 softmax → [background, target, source]
 ```
@@ -72,6 +73,6 @@ ablation is implemented separately as `fusion_mode="binary_union"`.
 | VGG-16, two separate extractors | DINOv2, one shared frozen | Better features; frozen = identical outputs |
 | Pearson correlation (z-score) | Cosine similarity (L2) | DINOv2 optimised for cosine |
 | 4-stage BN-Inception decoder | Progressive 32→64→128 branch decoders | Closer to BusterNet and modern dense prediction; helps small/source regions before final upsample |
-| Multi-kernel Inception fusion | Decoder features + aux logits, Conv2d(226→160→128→64→out) | Wider fusion is cheap beside DINO; aux logits expose direct Mani/Simi evidence |
+| Multi-kernel Inception fusion | Decoder features + aux logits, parallel 1×1/3×3/5×5 fusion → classifier | Closer to BusterNet fusion; aux logits expose direct Mani/Simi evidence |
 | 100K synthetic samples | 2377 real pairs initially | Real > synthetic for domain-specific task |
 | No class weighting | `[0.3, 1.0, 1.0]` or binary union BCE | Real data is imbalanced; Kaggle scores union masks |

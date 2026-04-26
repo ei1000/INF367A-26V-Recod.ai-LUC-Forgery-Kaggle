@@ -109,10 +109,10 @@ Key decisions:
   - Stage 1 custom branch pretraining with two optimizers and raw BCE logits: Mani
     target mask, Simi source+target union mask.
   - Stage 1 trains decoder + auxiliary classifier for each branch.
-  - Stage 2/3 reuse baseline `train_one_epoch` with 3-class CE or binary union BCE+Dice.
-  - Planned next change: optional Stage 3 auxiliary losses
+  - Stage 2 reuses baseline `train_one_epoch` with 3-class CE or binary union BCE+Dice.
+  - Stage 3 uses a BusterNet loop when auxiliary loss is enabled:
     `fusion_loss + 0.1 * mani_aux_target_loss + 0.1 * simi_aux_union_loss`.
-  - Planned checkpoint change: keep official `best.pt`, add `best_balanced.pt` using
+  - Checkpointing keeps official `best.pt`, adds `best_balanced.pt` using
     harmonic authentic/forged validation F1 with fixed post-processing.
   - Validation wraps the model with `BusterNetUnionWrapper`.
   - Training loss logging syncs once per epoch, not once per batch.
@@ -242,5 +242,5 @@ useful later, but using them now would create inconsistent supervision for a sou
 model.
 
 Stage 1 uses `forward_branches(x)` and two optimizers, so it needs a small
-BusterNet-specific training loop. Stage 2 and Stage 3 can reuse the baseline
-`train_one_epoch` with the configured fusion loss.
+BusterNet-specific training loop. Stage 2 can reuse the baseline `train_one_epoch`.
+Stage 3 uses the BusterNet-specific auxiliary-loss loop when `stage3_aux_loss_weight > 0`.

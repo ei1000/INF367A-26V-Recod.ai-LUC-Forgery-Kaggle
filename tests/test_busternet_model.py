@@ -89,10 +89,11 @@ class BusterNetModelTests(unittest.TestCase):
         self.assertEqual(model.simi_classifier.out_channels, 1)
         self.assertEqual(model.mani_classifier.in_channels, 128)
         self.assertEqual(model.simi_classifier.in_channels, 96)
-        self.assertEqual(model.fusion[0].in_channels, 226)
-        self.assertEqual(model.fusion[0].out_channels, 160)
-        self.assertEqual(model.fusion[3].out_channels, 128)
-        self.assertEqual(model.fusion[6].out_channels, 64)
+        self.assertEqual(model.fusion.branch1.in_channels, 226)
+        self.assertEqual(model.fusion.branch1.out_channels, 64)
+        self.assertEqual(model.fusion.branch3.out_channels, 64)
+        self.assertEqual(model.fusion.branch5.out_channels, 64)
+        self.assertEqual(model.fusion.post_concat[-1].out_channels, 3)
 
     def test_binary_fusion_model_returns_one_channel_logits(self) -> None:
         model = BinaryFusionDinoBusterNet(FakeDinoEncoder(), embed_dim=8, nb_pools=4)
@@ -101,7 +102,17 @@ class BusterNetModelTests(unittest.TestCase):
         logits = model(x)
 
         self.assertEqual(tuple(logits.shape), (2, 1, 16, 16))
-        self.assertEqual(model.fusion[-1].out_channels, 1)
+        self.assertEqual(model.fusion.post_concat[-1].out_channels, 1)
+
+    def test_forward_with_branches_reuses_one_model_path(self) -> None:
+        model = BinaryFusionDinoBusterNet(FakeDinoEncoder(), embed_dim=8, nb_pools=4)
+        x = torch.randn(1, 3, 16, 16)
+
+        fusion_logits, mani_logits, simi_logits = model.forward_with_branches(x)
+
+        self.assertEqual(tuple(fusion_logits.shape), (1, 1, 16, 16))
+        self.assertEqual(tuple(mani_logits.shape), (1, 1, 16, 16))
+        self.assertEqual(tuple(simi_logits.shape), (1, 1, 16, 16))
 
     def test_frozen_encoder_stays_eval_when_model_train_is_called(self) -> None:
         encoder = FakeDinoEncoder()

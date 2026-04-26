@@ -136,19 +136,36 @@ class ProgressiveSimiDecoder(nn.Module):
         return self.up128_refine(x)
 
 
-def _fusion_head(out_channels: int) -> nn.Sequential:
-    return nn.Sequential(
-        nn.Conv2d(226, 160, 1),
-        nn.BatchNorm2d(160),
-        nn.ReLU(inplace=True),
-        nn.Conv2d(160, 128, 3, padding=1),
-        nn.BatchNorm2d(128),
-        nn.ReLU(inplace=True),
-        nn.Conv2d(128, 64, 3, padding=1),
-        nn.BatchNorm2d(64),
-        nn.ReLU(inplace=True),
-        nn.Conv2d(64, out_channels, 3, padding=1),
-    )
+class MultiKernelFusionHead(nn.Module):
+    """BusterNet-style multi-kernel fusion over decoded branch evidence."""
+
+    def __init__(self, in_ch: int = 226, out_channels: int = 3) -> None:
+        super().__init__()
+        self.branch1 = nn.Conv2d(in_ch, 64, 1, bias=False)
+        self.branch3 = nn.Conv2d(in_ch, 64, 3, padding=1, bias=False)
+        self.branch5 = nn.Conv2d(in_ch, 64, 5, padding=2, bias=False)
+        self.post_concat = nn.Sequential(
+            nn.BatchNorm2d(192),
+            nn.ReLU(inplace=True),
+            ConvBNReLU(192, 128),
+            ConvBNReLU(128, 64),
+            nn.Conv2d(64, out_channels, 3, padding=1),
+        )
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        fused = torch.cat(
+            [
+                self.branch1(features),
+                self.branch3(features),
+                self.branch5(features),
+            ],
+            dim=1,
+        )
+        return self.post_concat(fused)
+
+
+def _fusion_head(out_channels: int) -> MultiKernelFusionHead:
+    return MultiKernelFusionHead(out_channels=out_channels)
 
 
 class DinoBusterNet(nn.Module):
@@ -292,6 +309,20 @@ class DinoBusterNet(nn.Module):
         mani_grid, simi_grid = self._branch_grid_logits_from_features(mani_features, simi_features)
         padded_size = (x_pad.shape[-2], x_pad.shape[-1])
         return (
+            self._upsample_and_crop(mani_grid, padded_size, orig_size),
+            self._upsample_and_crop(simi_grid, padded_size, orig_size),
+        )
+
+    def forward_with_branches(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        orig_size = (x.shape[-2], x.shape[-1])
+        x_pad, _ = self._pad_to_patch_multiple(x)
+        features = self.forward_features(x_pad)
+        mani_features, simi_features = self._branch_grid_features(features)
+        mani_grid, simi_grid = self._branch_grid_logits_from_features(mani_features, simi_features)
+        fused_grid = self.fusion(torch.cat([mani_features, simi_features, mani_grid, simi_grid], dim=1))
+        padded_size = (x_pad.shape[-2], x_pad.shape[-1])
+        return (
+            self._upsample_and_crop(fused_grid, padded_size, orig_size),
             self._upsample_and_crop(mani_grid, padded_size, orig_size),
             self._upsample_and_crop(simi_grid, padded_size, orig_size),
         )

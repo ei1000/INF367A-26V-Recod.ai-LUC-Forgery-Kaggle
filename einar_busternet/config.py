@@ -76,6 +76,7 @@ class BusterNetConfig:
     checkpoint_dir: str = "einar_busternet/artifacts/checkpoints"
     results_dir: str = "einar_busternet/artifacts/results"
     best_checkpoint_name: str = "best.pt"
+    best_balanced_checkpoint_name: str = "best_balanced.pt"
     last_checkpoint_name: str = "last.pt"
 
     stage3_scheduler_factor: float = 0.5
@@ -84,6 +85,7 @@ class BusterNetConfig:
 
     branch_dice_weight: float = 0.5
     fusion_dice_weight: float = 1.0
+    stage3_aux_loss_weight: float = 0.1
 
     @property
     def total_stage_epochs(self) -> int:
