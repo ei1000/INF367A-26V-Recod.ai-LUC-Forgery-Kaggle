@@ -61,11 +61,12 @@ upsample, 192→128            → (B,100,32,32)
        → Conv2d(192,128,3) + BN + ReLU
        → Conv2d(128,64,3) + BN + ReLU
        → Conv2d(64,out,3,padding=1)
-       bilinear upsample → (B,3,448,448)
-       raw 3-class logits: [background, target, source]
+       bilinear upsample → (B,out,448,448)
+       raw logits: out=1 for submitted binary union, out=3 for source/target experiment
 ```
 
-At inference for evaluation: `P(target) + P(source)` → forgery probability → binary mask.
+At inference for evaluation, the submitted binary model returns one-channel union logits.
+For the 3-class experiment: `P(target) + P(source)` → forgery probability → binary mask.
 
 ### Backbone Adaptation Note
 
@@ -272,8 +273,9 @@ and nearest-neighbor label resize. Always emits `(image, label_map)` where:
 - DINOv2 encoder is **always frozen** (trains in minutes, same as baseline).
 - Everything stays on GPU: no numpy/CPU operations during forward/backward pass.
 - Input size: 448×448 (same as baseline) → 32×32 DINO feature grid (1024 locations).
-- Default output is `(B, 3, H, W)` logits before softmax. The binary fusion variant
-  outputs `(B, 1, H, W)` raw binary logits.
+- `fusion_mode="three_class"` outputs `(B, 3, H, W)` logits before softmax.
+  The submitted `fusion_mode="binary_union"` variant outputs `(B, 1, H, W)` raw binary
+  logits.
 - Checkpoints and results live entirely within `einar_busternet/artifacts/`.
 
 ## Adaptations from Paper (summary)
